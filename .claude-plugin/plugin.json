@@ -1,0 +1,22 @@
+{
+  "name": "oparl",
+  "version": "0.1.0",
+  "description": "German municipal council information (OParl) skills powered by the oparl-cli — find a council's endpoint, then follow its meetings, papers and committees.",
+  "author": {
+    "name": "Sebastian Schürmann",
+    "email": "sebs@2xs.org"
+  },
+  "license": "AGPL-3.0-or-later",
+  "repository": "https://github.com/maschinenlesbar-org/oparl-cli",
+  "homepage": "https://maschinenlesbar-org.github.io/oparl-cli/",
+  "keywords": [
+    "oparl",
+    "ratsinformationssystem",
+    "kommunalpolitik",
+    "gemeinderat",
+    "stadtrat",
+    "sitzung",
+    "vorlage",
+    "germany"
+  ]
+}

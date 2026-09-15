@@ -1,0 +1,186 @@
+# Developing & integrating
+
+This document is for developers who want to use `oparl-cli` as a **TypeScript
+library**, build it from source, or understand how it is put together. For command
+usage, see the [README](README.md) and [Usage.md](Usage.md).
+
+## The one thing to know: there is no API host
+
+Most maschinenlesbar.org clients talk to one API behind a `--base-url`. OParl is a
+*standard*, not a service: every municipality runs its own server, found in the
+registry at `https://dev.oparl.org/api/endpoints`. So the client works on **absolute
+URLs** throughout:
+
+- the user supplies a System URL (or Body / object URL);
+- the servers supply every further URL — `System.body`, a Body's list URLs, the
+  `links.next` of each list page.
+
+Following server-supplied URLs is the security-relevant part. `resolveLink` in
+`src/client/engine.ts` resolves every such link (and every redirect `Location`) against
+the URL it came from and only follows it on the **same host and port**, upgrading
+`http:` to `https:` on that host and never downgrading. List walks also stop when a
+`next` link repeats a page already fetched.
+
+What we found probing real servers (September 2026) and designed around:
+
+| Server (product) | Behaviour |
+| --- | --- |
+| Solingen (SD.NET RIM, 1.1) | 38 s for one page of meetings; `modified_since` answered with an HTML 503, `limit` with a 400; 404s as `{ error, code }` JSON; `http` → `https` 301 |
+| Köln (Somacos Session, 1.1) | fast; filters and `limit` honoured; no totals in `pagination`; 404 as `text/plain` |
+| Freiburg (more! rubin, 1.0) | `limit` ignored; `created`/`modified` stamped with the current date on every object, so date filters match everything; paths like `/page/2`; unknown paths answer 200 with the System object; only four Body lists |
+| Leipzig (ALLRIS) | System answered HTTP 500 on the day |
+
+Hence: a 120 s default timeout, filters passed through with a clear caveat, type checks on
+every object (`system` must be a System, `list` needs a Body, pages need `data`), and exit-1
+hints for 400/5xx answers.
+
+## Build from source
+
+```bash
+git clone https://github.com/maschinenlesbar-org/oparl-cli
+cd oparl-cli
+npm install
+npm run build        # tsc -> dist/
+npm test             # builds, then runs node --test dist/test/*.test.js
+node dist/src/cli/index.js endpoints --search köln
+```
+
+## Library usage
+
+```ts
+import { OparlClient, OparlApiError, OparlLinkError } from "@maschinenlesbar.org/oparl-cli";
+
+const client = new OparlClient();
+
+const [cologne] = (await client.endpoints()).filter((e) => e.title === "Stadt Köln");
+const system = await client.system(cologne!.url);
+const { data: bodies } = await client.bodies(system.id);
+
+const papers = await client.list(bodies[0]!.id, "paper", {
+  modifiedSince: "2026-09-01",
+  maxPages: 2,
+});
+console.log(papers.data.length, papers.next);
+
+const one = await client.get(papers.data[0]!.id);
+```
+
+### Client options
+
+`new OparlClient(options)` accepts:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `registryUrl` | `https://dev.oparl.org/api/endpoints` | Endpoint registry used by `endpoints()` |
+| `timeoutMs` | `120000` | Per-request timeout (0 disables) |
+| `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) |
+| `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
+| `maxRedirects` | `3` | Same-host redirects followed per request |
+| `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited) |
+| `userAgent` | `oparl-cli` | `User-Agent` header |
+| `transport` | node http/https | Swap the HTTP layer (tests inject a mock) |
+
+### Methods
+
+| Method | Returns |
+| --- | --- |
+| `endpoints()` | `RegistryEntry[]` — the registry, all pages, projected |
+| `system(url)` | `OparlSystem` — checks `type` and `body` |
+| `bodies(systemUrl, { maxPages })` | `ListResult<OparlBody>` — all pages by default |
+| `list(bodyUrl, type, options)` | `ListResult` — one page by default; `LIST_TYPES` maps CLI names to Body fields |
+| `page(url, query?)` | one `OparlListPage` |
+| `walk(url, query?, maxPages)` | `ListResult` — follows `links.next` with the same-host rule |
+| `get(url)` | any object; rejects arrays and `{ error }` objects |
+
+`ListResult` is `{ data, pages, next }`. `normalizeTimestamp` turns `YYYY-MM-DD` into
+`YYYY-MM-DDT00:00:00+00:00` and `Z` into `+00:00`, the form the spec uses.
+
+## Architecture
+
+```
+src/
+  client/
+    types.ts     # OParl object, list page, registry entry types (open records)
+    query.ts     # dependency-free query-string builder
+    http.ts      # Transport interface + default node:http/https transport
+    engine.ts    # absolute-URL GETs, retries, same-host redirects, JSON decoding,
+                 # resolveLink (the same-host rule), error mapping
+    errors.ts    # OparlError / OparlApiError / OparlNetworkError / OparlParseError /
+                 # OparlValidationError / OparlLinkError
+    client.ts    # OparlClient — registry, System, bodies, lists, get
+    index.ts
+  cli/
+    io.ts        # injectable I/O seam (CliDeps / CliIO)
+    shared.ts    # option parsers (URLs, timestamps), global options, JSON rendering
+    commands/oparl.ts
+    program.ts   # assembles the commander program
+    run.ts       # argv -> exit code (no process.exit; testable)
+    index.ts     # bin shim
+  index.ts       # library entry
+```
+
+Zero runtime HTTP dependencies: built on `node:http`/`https`; the CLI's only runtime
+dependency is `commander`.
+
+### Error types
+
+| Error | Raised when | CLI exit |
+| --- | --- | --- |
+| `OparlValidationError` | bad URL, timestamp or option before any request | 2 |
+| `OparlApiError` | non-2xx status, or a redirect not followed | 4 for 404, else 1 |
+| `OparlNetworkError` | DNS, connection, timeout, size cap | 6 |
+| `OparlParseError` | not JSON, HTML page, wrong object type, `{ error }` object | 1 |
+| `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
+
+Server text that reaches an error message is stripped of control characters, and JSON
+deeper than 256 levels is rejected before it can blow the stack.
+
+## Testing
+
+```bash
+npm test
+node --test dist/test/client.test.js   # one file, after a build
+```
+
+The suite runs in-process on Node's test runner with a mock `Transport`
+(`test/helpers.ts`, `routes()` serves fixtures by URL); `test/http.test.ts` exercises the
+real transport against a loopback server. Fixtures in `test/fixtures.ts` are shaped after
+real 1.1 and 1.0 servers and the registry, moved to example hosts.
+
+## Continuous integration
+
+GitHub Actions workflows under `.github/workflows/`:
+
+- **ci.yml** — typecheck, build and test on Node 20/22/24 for every push and PR.
+- **release.yml** — on a `v*` tag: test, `npm pack`, CycloneDX SBOMs, a changelog, and a
+  GitHub Release.
+- **publish.yml** — manual dispatch: publish to npm via OIDC **Trusted Publishing** (no
+  stored `NPM_TOKEN`) with provenance.
+- **docs.yml** — build the project website (`site/`, English and German) with the TypeDoc API docs
+  under `/api/`, and deploy both to GitHub Pages on each `v*` tag.
+  TypeDoc runs from the isolated, lockfile-pinned `tools/docs/` toolchain because it
+  needs the TypeScript 6 compiler API, which TypeScript 7 no longer ships; locally,
+  run `npm ci --prefix tools/docs` once before `npm run docs`.
+
+## Website
+
+The project website — <https://maschinenlesbar-org.github.io/oparl-cli/> in English and
+<https://maschinenlesbar-org.github.io/oparl-cli/de/> in German — is built from `site/`
+with [Jekyll](https://jekyllrb.com/), [banira](https://sebs.github.io/banira/) web components
+and [Fylgja](https://fylgja.dev/) CSS, and deployed by `docs.yml` together with the TypeDoc API
+reference under `/api/`. Its content comes from this repository: the README intro and quick
+start, the command tree of the built CLI (`site/scripts/cli-reference.mjs`), `Usage.md`,
+`GLOSSARY.md` and the skills. The only repo-specific files are `site/_config.yml` and
+`site/_data/project.yml` (the German intro and the access requirements); the rest of `site/` is
+identical in every maschinenlesbar.org CLI, so change it in all of them together. When the
+README intro changes, update the German intro in `site/_data/project.yml`.
+
+```bash
+npm run build                        # the CLI, for the command reference
+cd site && npm ci && bundle install  # once (Node >= 22.12, Ruby 3.4, Bundler)
+npm run serve                        # http://127.0.0.1:4000/oparl-cli/
+```
+
+## License
+
+Dual-licensed AGPL-3.0-or-later OR commercial — see [LICENSING.md](LICENSING.md).

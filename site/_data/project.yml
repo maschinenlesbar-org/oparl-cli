@@ -1,0 +1,17 @@
+# The only repo-specific texts of the website. Everything else comes from the
+# repository: the English intro from README.md, the commands from the built CLI.
+
+# How the API is accessed: open | key (env: VAR) | account (token, user, password: VARs)
+access:
+  type: open
+
+de:
+  # German version of the README's intro paragraph. Keep it in step with README.md.
+  intro: >-
+    **Informationen aus Stadt- und Gemeinderäten** in Deutschland – Sitzungen,
+    Tagesordnungen, Vorlagen, Gremien und Mitglieder – direkt im Terminal abrufen. `oparl`
+    ist ein Kommandozeilen-Tool und TypeScript-Client für [OParl](https://oparl.org/), den
+    offenen Schnittstellenstandard für Ratsinformationssysteme: den Endpunkt einer Kommune im
+    öffentlichen Verzeichnis finden, ihre Körperschaften öffnen und deren Sitzungen, Vorlagen
+    oder Personen als sauberes JSON durchgehen, das Sie direkt an
+    [`jq`](https://jqlang.github.io/jq/) weitergeben können.

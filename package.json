@@ -1,0 +1,71 @@
+{
+  "name": "@maschinenlesbar.org/oparl-cli",
+  "version": "0.0.1",
+  "description": "TypeScript API client and CLI for OParl — the open standard for German municipal council information systems (Ratsinformationssysteme)",
+  "type": "module",
+  "bin": {
+    "oparl": "dist/src/cli/index.js"
+  },
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "LICENSING.md",
+    "CONTRIBUTING.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test dist/test/*.test.js",
+    "docs": "node tools/docs/node_modules/typedoc/bin/typedoc src/index.ts --out out",
+    "start": "node dist/src/cli/index.js"
+  },
+  "keywords": [
+    "oparl",
+    "ratsinformationssystem",
+    "ratsinfo",
+    "kommunalpolitik",
+    "gemeinderat",
+    "stadtrat",
+    "open-data",
+    "germany",
+    "cli",
+    "api-client"
+  ],
+  "author": "Sebastian Schürmann <sebs@2xs.org>",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maschinenlesbar-org/oparl-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/maschinenlesbar-org/oparl-cli/issues"
+  },
+  "homepage": "https://maschinenlesbar-org.github.io/oparl-cli/",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/sebs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "commander": "15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "typescript": "7.0.2"
+  }
+}
