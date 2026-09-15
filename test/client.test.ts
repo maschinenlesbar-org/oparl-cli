@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OparlClient, normalizeTimestamp } from "../src/client/client.js";
+import { OparlClient, endpointKey, normalizeTimestamp } from "../src/client/client.js";
+import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
 import { OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
+import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
 import { jsonResponse, queryOf, routes } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
@@ -11,9 +13,18 @@ const pages = {
   [`${fx.MEETINGS_URL}?page=3`]: jsonResponse(fx.meetingPages[3]),
 };
 
-function client(table: Parameters<typeof routes>[0]) {
+function client(
+  table: Parameters<typeof routes>[0],
+  lists: { curatedEndpoints?: CuratedEndpoint[]; registryChecks?: RegistryCheck[] } = {},
+) {
   const mt = routes(table);
-  return { c: new OparlClient({ transport: mt.transport, registryUrl: fx.REGISTRY_URL }), mt };
+  const c = new OparlClient({
+    transport: mt.transport,
+    registryUrl: fx.REGISTRY_URL,
+    curatedEndpoints: lists.curatedEndpoints ?? [],
+    registryChecks: lists.registryChecks ?? [],
+  });
+  return { c, mt };
 }
 
 test("system returns the System object", async () => {
@@ -204,8 +215,35 @@ test("a next link pointing back at a fetched page ends the walk", async () => {
   const loop = { data: [fx.meeting(1)], links: { next: fx.MEETINGS_URL } };
   const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse(loop) });
   const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
-  assert.deepEqual({ pages: result.pages, next: result.next }, { pages: 1, next: null });
+  assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped }, { pages: 1, next: null, looped: true });
   assert.equal(mt.calls.length, 2);
+});
+
+test("a page that only repeats objects already listed ends the walk", async () => {
+  // A server that serves the same page under ever-new ?page=n links (seen live on a
+  // shared Somacos server): without the check, the walk runs to the hard page limit.
+  const repeating = (req: { url: string }) => {
+    const n = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    return jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=${n + 1}` } });
+  };
+  const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: repeating });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(result.data.map((m) => m.id), [fx.meeting(1).id, fx.meeting(2).id]);
+  assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped }, { pages: 2, next: null, looped: true });
+  assert.equal(mt.calls.length, 3);
+});
+
+test("objects repeated across pages are listed once, and the walk goes on", async () => {
+  const table = {
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=2` } }),
+    [`${fx.MEETINGS_URL}?page=2`]: jsonResponse({ data: [fx.meeting(2), fx.meeting(3)], links: { next: `${fx.MEETINGS_URL}?page=3` } }),
+    [`${fx.MEETINGS_URL}?page=3`]: jsonResponse({ data: [fx.meeting(4)], links: {} }),
+  };
+  const { c } = client(table);
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(result.data.map((m) => m.id), [1, 2, 3, 4].map((n) => fx.meeting(n).id));
+  assert.deepEqual(result, { data: result.data, pages: 3, next: null });
 });
 
 test("an invalid timestamp filter is rejected before any request", async () => {
@@ -229,6 +267,108 @@ test("endpoints walks the registry pages and projects each entry", async () => {
       ["Gemeinde Musterdorf", true, "1.0", "SD.NET RIM"],
     ],
   );
+});
+
+const registryTable = {
+  [`${fx.REGISTRY_URL}?page=1&limit=100`]: jsonResponse(fx.registryPage1),
+  [`${fx.REGISTRY_URL}?page=2&limit=100`]: jsonResponse(fx.registryPage2),
+};
+
+const curated = (title: string, url: string, extra: Partial<CuratedEndpoint> = {}): CuratedEndpoint => ({
+  title,
+  url,
+  working: true,
+  checked: "2026-09-16",
+  problem: null,
+  oparlVersion: "1.1",
+  systemName: null,
+  vendor: null,
+  bodyCount: 1,
+  note: null,
+  ...extra,
+});
+
+test("endpoints merges the curated list after the registry and applies the live checks", async () => {
+  const { c } = client(registryTable, {
+    curatedEndpoints: [
+      curated("Stadt Neu", "https://ris.neu.example/oparl/system"),
+      // The registry already lists this System (http:// and a trailing slash aside).
+      curated("Stadt Beispiel (duplicate)", `${fx.SYSTEM_URL.replace("https:", "http:")}/`),
+    ],
+    registryChecks: [
+      {
+        url: "https://www.irgendwo.sitzung-online.de/bi/oparl/1.0/system.asp",
+        working: false,
+        checked: "2026-09-16",
+        problem: "HTTP 404",
+        replacedBy: "https://ris.neu.example/oparl/system",
+        note: null,
+      },
+      { url: "https://rim.example.net/musterdorf/webservice/oparl/v1.0/system", working: false, checked: "2026-09-16", problem: "timeout", replacedBy: null, note: "slow" },
+    ],
+  });
+  const entries = await c.endpoints();
+  assert.deepEqual(
+    entries.map((e) => [e.title, e.source, e.working, e.checked, e.problem, e.replacedBy, e.note]),
+    [
+      ["Stadt Beispiel", "registry", true, null, null, null, null],
+      ["Amt Irgendwo", "registry", false, "2026-09-16", "HTTP 404", "https://ris.neu.example/oparl/system", null],
+      ["Gemeinde Musterdorf", "registry", false, "2026-09-16", "timeout", null, "slow"],
+      ["Stadt Neu", "curated", true, "2026-09-16", null, null, null],
+    ],
+  );
+  assert.equal(entries[0]?.fetched, "2026-01-17T01:05:03+01:00");
+  assert.equal(entries[3]?.fetched, null);
+});
+
+test("endpoints lists a System the registry holds twice only once", async () => {
+  const entry = fx.registryPage2.data[0]!;
+  const doubled = { data: [entry, { ...entry, id: 4, title: "Gemeinde Musterdorf (again)", url: `${entry.url}/` }], meta: {} };
+  const { c } = client({ [`${fx.REGISTRY_URL}?page=1&limit=100`]: jsonResponse(doubled) });
+  assert.deepEqual((await c.endpoints()).map((e) => e.title), ["Gemeinde Musterdorf"]);
+});
+
+test("endpoints source registry leaves out the curated list; source curated makes no request", async () => {
+  const lists = { curatedEndpoints: [curated("Stadt Neu", "https://ris.neu.example/oparl/system")] };
+  const registryOnly = client(registryTable, lists);
+  assert.deepEqual((await registryOnly.c.endpoints({ source: "registry" })).map((e) => e.source), ["registry", "registry", "registry"]);
+
+  const curatedOnly = client(registryTable, lists);
+  assert.deepEqual((await curatedOnly.c.endpoints({ source: "curated" })).map((e) => e.title), ["Stadt Neu"]);
+  assert.equal(curatedOnly.mt.calls.length, 0);
+
+  await assert.rejects(() => curatedOnly.c.endpoints({ source: "everything" as "all" }), OparlValidationError);
+});
+
+test("endpointKey ignores scheme, host case, default port and a trailing slash", () => {
+  assert.equal(endpointKey("http://RIS.Example.org:80/oparl/system/"), endpointKey("https://ris.example.org/oparl/system"));
+  assert.notEqual(endpointKey("https://ris.example.org:8443/oparl/system"), endpointKey("https://ris.example.org/oparl/system"));
+  assert.notEqual(endpointKey("https://ris.example.org/oparl/system?body=1"), endpointKey("https://ris.example.org/oparl/system"));
+});
+
+test("the shipped curated list is consistent", () => {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const curatedKeys = new Set<string>();
+  for (const entry of CURATED_ENDPOINTS) {
+    assert.match(entry.url, /^https?:\/\//, entry.title);
+    assert.match(entry.checked, day, entry.title);
+    assert.ok(entry.title.trim() !== "", entry.url);
+    assert.equal(entry.working, entry.problem === null, `${entry.title}: working and problem disagree`);
+    const key = endpointKey(entry.url);
+    assert.ok(!curatedKeys.has(key), `duplicate curated URL ${entry.url}`);
+    curatedKeys.add(key);
+  }
+  const checkKeys = new Set<string>();
+  for (const check of REGISTRY_CHECKS) {
+    assert.match(check.checked, day, check.url);
+    const key = endpointKey(check.url);
+    assert.ok(!checkKeys.has(key), `duplicate registry check ${check.url}`);
+    assert.ok(!curatedKeys.has(key), `${check.url} is both a registry check and a curated entry`);
+    checkKeys.add(key);
+    if (check.replacedBy !== null) {
+      assert.ok(curatedKeys.has(endpointKey(check.replacedBy)), `replacedBy ${check.replacedBy} is not in the curated list`);
+    }
+  }
 });
 
 test("normalizeTimestamp accepts dates and ISO 8601 date-times", () => {

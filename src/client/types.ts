@@ -40,22 +40,71 @@ export interface ListResult<T extends JsonObject = OparlObject> {
   pages: number;
   /** The `next` link of the last page fetched, or null when the list is exhausted. */
   next: string | null;
+  /**
+   * Present (and true) when the walk stopped at a paging loop: the server's `next` link
+   * pointed back at a page already fetched, or a page only repeated objects already
+   * listed. `data` then holds every distinct object seen.
+   */
+  looped?: true;
 }
 
-/** An entry of the public OParl endpoint registry (dev.oparl.org), projected. */
+/**
+ * An OParl endpoint as `endpoints()` lists it: an entry of the public registry at
+ * dev.oparl.org, or of the curated list shipped with this package.
+ */
 export interface RegistryEntry {
   title: string;
   /** The endpoint's System URL. */
   url: string;
-  /** True when the registry's last fetch returned a System object. */
+  /** Where the entry comes from: the dev.oparl.org registry or the curated list. */
+  source: "registry" | "curated";
+  /**
+   * Whether the endpoint answered with a System and its bodies: from the most recent
+   * live check (`checked`) when there is one, else from the registry's last fetch.
+   */
   working: boolean;
-  /** "1.0", "1.1", … taken from the cached System's oparlVersion; null when unknown. */
+  /** "1.0", "1.1", … taken from the System's oparlVersion; null when unknown. */
   oparlVersion: string | null;
-  /** The System's `name` (usually the product), when cached. */
+  /** The System's `name` (usually the product), when known. */
   systemName: string | null;
   vendor: string | null;
   bodyCount: number | null;
   wikidata: string | null;
-  /** When the registry last fetched the endpoint (ISO 8601). */
+  /** When the registry last fetched the endpoint (ISO 8601); null for curated entries. */
   fetched: string | null;
+  /** The day of the last live check by this package's maintainers (YYYY-MM-DD), or null. */
+  checked: string | null;
+  /** Why that check failed (e.g. "HTTP 404"), or null. */
+  problem: string | null;
+  /** The System URL that replaces this one, when the server moved. */
+  replacedBy: string | null;
+  /** A short note, e.g. that the server is an archive or needs a certificate workaround. */
+  note: string | null;
+}
+
+/** An OParl endpoint the dev.oparl.org registry lacks, kept in the curated list. */
+export interface CuratedEndpoint {
+  title: string;
+  /** The System URL. */
+  url: string;
+  working: boolean;
+  /** The day of the last live check (YYYY-MM-DD). */
+  checked: string;
+  problem: string | null;
+  oparlVersion: string | null;
+  systemName: string | null;
+  vendor: string | null;
+  bodyCount: number | null;
+  note: string | null;
+}
+
+/** The result of a live check of a registry entry, keyed by its System URL. */
+export interface RegistryCheck {
+  url: string;
+  working: boolean;
+  /** The day of the check (YYYY-MM-DD). */
+  checked: string;
+  problem: string | null;
+  replacedBy: string | null;
+  note: string | null;
 }

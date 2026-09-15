@@ -3,14 +3,15 @@
 > **This tool does not include, host, or redistribute any data.**
 > `oparl-cli` is a *client*. It only accesses data served live by the **OParl servers of
 > German municipalities, districts and associations**, found through the public registry
-> at dev.oparl.org. That data belongs to each operator and is governed by **their**
-> terms, summarized below. The license of this CLI's own source code is a separate
+> at dev.oparl.org or the list of endpoint URLs shipped with the tool. That data belongs to
+> each operator and is governed by **their** terms, summarized below. The license of this
+> CLI's own source code, including that list of URLs and check results, is a separate
 > matter — see [LICENSING.md](LICENSING.md).
 
 | | |
 |---|---|
-| **Data providers** | Each municipality, district or association running an OParl server (about a hundred in the registry) |
-| **API / source** | The OParl standard (https://oparl.org/), one server per operator; registry: `https://dev.oparl.org/api/endpoints` |
+| **Data providers** | Each municipality, district, association or parliament running an OParl server (about 150 working in September 2026) |
+| **API / source** | The OParl standard (https://oparl.org/), one server per operator; registry: `https://dev.oparl.org/api/endpoints`, plus the curated list in `src/client/endpoints-list.ts` |
 | **Data license** | **Set per server — no common license.** The OParl `license` field on System/Body objects states it where set; most servers leave it empty. |
 | **Attribution** | Name the operator (the Body) as the source. |
 | **Personal use** | Reading and analysing is what the servers are published for. |

@@ -7,7 +7,8 @@ A set of [Claude Code](https://code.claude.com/docs/en/skills) **Agent Skills** 
 Each skill teaches Claude how to drive the `oparl` CLI to answer a specific, real-world
 question — "does Köln publish OParl?", "which motions did the council file this week?" —
 and to report the answer with references rather than guesswork. They encode the parts that
-are easy to get wrong: there is no central API, the registry is a snapshot, servers may
+are easy to get wrong: there is no central API, the public registry is a stale snapshot (the
+CLI adds a curated list and live checks), servers may
 silently ignore date filters, list order is the server's, and data licenses differ per
 municipality.
 
@@ -15,7 +16,7 @@ municipality.
 
 | Skill | What it does | Ask it… |
 |---|---|---|
-| **oparl-endpoint-finder** | Finds a municipality's OParl endpoint in the registry, verifies it live, lists its bodies and their lists, and reports the declared license. | "does Münster have an OParl API?", "is Solingen's endpoint still working?" |
+| **oparl-endpoint-finder** | Finds a municipality's OParl endpoint in the registry and the curated list, verifies it live, lists its bodies and their lists, and reports the declared license. | "does Münster have an OParl API?", "is Solingen's endpoint still working?" |
 | **oparl-council-activity** | Walks a body's papers, meetings and committees with date filters, checks whether the server honoured them, and cites paper references. | "what did the Cologne council publish since September?", "list the committees" |
 
 They compose: **endpoint-finder → council-activity**.

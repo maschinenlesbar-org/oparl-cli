@@ -2,12 +2,13 @@
 // municipal council information systems (Ratsinformationssysteme). No auth.
 //
 // There is no central OParl host: every municipality runs its own server, found in
-// the public registry at dev.oparl.org. Navigation is by URL — a System lists its
-// bodies, each Body links its object lists (meetings, papers, persons, …), and
-// lists are paged through `links.next`.
+// the public registry at dev.oparl.org or in the curated list shipped with this
+// package (endpoints-list.ts). Navigation is by URL — a System lists its bodies, each
+// Body links its object lists (meetings, papers, persons, …), and lists are paged
+// through `links.next`.
 //
 //   const c = new OparlClient();
-//   const endpoints = await c.endpoints();                  // the public registry
+//   const endpoints = await c.endpoints();                  // registry + curated list
 //   const system = await c.system(endpoints[0].url);        // an endpoint's System
 //   const { data: bodies } = await c.bodies(system.id);     // its bodies
 //   const meetings = await c.list(bodies[0].id, "meeting"); // first page of meetings
@@ -15,7 +16,9 @@
 import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, sanitizeServerText, type EngineOptions } from "./engine.js";
 import type { QueryParams } from "./query.js";
 import { OparlParseError, OparlValidationError } from "./errors.js";
+import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 import type {
+  CuratedEndpoint,
   JsonObject,
   JsonValue,
   ListResult,
@@ -23,6 +26,7 @@ import type {
   OparlListPage,
   OparlObject,
   OparlSystem,
+  RegistryCheck,
   RegistryEntry,
 } from "./types.js";
 
@@ -90,7 +94,14 @@ export interface ListOptions {
 export interface OparlClientOptions extends EngineOptions {
   /** URL of the endpoint registry. Defaults to https://dev.oparl.org/api/endpoints */
   registryUrl?: string;
+  /** Endpoints the registry lacks. Defaults to the list shipped with this package. */
+  curatedEndpoints?: readonly CuratedEndpoint[];
+  /** Live checks of registry entries. Defaults to the checks shipped with this package. */
+  registryChecks?: readonly RegistryCheck[];
 }
+
+/** Which endpoints `endpoints()` returns. */
+export type EndpointSource = "all" | "registry" | "curated";
 
 const isObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -160,10 +171,14 @@ export function listQuery(options: ListOptions): QueryParams {
 export class OparlClient {
   private readonly engine: RequestEngine;
   private readonly registryUrl: string;
+  private readonly curatedEndpoints: readonly CuratedEndpoint[];
+  private readonly registryChecks: readonly RegistryCheck[];
 
   constructor(options: OparlClientOptions = {}) {
     this.engine = new RequestEngine(options);
     this.registryUrl = options.registryUrl ?? DEFAULT_REGISTRY_URL;
+    this.curatedEndpoints = options.curatedEndpoints ?? CURATED_ENDPOINTS;
+    this.registryChecks = options.registryChecks ?? REGISTRY_CHECKS;
   }
 
   /**
@@ -212,9 +227,13 @@ export class OparlClient {
 
   /**
    * Walk a list from its first page along `links.next`, staying on the same host.
-   * `maxPages` 0 fetches every page (with a loop guard). The `query` (filters) is set
-   * on every page, including on the server's `next` links (see carryQuery), and on the
-   * `next` returned.
+   * `maxPages` 0 fetches every page. The `query` (filters) is set on every page,
+   * including on the server's `next` links (see carryQuery), and on the `next` returned.
+   *
+   * Objects are de-duplicated by `id`. The walk stops at a paging loop, and marks the
+   * result `looped`: when `next` points back at a page already fetched, or when a page
+   * after the first adds no object that wasn't already listed (some servers serve the
+   * same page under ever-new `?page=n` links).
    */
   async walk<T extends JsonObject = OparlObject>(url: string, query?: QueryParams, maxPages = 1): Promise<ListResult<T>> {
     if (!Number.isInteger(maxPages) || maxPages < 0) {
@@ -222,23 +241,40 @@ export class OparlClient {
     }
     const limit = maxPages === 0 ? MAX_PAGES_HARD_LIMIT : maxPages;
     const data: T[] = [];
-    const seen = new Set<string>();
+    const seenPages = new Set<string>();
+    const seenIds = new Set<string>();
     let current: string | null = url;
     let pages = 0;
     let next: string | null = null;
+    let looped = false;
     while (current !== null && pages < limit) {
       const page: OparlListPage<T> = await this.page<T>(current, pages === 0 ? query : undefined);
-      seen.add(current);
+      seenPages.add(current);
       pages += 1;
-      data.push(...page.data);
+      let added = 0;
+      for (const object of page.data) {
+        const id = object["id"];
+        if (typeof id === "string") {
+          if (seenIds.has(id)) continue;
+          seenIds.add(id);
+        }
+        data.push(object);
+        added += 1;
+      }
+      if (pages > 1 && page.data.length > 0 && added === 0) {
+        next = null; // the page only repeats objects already listed
+        looped = true;
+        break;
+      }
       const link = page.links?.next;
       next = typeof link === "string" && link !== "" ? carryQuery(resolveLink(current, link), query) : null;
-      if (next !== null && seen.has(next)) {
+      if (next !== null && seenPages.has(next)) {
         next = null; // the server's `next` points back at a page already fetched
+        looped = true;
       }
       current = next;
     }
-    return { data, pages, next };
+    return looped ? { data, pages, next, looped: true } : { data, pages, next };
   }
 
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
@@ -284,10 +320,51 @@ export class OparlClient {
   }
 
   /**
-   * The public OParl endpoint registry, projected to the useful fields. The registry
-   * is a snapshot: `working` and `fetched` say when it last reached each endpoint.
+   * Known OParl endpoints: the public registry at dev.oparl.org merged with the curated
+   * list (`source` "all", the default), or either one alone. The registry is a snapshot
+   * that is rarely updated; where the curated list holds a newer live check of a
+   * registry entry, its `working`, `checked`, `problem`, `replacedBy` and `note` apply.
+   * Curated entries follow the registry's. A System listed twice (the registry has a few
+   * duplicates, and the curated list may catch up with the registry) appears once, under
+   * its first entry. `source` "curated" makes no request.
    */
-  async endpoints(): Promise<RegistryEntry[]> {
+  async endpoints(options: { source?: EndpointSource } = {}): Promise<RegistryEntry[]> {
+    const source = options.source ?? "all";
+    if (source !== "all" && source !== "registry" && source !== "curated") {
+      throw new OparlValidationError(`Unknown endpoint source "${String(source)}". Use all, registry or curated.`);
+    }
+    const checks = new Map(this.registryChecks.map((check) => [endpointKey(check.url), check]));
+    const listed = new Set<string>();
+    const registry = (source === "curated" ? [] : await this.registry())
+      .filter((entry) => {
+        const key = endpointKey(entry.url);
+        return !listed.has(key) && listed.add(key) !== undefined; // the registry lists a few Systems twice
+      })
+      .map((entry) => applyCheck(entry, checks));
+    if (source === "registry") return registry;
+    const curated = this.curatedEndpoints
+      .filter((entry) => !listed.has(endpointKey(entry.url)))
+      .map((entry): RegistryEntry => ({
+        title: entry.title,
+        url: entry.url,
+        source: "curated",
+        working: entry.working,
+        oparlVersion: entry.oparlVersion,
+        systemName: entry.systemName,
+        vendor: entry.vendor,
+        bodyCount: entry.bodyCount,
+        wikidata: null,
+        fetched: null,
+        checked: entry.checked,
+        problem: entry.problem,
+        replacedBy: null,
+        note: entry.note,
+      }));
+    return [...registry, ...curated];
+  }
+
+  /** The registry at `registryUrl`, projected to the useful fields, without the curated checks. */
+  private async registry(): Promise<RegistryEntry[]> {
     parseHttpUrl(this.registryUrl);
     const entries: RegistryEntry[] = [];
     let url: string | null = this.registryUrl;
@@ -338,12 +415,50 @@ function projectEntry(raw: JsonObject): RegistryEntry {
   return {
     title: str(raw["title"]) ?? "",
     url: str(raw["url"]) ?? "",
+    source: "registry",
     working: system !== null && typeof system["body"] === "string",
-    oparlVersion: version ? (/\/(\d+\.\d+)\/?$/.exec(version)?.[1] ?? version) : null,
+    oparlVersion: version ? shortOparlVersion(version) : null,
     systemName: system ? str(system["name"]) : null,
     vendor: system ? str(system["vendor"]) : null,
     bodyCount: typeof raw["bodyCount"] === "number" ? raw["bodyCount"] : null,
     wikidata: str(raw["wikidata"]),
     fetched: str(raw["fetched"]),
+    checked: null,
+    problem: null,
+    replacedBy: null,
+    note: null,
+  };
+}
+
+/** "https://schema.oparl.org/1.1/" → "1.1"; anything else unchanged. */
+export function shortOparlVersion(version: string): string {
+  return /\/(\d+\.\d+)\/?$/.exec(version)?.[1] ?? version;
+}
+
+/**
+ * The key two endpoint URLs share when they name the same System: host (lowercase,
+ * without a default port), path without a trailing slash, and query — ignoring the
+ * scheme, since registry entries are sometimes http:// for an https:// server.
+ */
+export function endpointKey(url: string): string {
+  try {
+    const u = new URL(url);
+    const port = u.port === "" || u.port === "80" || u.port === "443" ? "" : `:${u.port}`;
+    return `${u.hostname.toLowerCase()}${port}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+  } catch {
+    return url.trim();
+  }
+}
+
+function applyCheck(entry: RegistryEntry, checks: Map<string, RegistryCheck>): RegistryEntry {
+  const check = checks.get(endpointKey(entry.url));
+  if (check === undefined) return entry;
+  return {
+    ...entry,
+    working: check.working,
+    checked: check.checked,
+    problem: check.problem,
+    replacedBy: check.replacedBy,
+    note: check.note,
   };
 }

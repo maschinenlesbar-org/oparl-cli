@@ -30,7 +30,8 @@
     "pretest": "npm run build",
     "test": "node --test dist/test/*.test.js",
     "docs": "node tools/docs/node_modules/typedoc/bin/typedoc src/index.ts --out out",
-    "start": "node dist/src/cli/index.js"
+    "start": "node dist/src/cli/index.js",
+    "check-endpoints": "npm run build && node scripts/check-endpoints.mjs"
   },
   "keywords": [
     "oparl",

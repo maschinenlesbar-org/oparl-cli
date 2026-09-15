@@ -9,17 +9,20 @@
 Read German **municipal council information** — meetings, agendas, motions, committees
 and members — from your terminal. `oparl` is a command-line tool and TypeScript client
 for [OParl](https://oparl.org/), the open standard API of council information systems
-(*Ratsinformationssysteme*): find a municipality's endpoint in the public registry, open
-its bodies, and walk their meetings, papers or persons as clean JSON you can pipe
-straight into [`jq`](https://jqlang.github.io/jq/).
+(*Ratsinformationssysteme*): find a municipality's endpoint, open its bodies, and walk
+their meetings, papers or persons as clean JSON you can pipe straight into
+[`jq`](https://jqlang.github.io/jq/).
 
 - **One tool, many councils** — every OParl server works the same way, whether it runs
-  SD.NET, Session, more! rubin or ALLRIS; the registry lists about a hundred of them.
+  SD.NET, Session, more! rubin or ALLRIS. `oparl endpoints` knows about 170 servers: the
+  public registry plus a curated list of servers it lacks, among them Essen, Bremen,
+  Karlsruhe and five Berlin district assemblies. About 150 worked at their last check.
 - **No API key** — OParl access is anonymous and read-only.
 - **Follows the standard's navigation** — `endpoints` → `system` → `bodies` → `list`,
   paging through `links.next` for you, or `get` any object by URL.
 - **Careful with the network** — links and redirects are only followed on the server
-  they came from, pagination loops are detected, and slow servers get a 2-minute timeout.
+  they came from, pagination loops are detected (also servers that serve the same page
+  over and over), and slow servers get a 2-minute timeout.
 - **Clean JSON output** — pretty by default, `--compact` for scripting, `-o <file>` to
   write to disk.
 
@@ -62,7 +65,7 @@ oparl list meeting https://buergerinfo.stadt-koeln.de/oparl/bodies/stadtverwaltu
 
 | Command | What it does |
 | --- | --- |
-| `endpoints` | The public registry of OParl servers (`--search <text>`, `--oparl-version <v>`, `--working`) |
+| `endpoints` | Known OParl servers: the dev.oparl.org registry plus a curated list, with their last live check (`--search <text>`, `--oparl-version <v>`, `--working`, `--source <source>`) |
 | `system <url>` | An endpoint's System object: OParl version, vendor, the URL of its bodies |
 | `bodies <systemUrl>` | The bodies (*Körperschaften*) on a server, usually one per municipality |
 | `list <type> <bodyUrl>` | One of a body's object lists, paged — see types below |
@@ -134,9 +137,28 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
 
 ## Troubleshooting
 
-- **The registry lists an endpoint that fails** — the registry is a snapshot; check
-  `working` and `fetched` in `oparl endpoints`. Many entries marked `working: false`
-  are gone for good.
+- **A listed endpoint fails** — `working`, `checked` and `problem` in `oparl endpoints`
+  show the last live check; servers switch OParl off or move. Where a server moved,
+  `replacedBy` gives the new System URL. A municipality that isn't listed may still have
+  OParl: any System URL works with `oparl system`.
+- **"unable to verify the first certificate"** (exit `6`) — the server doesn't send its
+  intermediate TLS certificate (seen on Kaiserslautern). Browsers fetch the missing
+  certificate themselves; Node.js doesn't. Fetch it yourself, check that it chains to a
+  root your system trusts (it becomes a trusted CA for the command), and pass it in:
+
+  ```bash
+  echo | openssl s_client -connect ris.kaiserslautern.de:443 2>/dev/null \
+    | openssl x509 -noout -ext authorityInfoAccess      # shows the "CA Issuers" URL
+  curl -s http://certificates.starfieldtech.com/repository/sfig2.crt \
+    | openssl x509 -inform DER -out intermediate.pem
+  openssl verify intermediate.pem                        # must print "intermediate.pem: OK"
+  NODE_EXTRA_CA_CERTS=$PWD/intermediate.pem oparl system https://ris.kaiserslautern.de/oparl/system
+  ```
+
+  Don't turn off certificate checks.
+- **A note "stopped after page N"** — the server's next page repeated a page or objects
+  already listed (seen on a shared Somacos server). The output holds every distinct object
+  and `looped: true`.
 - **Exit `6` / "timed out"** — council systems can take a minute or more for one list
   page. Raise `--timeout <ms>` (`0` = no timeout) and keep `--max-pages` small.
 - **Exit `1` with a 400 or 500 after adding a filter** — the server doesn't support that

@@ -30,15 +30,26 @@ which is optional.
 oparl endpoints --search köln | jq -r '.[] | "\(.title)\t\(.working)\t\(.url)"'
 ```
 
-`working` is the registry's last check (see `fetched`). Search by place name or by a part
-of the URL (e.g. `--search ratsinfomanagement`). The search ignores case, accents and umlaut
-spellings: `köln`, `koln` and `koeln` find the same entries.
+`endpoints` lists the public registry at dev.oparl.org, followed by a curated list of
+servers the registry lacks (`source` says which). `working` is the result of the last
+live check (`checked`, with the reason in `problem`); for a registry entry nobody has
+checked, it is the registry's own last fetch (`fetched`). A server that moved has
+`replacedBy`, the new System URL. Search by place name or by a part of the URL (e.g.
+`--search ratsinfomanagement`). The search ignores case, accents and umlaut spellings:
+`köln`, `koln` and `koeln` find the same entries.
 
 ### 2. All working endpoints on OParl 1.1
 
 ```bash
 oparl endpoints --working --oparl-version 1.1 | jq -r '.[] | "\(.title)\t\(.systemName)"'
+
+# Only the servers the registry doesn't list (no request is made)
+oparl endpoints --source curated --working | jq -r '.[] | "\(.title)\t\(.url)"'
 ```
+
+Not listed at all? Any System URL works: `oparl system <url>`. Council portals often link
+their OParl interface, and many vendors use fixed paths (e.g. `…/webservice/oparl/v1.1/system`
+on SD.NET, `…/oparl/system` on Session).
 
 ### 3. Check an endpoint before relying on it
 

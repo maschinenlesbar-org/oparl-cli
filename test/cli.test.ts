@@ -5,6 +5,7 @@ import { OparlClient } from "../src/client/client.js";
 import { OparlNetworkError } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
 import type { HttpRequest, HttpResponse } from "../src/client/http.js";
+import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
 import { jsonResponse, makeMockTransport, queryOf, rawResponse, routes } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
@@ -19,7 +20,10 @@ const site = {
   [`${fx.REGISTRY_URL}?page=2&limit=100`]: jsonResponse(fx.registryPage2),
 };
 
-function makeCli(responder?: (req: HttpRequest) => HttpResponse) {
+function makeCli(
+  responder?: (req: HttpRequest) => HttpResponse,
+  lists: { curatedEndpoints?: CuratedEndpoint[]; registryChecks?: RegistryCheck[] } = {},
+) {
   const out: string[] = [];
   const err: string[] = [];
   const files: Record<string, Buffer> = {};
@@ -32,7 +36,13 @@ function makeCli(responder?: (req: HttpRequest) => HttpResponse) {
         files[p] = d;
       },
     },
-    createClient: (opts) => new OparlClient({ ...opts, transport: mt.transport }),
+    createClient: (opts) =>
+      new OparlClient({
+        curatedEndpoints: lists.curatedEndpoints ?? [],
+        registryChecks: lists.registryChecks ?? [],
+        ...opts,
+        transport: mt.transport,
+      }),
   };
   const json = () => JSON.parse(out.join("\n")) as unknown;
   return { deps, out, err, mt, files, json };
@@ -77,6 +87,44 @@ test("endpoints --search ignores Unicode form, accents and umlaut spellings", as
   assert.deepEqual(await titles("MUNSTER"), ["Münster"]);
   assert.deepEqual(await titles("giessen"), ["Gießen"]);
   assert.deepEqual(await titles("irgendwo"), []);
+});
+
+test("endpoints --source and --working use the curated list and the live checks", async () => {
+  const lists = {
+    curatedEndpoints: [
+      { title: "Stadt Neu", url: "https://ris.neu.example/oparl/system", working: true, checked: "2026-09-16", problem: null, oparlVersion: "1.1", systemName: null, vendor: null, bodyCount: 1, note: null },
+      { title: "Stadt Kaputt", url: "https://ris.kaputt.example/oparl/system", working: false, checked: "2026-09-16", problem: "HTTP 500", oparlVersion: null, systemName: null, vendor: null, bodyCount: null, note: null },
+    ],
+    registryChecks: [
+      { url: fx.SYSTEM_URL, working: false, checked: "2026-09-16", problem: "HTTP 404", replacedBy: "https://ris.neu.example/oparl/system", note: null },
+    ],
+  };
+  const titles = async (args: string[]) => {
+    const cli = makeCli(undefined, lists);
+    assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, ...args], cli.deps), 0);
+    return { titles: (cli.json() as Array<{ title: string }>).map((e) => e.title), calls: cli.mt.calls.length };
+  };
+  assert.deepEqual((await titles([])).titles, ["Stadt Beispiel", "Amt Irgendwo", "Gemeinde Musterdorf", "Stadt Neu", "Stadt Kaputt"]);
+  assert.deepEqual(await titles(["--source", "curated"]), { titles: ["Stadt Neu", "Stadt Kaputt"], calls: 0 });
+  assert.deepEqual((await titles(["--source", "registry"])).titles, ["Stadt Beispiel", "Amt Irgendwo", "Gemeinde Musterdorf"]);
+  // The live check overrides the registry's own flag: Stadt Beispiel is out, Musterdorf stays.
+  assert.deepEqual((await titles(["--working"])).titles, ["Gemeinde Musterdorf", "Stadt Neu"]);
+
+  const bad = makeCli(undefined, lists);
+  assert.equal(await run(["endpoints", "--source", "everything"], bad.deps), 2);
+});
+
+test("bodies notes on stderr when the server's pages repeat", async () => {
+  const repeating = (req: HttpRequest) => {
+    if (req.url === fx.SYSTEM_URL) return jsonResponse(fx.system);
+    const n = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    return jsonResponse({ data: fx.bodyList.data, links: { next: `${fx.BODIES_URL}?page=${n + 1}` } });
+  };
+  const cli = makeCli(repeating);
+  assert.equal(await run(["bodies", fx.SYSTEM_URL], cli.deps), 0);
+  const result = cli.json() as { data: unknown[]; pages: number; looped?: boolean };
+  assert.deepEqual({ n: result.data.length, pages: result.pages, looped: result.looped }, { n: fx.bodyList.data.length, pages: 2, looped: true });
+  assert.match(cli.err.join("\n"), /stopped after page 2/);
 });
 
 test("endpoints --registry-url points at another registry", async () => {

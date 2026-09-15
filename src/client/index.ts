@@ -1,7 +1,16 @@
 // Public entry point for the API client library.
 
-export { OparlClient, DEFAULT_REGISTRY_URL, LIST_TYPES, listQuery, normalizeTimestamp } from "./client.js";
-export type { ListOptions, ListType, OparlClientOptions } from "./client.js";
+export {
+  OparlClient,
+  DEFAULT_REGISTRY_URL,
+  LIST_TYPES,
+  endpointKey,
+  listQuery,
+  normalizeTimestamp,
+  shortOparlVersion,
+} from "./client.js";
+export type { EndpointSource, ListOptions, ListType, OparlClientOptions } from "./client.js";
+export { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 export {
   RequestEngine,
   carryQuery,

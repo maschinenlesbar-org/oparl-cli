@@ -2,16 +2,22 @@
 // registry, open its System, list its Bodies, then walk one of a Body's object
 // lists — or fetch any object directly by URL.
 //
-//   endpoints            the public registry of OParl servers (dev.oparl.org)
+//   endpoints            known OParl servers (dev.oparl.org registry + curated list)
 //   system <url>         an endpoint's System object
 //   bodies <systemUrl>   the bodies (municipalities) on a server
 //   list <type> <body>   a body's meetings, papers, persons, … (paged)
 //   get <url>            any OParl object or list page by URL
 
-import { Argument, type Command } from "commander";
+import { Argument, Option, type Command } from "commander";
 import type { CliDeps } from "../io.js";
-import { DEFAULT_REGISTRY_URL, LIST_TYPES, type ListOptions, type ListType } from "../../client/client.js";
-import type { RegistryEntry } from "../../client/types.js";
+import {
+  DEFAULT_REGISTRY_URL,
+  LIST_TYPES,
+  type EndpointSource,
+  type ListOptions,
+  type ListType,
+} from "../../client/client.js";
+import type { JsonObject, ListResult, RegistryEntry } from "../../client/types.js";
 import {
   action,
   parseBoundedInt,
@@ -38,19 +44,36 @@ export function foldSearchText(text: string): string {
     .replace(/([aou])e/g, "$1");
 }
 
+/** Tell the user on stderr that a walk stopped at a paging loop. */
+function noteLoop(deps: CliDeps, result: ListResult<JsonObject>): void {
+  if (result.looped) {
+    deps.io.err(
+      `Note: stopped after page ${result.pages}: the server's next page repeated a page or objects already listed.`,
+    );
+  }
+}
+
 export function registerCommands(program: Command, deps: CliDeps): void {
   program
     .command("endpoints")
-    .description("List public OParl endpoints from the registry at dev.oparl.org")
+    .description(
+      "List known OParl endpoints: the registry at dev.oparl.org plus a curated list of " +
+        "servers it lacks, with the date and result of their last live check",
+    )
     .option("--search <text>", "only endpoints whose title or URL contains this text (ignores case, accents and ä/ae spellings)", parseNonEmpty)
     .option("--oparl-version <version>", "only endpoints speaking this OParl version, e.g. 1.1", parseNonEmpty)
-    .option("--working", "only endpoints the registry could reach on its last fetch")
+    .option("--working", "only endpoints that worked on their last check")
+    .addOption(
+      new Option("--source <source>", "registry entries, curated entries, or both")
+        .choices(["all", "registry", "curated"])
+        .default("all"),
+    )
     .option("--registry-url <url>", "registry URL", parseUrl, DEFAULT_REGISTRY_URL)
     .action(
       action(
         deps,
         async ({ client, global, opts }) => {
-          let entries = await client.endpoints();
+          let entries = await client.endpoints({ source: opts["source"] as EndpointSource });
           const search = opts["search"] as string | undefined;
           const version = opts["oparlVersion"] as string | undefined;
           if (search !== undefined) {
@@ -87,7 +110,9 @@ export function registerCommands(program: Command, deps: CliDeps): void {
     .option("--max-pages <n>", MAX_PAGES_OPTION, parseIntArg, 0)
     .action(
       action(deps, async ({ client, global, opts }, [url]) => {
-        renderJson(deps, global, await client.bodies(url as string, { maxPages: opts["maxPages"] as number }));
+        const result = await client.bodies(url as string, { maxPages: opts["maxPages"] as number });
+        noteLoop(deps, result);
+        renderJson(deps, global, result);
       }),
     );
 
@@ -115,7 +140,9 @@ export function registerCommands(program: Command, deps: CliDeps): void {
         if (opts["createdUntil"] !== undefined) options.createdUntil = opts["createdUntil"] as string;
         if (opts["limit"] !== undefined) options.limit = opts["limit"] as number;
         if (opts["omitInternal"]) options.omitInternal = true;
-        renderJson(deps, global, await client.list(bodyUrl as string, type as ListType, options));
+        const result = await client.list(bodyUrl as string, type as ListType, options);
+        noteLoop(deps, result);
+        renderJson(deps, global, result);
       }),
     );
 

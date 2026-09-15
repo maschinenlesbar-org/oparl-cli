@@ -15,10 +15,16 @@ current version **1.1** (2018), backwards-compatible with **1.0** (2016). Spec:
 products with OParl support: SD.NET RIM (Sternberg), Session/SessionNet (Somacos),
 more! rubin, ALLRIS (CC e-gov).
 
-**Endpoint registry (`endpoints`).** The public list of OParl servers at
+**Endpoint registry.** The public list of OParl servers at
 `https://dev.oparl.org/api/endpoints`. It caches each server's System object from its last
-fetch: `working` says whether that fetch succeeded, `fetched` when it happened. Some
-entries are duplicates or aggregators (Politik bei Uns, München Transparent).
+fetch (`fetched`), and it is rarely updated. Some entries are duplicates or aggregators
+(Politik bei Uns, München Transparent).
+
+**Curated endpoint list (`endpoints`, `--source`).** Shipped with this tool: OParl servers
+the registry lacks, and a live check of every registry entry. `oparl endpoints` lists both
+(`source`: `registry` or `curated`). `checked` is the day of the last check, `working` its
+result, `problem` the reason it failed, and `replacedBy` the new URL of a server that moved.
+The maintainers refresh it with `npm run check-endpoints`.
 
 **Object type URI (`type`).** Every OParl object has `type`, e.g.
 `https://schema.oparl.org/1.1/Meeting`; the version in the path tells 1.0 from 1.1.
@@ -84,6 +90,10 @@ are meant to support the date filters, but some ignore them or fail on them.
 
 **Deleted objects (`deleted: true`).** Servers may keep deleted objects in lists, marked
 `deleted`, so that syncing clients can remove them.
+
+**Paging loop (`looped`).** A server whose `next` link leads back to a page already fetched,
+or whose next page only repeats objects already listed. The walk stops there, lists each
+object once, sets `looped: true` and notes it on stderr.
 
 ## This tool
 

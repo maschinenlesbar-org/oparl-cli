@@ -15,10 +15,17 @@ Beschlüsse veröffentlichen. Gepflegt von der OKF Deutschland und Vitako; aktue
 Verbreitete Produkte mit OParl-Unterstützung: SD.NET RIM (Sternberg), Session/SessionNet
 (Somacos), more! rubin, ALLRIS (CC e-gov).
 
-**Endpoint-Verzeichnis (`endpoints`).** Die öffentliche Liste der OParl-Server unter
+**Endpoint-Verzeichnis.** Die öffentliche Liste der OParl-Server unter
 `https://dev.oparl.org/api/endpoints`. Sie speichert das System-Objekt jedes Servers aus
-dem letzten Abruf: `working` gibt an, ob dieser Abruf erfolgreich war, `fetched`, wann er
-stattfand. Einige Einträge sind Duplikate oder Aggregatoren (Politik bei Uns, München Transparent).
+dem letzten Abruf (`fetched`) und wird selten aktualisiert. Einige Einträge sind Duplikate
+oder Aggregatoren (Politik bei Uns, München Transparent).
+
+**Gepflegte Endpoint-Liste (`endpoints`, `--source`).** Wird mit diesem Tool ausgeliefert:
+OParl-Server, die im Verzeichnis fehlen, und eine Live-Prüfung jedes Verzeichniseintrags.
+`oparl endpoints` listet beides (`source`: `registry` oder `curated`). `checked` ist der Tag
+der letzten Prüfung, `working` ihr Ergebnis, `problem` der Grund für einen Fehlschlag und
+`replacedBy` die neue URL eines umgezogenen Servers. Die Maintainer aktualisieren die Liste
+mit `npm run check-endpoints`.
 
 **Objekttyp-URI (`type`).** Jedes OParl-Objekt hat einen `type`, z. B.
 `https://schema.oparl.org/1.1/Meeting`; an der Version im Pfad erkennen Sie 1.0 oder 1.1.
@@ -86,6 +93,11 @@ Datumsfilter unterstützen, manche ignorieren sie jedoch oder scheitern daran.
 
 **Gelöschte Objekte (`deleted: true`).** Server dürfen gelöschte Objekte, markiert als
 `deleted`, in Listen behalten, damit synchronisierende Clients sie entfernen können.
+
+**Seitenschleife (`looped`).** Ein Server, dessen `next`-Link auf eine bereits abgerufene
+Seite zurückführt oder dessen nächste Seite nur schon gelistete Objekte wiederholt. Das
+Durchlaufen endet dort, listet jedes Objekt einmal, setzt `looped: true` und vermerkt es auf
+stderr.
 
 ## Dieses Tool
 
