@@ -116,6 +116,30 @@ const isObject = (value: unknown): value is JsonObject =>
 
 const str = (value: JsonValue | undefined): string | null => (typeof value === "string" ? value : null);
 
+/** What arrived where an OParl object or URL was expected, for an error message. */
+function describeJson(value: JsonValue | undefined): string {
+  if (value === undefined) return "missing";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  if (typeof value === "object") return "an object";
+  return `a ${typeof value}`;
+}
+
+/**
+ * The objects of a list page's `data`. A `null` or scalar entry is rejected here
+ * rather than crashing the walk or reaching the user as if it were an object.
+ */
+function listItems(url: string, items: readonly JsonValue[]): JsonObject[] {
+  for (const item of items) {
+    if (!isObject(item)) {
+      throw new OparlParseError(
+        `The list at ${url} has an entry in \`data\` that is not an OParl object (${describeJson(item)}).`,
+      );
+    }
+  }
+  return items as JsonObject[];
+}
+
 /**
  * The message of an OParl or vendor error object — `{ "type": ".../Error", "message": "…" }`
  * or `{ "error": "…" }`, without an `id` — stripped of control characters and capped.
@@ -217,9 +241,16 @@ export class OparlClient {
     return system as OparlSystem;
   }
 
-  /** Fetch one list page and check it has a `data` array. */
+  /**
+   * Fetch one list page and check it has a `data` array of objects. A server that
+   * answers a list URL with a bare JSON array instead of a list page (seen on an
+   * SD.NET RIM build in Essen) is read as a single page holding those objects.
+   */
   async page<T extends JsonObject = OparlObject>(url: string, query?: QueryParams): Promise<OparlListPage<T>> {
     const value = await this.engine.getJson<unknown>(url, query);
+    if (Array.isArray(value)) {
+      return { data: listItems(url, value as JsonValue[]) as T[] };
+    }
     if (!isObject(value) || !Array.isArray(value["data"])) {
       const message = isObject(value) ? errorObjectMessage(value) : null;
       if (message !== null) {
@@ -230,6 +261,7 @@ export class OparlClient {
         `${url} is not an OParl object list${type ? ` (got an object of type ${type})` : ""}.`,
       );
     }
+    listItems(url, value["data"]);
     return value as unknown as OparlListPage<T>;
   }
 

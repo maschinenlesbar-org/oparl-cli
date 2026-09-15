@@ -312,6 +312,33 @@ test("a repeated id keeps the last copy the server sent, tombstones included", a
   assert.deepEqual({ pages: result.pages, next: result.next }, { pages: 2, next: null });
 });
 
+test("a list page whose data holds null or a scalar is a parse error, not a crash", async () => {
+  for (const entry of [null, "https://ris.example.de/oparl/bodies/stadt/meetings/1", 7]) {
+    const { c } = client({
+      [fx.BODY_URL]: jsonResponse(fx.body),
+      [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1), entry], links: {} }),
+    });
+    await assert.rejects(
+      () => c.list(fx.BODY_URL, "meeting"),
+      (err) => err instanceof OparlParseError && /entry in `data` that is not an OParl object/.test(err.message),
+      String(entry),
+    );
+  }
+});
+
+test("a list URL that answers with a bare JSON array is read as one page", async () => {
+  // An SD.NET RIM build in Essen serves [] for an empty list instead of a list page.
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [`${fx.BODY_URL}/legislativeterms`]: jsonResponse([]) });
+  assert.deepEqual(await c.list(fx.BODY_URL, "legislative-term"), { data: [], pages: 1, next: null });
+
+  const filled = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse([fx.meeting(1), fx.meeting(2)]) });
+  const result = await filled.c.list(fx.BODY_URL, "meeting");
+  assert.deepEqual({ ids: result.data.map((m) => m["id"]), pages: result.pages, next: result.next }, { ids: [fx.meeting(1).id, fx.meeting(2).id], pages: 1, next: null });
+
+  const bad = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse([fx.meeting(1), null]) });
+  await assert.rejects(() => bad.c.list(fx.BODY_URL, "meeting"), OparlParseError);
+});
+
 test("objects repeated across pages are listed once, and the walk goes on", async () => {
   const table = {
     [fx.BODY_URL]: jsonResponse(fx.body),
