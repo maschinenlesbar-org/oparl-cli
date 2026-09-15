@@ -22,7 +22,8 @@ export interface EngineOptions {
   /** Extra headers sent on every request. */
   defaultHeaders?: Record<string, string>;
   /**
-   * Per-request timeout in milliseconds (0 disables). Defaults to 120 s: some
+   * Time limit per request in milliseconds, covering the whole response body, not
+   * only idle gaps (0 disables). Defaults to 120 s: some
    * council systems take well over 30 s to render a single list page.
    */
   timeoutMs?: number;

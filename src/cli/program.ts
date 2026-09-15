@@ -47,7 +47,7 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
         "walk a body's meetings, papers or persons with `list`, or fetch any object with `get`.",
     )
     .version(VERSION)
-    .option("--timeout <ms>", "per-request timeout in ms (0 = no timeout; default 120000)", parseIntArg)
+    .option("--timeout <ms>", "time limit per request in ms, whole response included (0 = no timeout; default 120000)", parseIntArg)
     .option("--user-agent <ua>", "User-Agent header value", parseHeaderValue)
     .option("--max-retries <n>", "retries for transient 429/503 responses (0..10)", parseBoundedInt(0, 10))
     .option("--max-redirects <n>", "redirects to follow on the same host (0..10, default 3)", parseBoundedInt(0, 10))
