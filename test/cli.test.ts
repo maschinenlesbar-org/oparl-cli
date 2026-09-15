@@ -78,10 +78,13 @@ test("list meeting fetches one page and passes the filters", async () => {
   const cli = makeCli();
   assert.equal(await run(["list", "meeting", fx.BODY_URL, "--modified-since", "2026-09-01T10:00:00Z", "--limit", "25"], cli.deps), 0);
   const result = cli.json() as { data: unknown[]; pages: number; next: string };
-  assert.deepEqual({ n: result.data.length, pages: result.pages, next: result.next }, { n: 2, pages: 1, next: `${fx.MEETINGS_URL}?page=2` });
+  assert.deepEqual({ n: result.data.length, pages: result.pages }, { n: 2, pages: 1 });
   const q = queryOf(cli.mt.calls[1]!);
   assert.equal(q.get("modified_since"), "2026-09-01T10:00:00+00:00");
   assert.equal(q.get("limit"), "25");
+  // `next` keeps the filters, so `oparl get <next>` continues the same filtered list.
+  const next = new URL(result.next).searchParams;
+  assert.deepEqual([next.get("page"), next.get("modified_since"), next.get("limit")], ["2", "2026-09-01T10:00:00+00:00", "25"]);
 });
 
 test("list --max-pages 0 walks every page", async () => {

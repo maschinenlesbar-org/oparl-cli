@@ -76,14 +76,43 @@ test("list maps CLI type names to Body fields", async () => {
   assert.equal(mt.last().url, `${fx.BODY_URL}/legislativeterms`);
 });
 
-test("list sends the filters on the first page only", async () => {
+test("list sends the filters on every page", async () => {
   const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), ...pages });
   await c.list(fx.BODY_URL, "meeting", { maxPages: 2, modifiedSince: "2026-09-01", limit: 50, omitInternal: true });
-  const first = queryOf(mt.calls[1]!);
-  assert.equal(first.get("modified_since"), "2026-09-01T00:00:00+00:00");
-  assert.equal(first.get("limit"), "50");
-  assert.equal(first.get("omit_internal"), "true");
-  assert.equal(mt.calls[2]!.url, `${fx.MEETINGS_URL}?page=2`);
+  for (const call of [mt.calls[1]!, mt.calls[2]!]) {
+    const q = queryOf(call);
+    assert.equal(q.get("modified_since"), "2026-09-01T00:00:00+00:00");
+    assert.equal(q.get("limit"), "50");
+    assert.equal(q.get("omit_internal"), "true");
+  }
+  assert.equal(queryOf(mt.calls[2]!).get("page"), "2");
+});
+
+test("list re-applies filters to next links that echo them unencoded or drop them", async () => {
+  // Somacos servers (e.g. Münster) put `modified_since=…+00:00` into `next` unencoded,
+  // so the `+` reaches the server as a space and page 2 comes back unfiltered.
+  const since = "2026-09-10T00:00:00+00:00";
+  const table = {
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.MEETINGS_URL]: (req: { url: string }) => {
+      const page = new URL(req.url).searchParams.get("page");
+      if (page === "2") return jsonResponse({ data: [fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=3` } });
+      if (page === "3") return jsonResponse({ data: [fx.meeting(3)], links: {} });
+      return jsonResponse({ data: [fx.meeting(1)], links: { next: `${fx.MEETINGS_URL}?page=2&modified_since=${since}` } });
+    },
+  };
+  const walked = client(table);
+  const result = await walked.c.list(fx.BODY_URL, "meeting", { maxPages: 0, modifiedSince: since });
+  assert.equal(result.pages, 3);
+  for (const call of walked.mt.calls.slice(1)) {
+    assert.equal(queryOf(call).getAll("modified_since").join("|"), since, call.url);
+  }
+
+  const onePage = client(table);
+  const first = await onePage.c.list(fx.BODY_URL, "meeting", { modifiedSince: since });
+  const next = new URL(first.next!);
+  assert.equal(next.searchParams.get("page"), "2");
+  assert.equal(next.searchParams.getAll("modified_since").join("|"), since);
 });
 
 test("list on a 1.0 body without that list names what the body links", async () => {

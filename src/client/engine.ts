@@ -135,6 +135,25 @@ export function withQuery(url: string, query?: QueryParams): string {
   return parsed.href;
 }
 
+/**
+ * Set the client's query parameters on a server-supplied `next` link, replacing any
+ * copy the server put there. Servers build these links themselves and get it wrong:
+ * Somacos servers echo `modified_since=…+00:00` unencoded, so the `+` arrives as a
+ * space and every page after the first is silently unfiltered; others drop the
+ * parameters altogether. Setting them again keeps every page filtered alike.
+ */
+export function carryQuery(url: string, query?: QueryParams): string {
+  if (!query) return url;
+  const wanted = new URLSearchParams(buildQueryString(query));
+  if ([...wanted.keys()].length === 0) return url;
+  const parsed = new URL(url);
+  for (const key of new Set(wanted.keys())) {
+    parsed.searchParams.delete(key);
+    for (const value of wanted.getAll(key)) parsed.searchParams.append(key, value);
+  }
+  return parsed.href;
+}
+
 function jsonDepth(value: unknown): number {
   let max = 0;
   const stack: Array<[unknown, number]> = [[value, 1]];

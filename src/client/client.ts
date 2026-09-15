@@ -12,7 +12,7 @@
 //   const { data: bodies } = await c.bodies(system.id);     // its bodies
 //   const meetings = await c.list(bodies[0].id, "meeting"); // first page of meetings
 
-import { RequestEngine, parseHttpUrl, resolveLink, type EngineOptions } from "./engine.js";
+import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, type EngineOptions } from "./engine.js";
 import type { QueryParams } from "./query.js";
 import { OparlParseError, OparlValidationError } from "./errors.js";
 import type {
@@ -168,7 +168,9 @@ export class OparlClient {
 
   /**
    * Walk a list from its first page along `links.next`, staying on the same host.
-   * `maxPages` 0 fetches every page (with a loop guard).
+   * `maxPages` 0 fetches every page (with a loop guard). The `query` (filters) is set
+   * on every page, including on the server's `next` links (see carryQuery), and on the
+   * `next` returned.
    */
   async walk<T extends JsonObject = OparlObject>(url: string, query?: QueryParams, maxPages = 1): Promise<ListResult<T>> {
     if (!Number.isInteger(maxPages) || maxPages < 0) {
@@ -186,7 +188,7 @@ export class OparlClient {
       pages += 1;
       data.push(...page.data);
       const link = page.links?.next;
-      next = typeof link === "string" && link !== "" ? resolveLink(current, link) : null;
+      next = typeof link === "string" && link !== "" ? carryQuery(resolveLink(current, link), query) : null;
       if (next !== null && seen.has(next)) {
         next = null; // the server's `next` points back at a page already fetched
       }
