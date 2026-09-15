@@ -92,29 +92,39 @@ function errorObjectMessage(value: JsonObject): string | null {
 }
 
 /**
- * Normalise an OParl timestamp filter: a date (`2026-09-01`) becomes midnight UTC,
- * `Z` becomes `+00:00` (the spec's `±hh:mm` form). Anything else is rejected.
+ * Normalise an OParl timestamp filter to the spec's `YYYY-MM-DDThh:mm:ss±hh:mm` form.
+ * Accepts a date (`2026-09-01`, midnight UTC) or an ISO 8601 date-time with an offset:
+ * seconds and fractional seconds are optional (fractions are dropped), the offset may be
+ * `Z`, `±hh`, `±hhmm` or `±hh:mm`, and `T`/`Z` may be lowercase. A date-time without an
+ * offset is rejected, since the server would have to guess the time zone.
  */
 export function normalizeTimestamp(value: string): string {
   const trimmed = value.trim();
+  const invalid = (reason: string) => new OparlValidationError(`Invalid timestamp "${value}": ${reason}`);
   const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-  const dateTime = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(Z|[+-]\d{2}:\d{2})$/.exec(trimmed);
+  const dateTime = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?([Zz]|[+-]\d{2}(?::?\d{2})?)?$/.exec(trimmed);
   const parts = date ?? dateTime;
   if (!parts) {
-    throw new OparlValidationError(
-      `Invalid timestamp "${value}": use YYYY-MM-DD or YYYY-MM-DDThh:mm:ss±hh:mm.`,
-    );
+    throw invalid("use YYYY-MM-DD or an ISO 8601 date-time such as 2026-09-01T12:00:00+02:00.");
   }
   const [, y, m, d] = parts;
   const probe = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
   if (probe.getUTCFullYear() !== Number(y) || probe.getUTCMonth() !== Number(m) - 1 || probe.getUTCDate() !== Number(d)) {
-    throw new OparlValidationError(`Invalid timestamp "${value}": no such date.`);
+    throw invalid("no such date.");
   }
-  if (dateTime && (Number(dateTime[4]) > 23 || Number(dateTime[5]) > 59 || Number(dateTime[6]) > 59)) {
-    throw new OparlValidationError(`Invalid timestamp "${value}": no such time.`);
+  if (!dateTime) return `${trimmed}T00:00:00+00:00`;
+  const [, , , , hh = "", mm = "", ss = "00", zone] = dateTime;
+  if (Number(hh) > 23 || Number(mm) > 59 || Number(ss) > 59) throw invalid("no such time.");
+  if (zone === undefined) throw invalid("add a time zone offset, e.g. Z or +02:00.");
+  let offset = "+00:00";
+  if (!/^z$/i.test(zone)) {
+    const digits = zone.slice(1).replace(":", "");
+    const offsetH = digits.slice(0, 2);
+    const offsetM = digits.slice(2) || "00";
+    if (Number(offsetH) > 23 || Number(offsetM) > 59) throw invalid("no such time zone offset.");
+    offset = `${zone[0]}${offsetH}:${offsetM}`;
   }
-  if (date) return `${trimmed}T00:00:00+00:00`;
-  return trimmed.replace(/Z$/, "+00:00");
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}${offset}`;
 }
 
 /** The OParl filter query for a list request. */

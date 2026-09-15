@@ -93,8 +93,10 @@ const one = await client.get(papers.data[0]!.id);
 | `walk(url, query?, maxPages)` | `ListResult` — follows `links.next` with the same-host rule |
 | `get(url)` | any object; rejects arrays and `{ error }` objects |
 
-`ListResult` is `{ data, pages, next }`. `normalizeTimestamp` turns `YYYY-MM-DD` into
-`YYYY-MM-DDT00:00:00+00:00` and `Z` into `+00:00`, the form the spec uses.
+`ListResult` is `{ data, pages, next }`. `normalizeTimestamp` writes every accepted input in
+the form the spec uses, `YYYY-MM-DDThh:mm:ss±hh:mm`: `YYYY-MM-DD` becomes midnight UTC, `Z`
+becomes `+00:00`, `±hhmm`/`±hh` offsets get their colon, missing seconds become `:00` and
+fractional seconds are dropped. A date-time without an offset is rejected.
 
 ## Architecture
 

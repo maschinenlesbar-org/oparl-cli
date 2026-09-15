@@ -131,6 +131,13 @@ test("list meeting fetches one page and passes the filters", async () => {
   assert.deepEqual([next.get("page"), next.get("modified_since"), next.get("limit")], ["2", "2026-09-01T10:00:00+00:00", "25"]);
 });
 
+test("list accepts ISO 8601 timestamps with fractional seconds", async () => {
+  const cli = makeCli();
+  const since = new Date(Date.UTC(2026, 8, 1, 10, 0, 0, 123)).toISOString(); // 2026-09-01T10:00:00.123Z
+  assert.equal(await run(["list", "meeting", fx.BODY_URL, "--created-since", since], cli.deps), 0);
+  assert.equal(queryOf(cli.mt.calls[1]!).get("created_since"), "2026-09-01T10:00:00+00:00");
+});
+
 test("list --max-pages 0 walks every page", async () => {
   const cli = makeCli();
   await run(["list", "meeting", fx.BODY_URL, "--max-pages", "0"], cli.deps);
@@ -143,6 +150,7 @@ test("usage errors exit 2 without a request", async () => {
     ["list", "meeting", "not-a-url"],
     ["list", "meeting", "ftp://ris.example.de/body"],
     ["list", "meeting", fx.BODY_URL, "--modified-since", "2026-02-30"],
+    ["list", "meeting", fx.BODY_URL, "--modified-since", "2026-09-01T10:00:00"],
     ["list", "meeting", fx.BODY_URL, "--limit", "0"],
     ["list", "meeting", fx.BODY_URL, "--max-pages", "-1"],
     ["get"],

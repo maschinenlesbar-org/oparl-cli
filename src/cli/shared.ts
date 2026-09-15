@@ -70,7 +70,7 @@ export function parseUrl(value: string): string {
   return value;
 }
 
-/** commander value-parser for an OParl timestamp filter (YYYY-MM-DD or full ISO 8601). */
+/** commander value-parser for an OParl timestamp filter (YYYY-MM-DD or an ISO 8601 date-time with offset). */
 export function parseTimestamp(value: string): string {
   try {
     return normalizeTimestamp(value);

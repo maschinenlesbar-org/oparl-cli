@@ -215,3 +215,20 @@ test("normalizeTimestamp accepts dates and ISO 8601 date-times", () => {
     assert.throws(() => normalizeTimestamp(bad), OparlValidationError, bad);
   }
 });
+
+test("normalizeTimestamp accepts the other ISO 8601 forms and writes the spec form", () => {
+  // What `date --iso-8601=ns`, JavaScript's toISOString() and PostgreSQL print.
+  const cases: Array<[string, string]> = [
+    ["2026-09-01T12:30:00.123Z", "2026-09-01T12:30:00+00:00"],
+    ["2026-09-01T12:30:00,5+02:00", "2026-09-01T12:30:00+02:00"],
+    ["2026-09-01T12:30:00.123456789+02:00", "2026-09-01T12:30:00+02:00"],
+    ["2026-09-01T12:30Z", "2026-09-01T12:30:00+00:00"],
+    ["2026-09-01T12:30:00+0200", "2026-09-01T12:30:00+02:00"],
+    ["2026-09-01T12:30:00-05", "2026-09-01T12:30:00-05:00"],
+    ["2026-09-01t12:30:00z", "2026-09-01T12:30:00+00:00"],
+  ];
+  for (const [input, expected] of cases) assert.equal(normalizeTimestamp(input), expected, input);
+  for (const bad of ["2026-09-01T12:30:00", "2026-09-01T12:30:00+2400", "2026-09-01T12:30:00+02:60", "2026-09-01T12:30:00.Z", "2026-09-01T12Z"]) {
+    assert.throws(() => normalizeTimestamp(bad), OparlValidationError, bad);
+  }
+});
