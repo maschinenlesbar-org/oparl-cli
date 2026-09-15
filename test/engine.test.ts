@@ -25,6 +25,20 @@ test("getJson appends query parameters and keeps those the URL already has", asy
   assert.equal(q.has("limit"), false);
 });
 
+test("credentials in a URL are never sent nor echoed in errors", async () => {
+  const mt = makeMockTransport((req) =>
+    req.url.endsWith("/old") ? redirect("https://admin:hunter2@ris.example.de/new", 302) : jsonResponse({ error: "nope" }, 404),
+  );
+  const e = new RequestEngine({ transport: mt.transport });
+  await assert.rejects(
+    () => e.getJson("https://user:s3cret@ris.example.de/old"),
+    (err) => err instanceof OparlApiError && !/s3cret|hunter2|user:|admin:/.test(err.message),
+  );
+  assert.deepEqual(mt.calls.map((c) => c.url), ["https://ris.example.de/old", "https://ris.example.de/new"]);
+  assert.ok(mt.calls.every((c) => c.headers?.["Authorization"] === undefined));
+  assert.equal(resolveLink("https://u:p@a.de/x", "https://v:q@a.de/y"), "https://a.de/y");
+});
+
 test("a non-http URL is rejected before any request", async () => {
   const mt = makeMockTransport(() => jsonResponse({}));
   const e = new RequestEngine({ transport: mt.transport });

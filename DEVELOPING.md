@@ -19,7 +19,8 @@ Following server-supplied URLs is the security-relevant part. `resolveLink` in
 `src/client/engine.ts` resolves every such link (and every redirect `Location`) against
 the URL it came from and only follows it on the **same host and port**, upgrading
 `http:` to `https:` on that host and never downgrading. List walks also stop when a
-`next` link repeats a page already fetched.
+`next` link repeats a page already fetched. OParl is anonymous, so any `user:password@`
+in a URL — typed or handed out — is dropped: never sent as Basic auth, never echoed.
 
 What we found probing real servers (September 2026) and designed around:
 

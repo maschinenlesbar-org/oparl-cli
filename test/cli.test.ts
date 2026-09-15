@@ -113,6 +113,14 @@ test("usage errors exit 2 without a request", async () => {
   }
 });
 
+test("a URL with user:password never sends or prints the credentials", async () => {
+  const cli = makeCli();
+  const code = await run(["get", `https://user:s3cret@ris.example.de/oparl/nope`], cli.deps);
+  assert.equal(code, 4);
+  assert.equal(cli.mt.last().url, `${fx.HOST}/oparl/nope`);
+  assert.doesNotMatch(cli.err.join("\n"), /s3cret|user:/);
+});
+
 test("get prints any object", async () => {
   const cli = makeCli();
   await run(["get", `${fx.MEETINGS_URL}?page=3`, "--compact"], cli.deps);

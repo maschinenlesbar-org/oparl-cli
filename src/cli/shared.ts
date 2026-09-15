@@ -60,6 +60,13 @@ export function parseUrl(value: string): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new InvalidArgumentError("Only http: and https: URLs are supported.");
   }
+  // OParl access is anonymous: drop any user:password@ so it is never sent (as Basic
+  // auth) nor echoed in error messages.
+  if (url.username !== "" || url.password !== "") {
+    url.username = "";
+    url.password = "";
+    return url.href;
+  }
   return value;
 }
 

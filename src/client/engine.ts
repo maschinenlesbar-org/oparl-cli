@@ -67,16 +67,23 @@ export function sanitizeServerText(text: string): string {
   return out;
 }
 
-/** Parse a user-supplied URL, accepting only http: and https:. */
+/**
+ * Parse a user-supplied URL, accepting only http: and https:. Any `user:password@`
+ * part is removed: OParl access is anonymous, and credentials in a URL would
+ * otherwise be sent as Basic auth to whatever server the URL names and be echoed in
+ * error messages.
+ */
 export function parseHttpUrl(value: string): URL {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new OparlValidationError(`Not a valid URL: ${value}`);
+    throw new OparlValidationError("Not a valid URL.");
   }
+  url.username = "";
+  url.password = "";
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new OparlValidationError(`Only http: and https: URLs are supported: ${value}`);
+    throw new OparlValidationError(`Only http: and https: URLs are supported: ${url.href}`);
   }
   return url;
 }
@@ -93,12 +100,16 @@ const effectivePort = (url: URL): string => url.port || (url.protocol === "https
  */
 export function resolveLink(from: string, link: string): string {
   const base = new URL(from);
+  base.username = "";
+  base.password = "";
   let target: URL;
   try {
     target = new URL(link, base);
   } catch {
     throw new OparlLinkError(`The server returned an invalid link: ${sanitizeServerText(link)}`);
   }
+  target.username = "";
+  target.password = "";
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     throw new OparlLinkError(`Refusing to follow a non-http link: ${sanitizeServerText(target.href)}`);
   }
@@ -198,8 +209,7 @@ export class RequestEngine {
    * the same host, and rejects non-JSON bodies with an OparlParseError.
    */
   async getJson<T = unknown>(url: string, query?: QueryParams): Promise<T> {
-    parseHttpUrl(url);
-    const requested = withQuery(url, query);
+    const requested = withQuery(parseHttpUrl(url).href, query);
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
       Accept: "application/json",
