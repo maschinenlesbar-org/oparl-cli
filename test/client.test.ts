@@ -32,6 +32,19 @@ test("an OParl/vendor error object is reported, not returned", async () => {
   await assert.rejects(() => c.get(fx.SYSTEM_URL), (err) => err instanceof OparlParseError && /OParl is not active/.test(err.message));
 });
 
+test("an error object served as a list page is reported with its message", async () => {
+  const ESC = String.fromCharCode(0x1b);
+  const error = { type: "https://schema.oparl.org/1.0/Error", message: `Datenbank nicht erreichbar${ESC}[2J`, debug: "ORA-12541" };
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse(error) });
+  await assert.rejects(
+    () => c.list(fx.BODY_URL, "meeting"),
+    (err) => err instanceof OparlParseError && err.message.endsWith("answered with an error object: Datenbank nicht erreichbar[2J"),
+  );
+  const bare = client({ [fx.SYSTEM_URL]: jsonResponse({ type: "https://schema.oparl.org/1.1/Error" }) });
+  await assert.rejects(() => bare.c.get(fx.SYSTEM_URL), (err) => err instanceof OparlParseError && /error object: \(no message\)/.test(err.message));
+  await assert.rejects(() => bare.c.page(fx.SYSTEM_URL), (err) => err instanceof OparlParseError && /error object/.test(err.message));
+});
+
 test("get rejects a JSON array", async () => {
   const { c } = client({ [fx.SYSTEM_URL]: jsonResponse([1, 2]) });
   await assert.rejects(() => c.get(fx.SYSTEM_URL), OparlParseError);

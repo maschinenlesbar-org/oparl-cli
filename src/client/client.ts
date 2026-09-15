@@ -12,7 +12,7 @@
 //   const { data: bodies } = await c.bodies(system.id);     // its bodies
 //   const meetings = await c.list(bodies[0].id, "meeting"); // first page of meetings
 
-import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, type EngineOptions } from "./engine.js";
+import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, sanitizeServerText, type EngineOptions } from "./engine.js";
 import type { QueryParams } from "./query.js";
 import { OparlParseError, OparlValidationError } from "./errors.js";
 import type {
@@ -80,6 +80,18 @@ const isObject = (value: unknown): value is JsonObject =>
 const str = (value: JsonValue | undefined): string | null => (typeof value === "string" ? value : null);
 
 /**
+ * The message of an OParl or vendor error object — `{ "type": ".../Error", "message": "…" }`
+ * or `{ "error": "…" }`, without an `id` — stripped of control characters and capped.
+ * Null for anything else.
+ */
+function errorObjectMessage(value: JsonObject): string | null {
+  if (typeof value["id"] === "string") return null;
+  const message = str(value["message"]) ?? str(value["error"]);
+  if (message === null && !/\/Error$/.test(str(value["type"]) ?? "")) return null;
+  return sanitizeServerText(message ?? "(no message)").slice(0, 200);
+}
+
+/**
  * Normalise an OParl timestamp filter: a date (`2026-09-01`) becomes midnight UTC,
  * `Z` becomes `+00:00` (the spec's `±hh:mm` form). Anything else is rejected.
  */
@@ -128,16 +140,16 @@ export class OparlClient {
 
   /**
    * Fetch one OParl object by URL. Rejects non-objects and OParl/vendor error objects
-   * (`{ "error": "…" }` without an `id`) with an OparlParseError.
+   * (`{ "type": ".../Error", "message": "…" }`, `{ "error": "…" }`) with an OparlParseError.
    */
   async get<T extends JsonObject = OparlObject>(url: string): Promise<T> {
     const value = await this.engine.getJson<unknown>(url);
     if (!isObject(value)) {
       throw new OparlParseError(`Expected an OParl object from ${url} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
     }
-    if (typeof value["id"] !== "string" && (typeof value["error"] === "string" || typeof value["message"] === "string")) {
-      const message = String(value["error"] ?? value["message"]);
-      throw new OparlParseError(`The server at ${url} answered with an error object: ${message.slice(0, 200)}`);
+    const message = errorObjectMessage(value);
+    if (message !== null) {
+      throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
     }
     return value as T;
   }
@@ -158,6 +170,10 @@ export class OparlClient {
   async page<T extends JsonObject = OparlObject>(url: string, query?: QueryParams): Promise<OparlListPage<T>> {
     const value = await this.engine.getJson<unknown>(url, query);
     if (!isObject(value) || !Array.isArray(value["data"])) {
+      const message = isObject(value) ? errorObjectMessage(value) : null;
+      if (message !== null) {
+        throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
+      }
       const type = isObject(value) ? str(value["type"]) : null;
       throw new OparlParseError(
         `${url} is not an OParl object list${type ? ` (got an object of type ${type})` : ""}.`,
