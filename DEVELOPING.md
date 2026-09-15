@@ -73,7 +73,7 @@ const one = await client.get(papers.data[0]!.id);
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `registryUrl` | `https://dev.oparl.org/api/endpoints` | Endpoint registry used by `endpoints()` |
-| `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables) |
+| `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms) |
 | `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) |
 | `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
 | `maxRedirects` | `3` | Same-host redirects followed per request |

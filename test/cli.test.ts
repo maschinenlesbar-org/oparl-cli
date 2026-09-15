@@ -155,6 +155,7 @@ test("usage errors exit 2 without a request", async () => {
     ["list", "meeting", fx.BODY_URL, "--max-pages", "-1"],
     ["get"],
     ["--max-redirects", "11", "get", fx.SYSTEM_URL],
+    ["--timeout", "3000000000", "get", fx.SYSTEM_URL],
     ["--user-agent", "bad\r\nX-Injected: 1", "get", fx.SYSTEM_URL],
     ["boguscmd"],
   ];
@@ -257,6 +258,16 @@ test("global options reach the client", async () => {
   await run(["--timeout", "5000", "--user-agent", "my-agent", "system", fx.SYSTEM_URL], cli.deps);
   assert.equal(cli.mt.last().timeoutMs, 5000);
   assert.equal(cli.mt.last().headers?.["User-Agent"], "my-agent");
+});
+
+test("--timeout accepts up to the largest timer Node supports", async () => {
+  const cli = makeCli();
+  assert.equal(await run(["--timeout", "2147483647", "system", fx.SYSTEM_URL], cli.deps), 0);
+  assert.equal(cli.mt.last().timeoutMs, 2_147_483_647);
+
+  const over = makeCli();
+  assert.equal(await run(["--timeout", "2147483648", "system", fx.SYSTEM_URL], over.deps), 2);
+  assert.match(over.err.join("\n"), /Must be <= 2147483647/);
 });
 
 test("a bare invocation prints help and exits 0", async () => {
