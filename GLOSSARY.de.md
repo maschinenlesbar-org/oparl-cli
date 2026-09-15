@@ -78,26 +78,41 @@ sie lädt keine Dateien herunter.
 
 **LegislativeTerm (`list legislative-term`) – *Wahlperiode*.** Eine Wahlperiode des Rats mit
 `startDate` und `endDate`. Körperschaften in OParl 1.0 betten diese als Array ein statt als
-Listen-URL; `list legislative-term` gibt dann die eingebetteten Wahlperioden mit `pages: 0` aus.
+Listen-URL; `list legislative-term` gibt dann die eingebetteten Wahlperioden mit `pages: 0` aus
+und wendet die Datumsfilter lokal an. Eine Wahlperiode ohne `created`/`modified` lässt sich
+nicht filtern, wird also ausgegeben, und das `note` im Ergebnis weist darauf hin.
 
 ## Listen und Paginierung
 
 **Objektliste / Seite.** Eine Liste wird seitenweise ausgeliefert: `data` (die Objekte),
 `pagination` (optionale Zählwerte) und `links` (`first`, `self`, `last` sowie `next` auf
 jeder Seite außer der letzten). `oparl list` folgt `next`; das `next` im Ergebnis zeigt, wo
-es aufgehört hat.
+es aufgehört hat. Eine Seite, deren `data` etwas anderes als Objekte enthält, wird
+abgelehnt; ein Server, der auf eine Listen-URL ein bloßes JSON-Array statt einer Seite
+antwortet (ein SD.NET-Build in Essen), wird als einzelne Seite gelesen.
 
 **Filter.** OParl definiert für Listen `created_since`, `created_until`, `modified_since`,
 `modified_until`, `limit` und `omit_internal` (`--modified-since` …). Server sollen die
 Datumsfilter unterstützen, manche ignorieren sie jedoch oder scheitern daran.
 
 **Gelöschte Objekte (`deleted: true`).** Server dürfen gelöschte Objekte, markiert als
-`deleted`, in Listen behalten, damit synchronisierende Clients sie entfernen können.
+`deleted`, in Listen behalten, damit synchronisierende Clients sie entfernen können. Manche
+Server zeigen sie nur mit `modified_since`, und da `oparl list` bei einer wiederholten `id`
+die *letzte* Kopie behält, gewinnt ein Grabstein-Eintrag auf einer späteren Seite gegenüber
+der lebenden Kopie auf einer früheren.
 
 **Seitenschleife (`looped`).** Ein Server, dessen `next`-Link auf eine bereits abgerufene
-Seite zurückführt oder dessen nächste Seite nur schon gelistete Objekte wiederholt. Das
-Durchlaufen endet dort, listet jedes Objekt einmal, setzt `looped: true` und vermerkt es auf
-stderr.
+Seite zurückführt oder der immer weitere Seiten liefert, die nichts hinzufügen – dieselbe
+Seite oder eine leere unter immer neuen `?page=n`-Links. Das Durchlaufen endet nach drei
+solchen Seiten in Folge, listet jedes Objekt einmal, setzt `looped: true` und behält das
+`next` des Servers, damit die Liste von Hand weitergeführt werden kann. Warum drei: Eine
+Seite, die Objekte wiederholt, sieht genauso aus wie ein Eintrag, der während des
+Durchlaufens in die Liste eingefügt wurde.
+
+**Durchlauf-Hinweis (`note`).** Ein Satz im Ergebnis von `list`/`bodies`, ebenfalls auf
+stderr ausgegeben: Er nennt den Grund, aus dem das Durchlaufen vor dem Ende der Liste endete
+(eine Seitenschleife oder ein `next`-Link, dem die CLI nicht folgt), oder welcher Filter
+nicht angewendet werden konnte.
 
 ## Dieses Tool
 
@@ -107,4 +122,6 @@ Alles andere bricht mit „Refusing to follow …“ ab. Dieselbe Hochstufung gi
 In einer über https abgerufenen Antwort werden `http://`-URLs auf diesem Host als `https://`
 angezeigt, sodass IDs, die Sie an `list` oder `get` zurückgeben, verschlüsselt bleiben.
 
-**`pages` / `next` (Ausgabe von `list`).** Wie viele Seiten abgerufen wurden, und der Link zum Weitermachen.
+**`pages` / `next` (Ausgabe von `list`).** Wie viele Seiten abgerufen wurden, und der Link zum
+Weitermachen – vorhanden, wann immer die letzte abgerufene Seite einen anbot, `null` am Ende
+der Liste und dann, wenn der Link in eine Schleife zurückführt.

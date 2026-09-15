@@ -64,6 +64,10 @@ oparl system "<System URL>" --compact | jq '{name, oparlVersion, vendor, product
   before calling it down.
 - Exit `1` "not an OParl System" or an HTML page, or exit `4` → the endpoint moved or is
   gone. Report that, with the `checked` (or `fetched`) date, and any `replacedBy`.
+- Exit `1` "is an OParl System, but its `body` is …" → the URL is right and the server's
+  System is broken: it doesn't publish the URL of its list of bodies, so `oparl bodies`
+  cannot work. Show what it does send (`oparl get "<System URL>"`) and report it as a
+  server-side defect, not a wrong URL.
 - Exit `6` with "unable to verify the first certificate" → the server doesn't send its
   intermediate TLS certificate (Kaiserslautern). It is up; tell the user it needs
   `NODE_EXTRA_CA_CERTS` with that certificate (README, Troubleshooting). Never suggest
@@ -101,8 +105,10 @@ Body has only `licenseValidSince` (a date, no license). A `licenseValidSince` wi
   Curated entries carry the count from their last check.
 - **Shared servers.** One System can host many bodies (a data centre, a Verbandsgemeinde with
   its member municipalities); find the right Body by name.
-- **A note "stopped after page N"** from `oparl bodies` means the server repeated its pages;
-  the output still has every distinct body (`looped: true`).
+- **A note "stopped after page N"** from `oparl bodies` means the walk gave up because the
+  server kept serving pages that added nothing (the same page under new page links, as
+  OWL-IT does) or pointed back at a page already fetched; the output still has every
+  distinct body (`looped: true`), and `next` says where a manual `oparl get` could go on.
 - **Vendor URLs carry versions** (`https://www.somacos.de?oparl=v1.6.1`); name the product,
   not the query string.
 - **Links stay on one host.** "Refusing to follow … another host" means the server pointed

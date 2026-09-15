@@ -34,9 +34,10 @@ oparl list legislative-term <bodyUrl>
 oparl get <url>            # any object, or the `next` page of a list
 ```
 
-`list` returns `{ data, pages, next }`: `data` the objects, `next` the link to continue
-(`null` at the end). Default is **one page** — keep it small first; some servers need a
-minute per page.
+`list` returns `{ data, pages, next }`: `data` the objects (once per `id`, the newest copy
+the server sent), `next` the link to continue (`null` at the end). A walk that gave up adds
+`looped: true` and a `note` — see Traps. Default is **one page** — keep it small first;
+some servers need a minute per page.
 
 ## Recipes
 
@@ -102,9 +103,17 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
   state how many pages you searched.
 - **`next` is the way on.** For more than a few pages use `--max-pages n` or `oparl get
   <next>`; with `--max-pages 0` on a large server, warn that it can take very long.
+- **A `note` on stderr says the walk stopped early.** `looped: true` with "stopped after
+  page N" means the server kept serving pages that added nothing (the same page, or an
+  empty one, under new page links) or pointed back at a page already fetched. Every
+  distinct object is in `data`; `next` (also in the output) is where to continue, so say
+  how far you got instead of calling the list complete. A note naming a refused link
+  ("Refusing to follow … another host") means the same: the data so far is good.
 - **1.0 bodies** have no `agenda-item`, `consultation`, `file`, `membership` or
   `location` lists; the error names what exists. `legislative-term` still works: it
-  prints the terms the body embeds (`pages: 0`). Some servers use non-spec field names
+  prints the terms the body embeds (`pages: 0`), with the date filters applied locally —
+  terms the server left without `created`/`modified` are printed anyway and the `note`
+  says the filter could not be applied to them. Some servers use non-spec field names
   (Düsseldorf links `consultations` and `files`; the CLI follows those two). If `list`
   says a 1.1 body lacks a list, look at the Body (`oparl get <bodyUrl>`) before telling
   the user it doesn't exist, and `oparl get` a matching list URL directly.

@@ -21,8 +21,9 @@ their meetings, papers or persons as clean JSON you can pipe straight into
 - **Follows the standard's navigation** — `endpoints` → `system` → `bodies` → `list`,
   paging through `links.next` for you, or `get` any object by URL.
 - **Careful with the network** — links and redirects are only followed on the server
-  they came from, pagination loops are detected (also servers that serve the same page
-  over and over), and slow servers get a 2-minute timeout.
+  they came from, pagination loops are detected (also servers that serve the same page,
+  or an empty one, over and over) and leave you a link to resume from, and slow servers
+  get a 2-minute timeout.
 - **Clean JSON output** — pretty by default, `--compact` for scripting, `-o <file>` to
   write to disk.
 
@@ -102,7 +103,10 @@ all honour them**: some ignore them silently, a few fail with a 400 or 500 — c
 
 `list` returns `{ "data": [...], "pages": n, "next": "…" }`. `next` is the link to the
 following page, or `null` at the end: continue with `oparl get <next>` or a higher
-`--max-pages`.
+`--max-pages`. Each object appears once, by `id`; where a page repeated an object, the
+last copy the server sent is kept — the newer one, including a `deleted: true`
+tombstone. A walk that gives up early adds `"looped": true` and a `"note"` saying why
+(also printed on stderr).
 
 ## Output & scripting
 
@@ -156,9 +160,11 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
   ```
 
   Don't turn off certificate checks.
-- **A note "stopped after page N"** — the server's next page repeated a page or objects
-  already listed (seen on a shared Somacos server). The output holds every distinct object
-  and `looped: true`.
+- **A note "stopped after page N"** — the walk gave up: either the server's `next` led
+  back to a page already fetched, or three pages in a row added nothing new (servers that
+  serve the same page, or an empty one, under ever-new `?page=n` links — seen on the
+  OWL-IT server). The output holds every distinct object, `looped: true` and, where the
+  server offered one, a `next` to continue from with `oparl get`.
 - **Exit `6` / "timed out"** — council systems can take a minute or more for one list
   page. Raise `--timeout <ms>` (`0` = no timeout) and keep `--max-pages` small.
 - **Exit `1` with a 400 or 500 after adding a filter** — the server doesn't support that
@@ -170,7 +176,9 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
   host. The CLI only follows links on the server they came from; fetch the URL with
   `oparl get` if you trust it.
 - **"is not an OParl System / Body"** — pass the System URL from `oparl endpoints` to
-  `system`/`bodies`, and a Body `id` from `oparl bodies` to `list`.
+  `system`/`bodies`, and a Body `id` from `oparl bodies` to `list`. "…is an OParl System,
+  but its `body` is …" means the URL is right and the server's System is wrong: it does
+  not publish the URL of its list of bodies. `oparl get <url>` shows what it does send.
 
 ## Global options
 

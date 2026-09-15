@@ -19,8 +19,11 @@ throughout:
 Following server-supplied URLs is the security-relevant part. `resolveLink` in
 `src/client/engine.ts` resolves every such link (and every redirect `Location`) against
 the URL it came from and only follows it on the **same host and port**, upgrading
-`http:` to `https:` on that host and never downgrading. List walks also stop when a
-`next` link repeats a page already fetched. OParl is anonymous, so any `user:password@`
+`http:` to `https:` on that host and never downgrading. A link it refuses ends the walk
+with a note rather than an error, so the pages already fetched are not lost, and the
+refused URL is never handed back as a continuation link. List walks also stop when a
+`next` link repeats a page already fetched (compared as the URL actually requested,
+filters included). OParl is anonymous, so any `user:password@`
 in a URL — typed or handed out — is dropped: never sent as Basic auth, never echoed.
 
 What we found probing real servers (September 2026) and designed around:
@@ -32,10 +35,14 @@ What we found probing real servers (September 2026) and designed around:
 | Düsseldorf (Somacos Session, 1.1, `ris-oparl.itk-rheinland.de`) | the Body links `consultations` and `files` instead of the spec's `consultation` and `file`; `list` falls back to those two names |
 | Freiburg (more! rubin, 1.0) | `limit` ignored; `created`/`modified` stamped with the current date on every object, so date filters match everything; paths like `/page/2`; unknown paths answer 200 with the System object; only four Body lists |
 | Leipzig (ALLRIS) | System answered HTTP 500 on the day |
+| Essen (SD.NET RIM, 1.1) | serves a bare `[]` for its `legislativeterm` list instead of a list page, which `page()` reads as one page |
+| OWL-IT (SessionNet, 1.1) | serves all 27 bodies under every `?page=n`, with an ever-new `next`: the walk's unproductive-page counter ends it after four requests |
+| Berlin BVV Mitte (ALLRIS, 1.0) | embedded legislative terms without the mandatory `created`/`modified`, so a local date filter can only keep them and say so |
 
 Hence: a 120 s default timeout, filters passed through with a clear caveat, type checks on
-every object (`system` must be a System, `list` needs a Body, pages need `data`), and exit-1
-hints for 400/5xx answers.
+every object (`system` must be a System, `list` needs a Body, pages need a `data` array of
+objects), and exit-1 hints for 400/5xx answers — the "retry without the filters" one only
+when the failing request actually carried filters or `limit`.
 
 ## Build from source
 
@@ -93,14 +100,21 @@ const one = await client.get(papers.data[0]!.id);
 | `system(url)` | `OparlSystem` — checks `type` and `body` |
 | `bodies(systemUrl, { maxPages })` | `ListResult<OparlBody>` — all pages by default |
 | `list(bodyUrl, type, options)` | `ListResult` — one page by default; `LIST_TYPES` maps CLI names to Body fields |
-| `page(url, query?)` | one `OparlListPage` |
+| `page(url, query?)` | one `OparlListPage`; every entry of `data` must be an object, and a bare JSON array is read as a single page |
 | `walk(url, query?, maxPages)` | `ListResult` — follows `links.next` with the same-host rule |
 | `get(url)` | any object; rejects arrays and `{ error }` objects |
 
-`ListResult` is `{ data, pages, next }`, plus `looped: true` when the walk stopped at a paging
-loop: a `next` link back to a page already fetched, or a page after the first that adds no
-object not already listed (some servers serve the same page under ever-new `?page=n` links).
-Objects are de-duplicated by `id` across pages. `normalizeTimestamp` writes every accepted input in
+`ListResult` is `{ data, pages, next }`, plus `looped: true` when the walk gave up before the
+end of the list, and an optional `note` (one sentence for the user, which the CLI prints on
+stderr) saying why. It gives up when a `next` link leads back to a page already fetched, or
+when `MAX_UNPRODUCTIVE_PAGES` (3) pages in a row add no object that wasn't already listed —
+the same page, or an empty one, under ever-new `?page=n` links. Two such pages are tolerated,
+because an insertion into the list during a walk looks exactly like a repeat. `next` is
+whatever the last page fetched offered, so a walk that gave up can be resumed by hand; a
+`next` the same-host rule refuses ends the walk with a `note` and keeps the pages already
+fetched. Objects are listed once per `id` across pages, keeping the **last** copy sent, since
+that is the newer one (an object edited mid-walk, or the spec's `deleted: true` tombstone).
+`normalizeTimestamp` writes every accepted input in
 the form the spec uses, `YYYY-MM-DDThh:mm:ss±hh:mm`: `YYYY-MM-DD` becomes midnight UTC, `Z`
 becomes `+00:00`, `±hhmm`/`±hh` offsets get their colon, missing seconds become `:00` and
 fractional seconds are dropped. A date-time without an offset is rejected.

@@ -76,24 +76,37 @@ does not download files.
 
 **LegislativeTerm (`list legislative-term`) — *Wahlperiode*.** A council term with
 `startDate` and `endDate`. OParl 1.0 bodies embed these as an array instead of a list URL;
-`list legislative-term` then prints the embedded terms with `pages: 0`.
+`list legislative-term` then prints the embedded terms with `pages: 0` and applies the date
+filters locally. A term without `created`/`modified` cannot be filtered on, so it is printed
+and the result's `note` says so.
 
 ## Lists and paging
 
 **Object list / page.** A list is served in pages: `data` (the objects), `pagination`
 (optional counts) and `links` (`first`, `self`, `last`, and `next` on every page but the
-last). `oparl list` follows `next`; its result's `next` is where it stopped.
+last). `oparl list` follows `next`; its result's `next` is where it stopped. A page whose
+`data` holds anything but objects is rejected; a server that answers a list URL with a
+bare JSON array instead of a page (an SD.NET build in Essen) is read as a single page.
 
 **Filters.** OParl defines `created_since`, `created_until`, `modified_since`,
 `modified_until`, `limit` and `omit_internal` for lists (`--modified-since` …). Servers
 are meant to support the date filters, but some ignore them or fail on them.
 
 **Deleted objects (`deleted: true`).** Servers may keep deleted objects in lists, marked
-`deleted`, so that syncing clients can remove them.
+`deleted`, so that syncing clients can remove them. A list only shows them with
+`modified_since` on some servers, and since `oparl list` keeps the *last* copy of a
+repeated `id`, a tombstone on a later page wins over the live copy on an earlier one.
 
 **Paging loop (`looped`).** A server whose `next` link leads back to a page already fetched,
-or whose next page only repeats objects already listed. The walk stops there, lists each
-object once, sets `looped: true` and notes it on stderr.
+or that keeps serving pages which add nothing — the same page, or an empty one, under
+ever-new `?page=n` links. The walk gives up after three such pages in a row, lists each
+object once, sets `looped: true`, and keeps the server's `next` so the list can be
+continued by hand. Why three: a page that repeats objects is also what an insertion into
+the list during the walk looks like.
+
+**Walk note (`note`).** One sentence in a `list`/`bodies` result, also printed on stderr,
+saying why the walk stopped before the end of the list (a paging loop, or a `next` link
+the CLI refuses to follow) or which filter it could not apply.
 
 ## This tool
 
@@ -103,4 +116,6 @@ they came from; an `http:` link on an `https:` server is upgraded. Anything else
 over https, `http://` URLs on that host are shown as `https://`, so ids you pass back to
 `list` or `get` stay encrypted.
 
-**`pages` / `next` (list output).** How many pages were fetched, and the link to continue.
+**`pages` / `next` (list output).** How many pages were fetched, and the link to continue —
+present whenever the last page fetched offered one, `null` at the end of the list and when
+the link leads back into a loop.

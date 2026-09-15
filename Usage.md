@@ -58,7 +58,9 @@ oparl system "$SYSTEM" | jq '{name, oparlVersion, vendor, license}'
 ```
 
 A System with a `body` URL is a live OParl server. Exit `1` with "not an OParl System"
-means the URL is something else — often a portal page or a moved endpoint.
+means the URL is something else — often a portal page or a moved endpoint. Exit `1` with
+"is an OParl System, but its `body` is …" means the URL is right and the server does not
+publish the URL of its list of bodies; `oparl get "$SYSTEM"` shows what it sends instead.
 
 ## Bodies and their lists
 
@@ -107,7 +109,9 @@ next=$(oparl list meeting "$BODY" | jq -r .next)
 oparl get "$next" | jq -r '.data[] | .name'
 ```
 
-`next` is `null` on the last page.
+`next` is `null` on the last page. It is also the way on when a walk gave up early: with
+`looped: true` and a `note` on stderr ("stopped after page N …"), `next` still points at
+the page after the last one fetched, so `oparl get "$next"` continues from there.
 
 ### 9. Committees and groups
 
@@ -120,6 +124,11 @@ oparl list organization "$BODY" --max-pages 0 | jq -r '.data[] | "\(.classificat
 ```bash
 oparl list legislative-term "$BODY" | jq -r '.data[] | "\(.startDate)\t\(.name)"'
 ```
+
+OParl 1.0 bodies embed their terms instead of linking a list; those come back with
+`pages: 0` and the date filters applied locally. Where such a term carries no
+`created`/`modified` (ALLRIS 1.0 servers omit them), it is listed anyway and a `note`
+says how many terms the filter could not be applied to.
 
 ### 11. Follow a reference
 
@@ -140,8 +149,11 @@ oparl list paper "$BODY" --max-pages 0 -o papers-full.json
 oparl list paper "$BODY" --max-pages 0 --modified-since 2026-09-01T00:00:00+02:00 -o papers-delta.json
 ```
 
-Deleted objects may appear with `deleted: true`. On large servers `--max-pages 0` can take
-a long time; raise `--timeout` rather than lowering it.
+Deleted objects may appear with `deleted: true` — apply them to your copy as deletions.
+Each object appears once per `id`, and where a page repeated it (a list that changes while
+it is being walked does that), the delta holds the **last** copy the server sent, so an
+object edited or deleted mid-walk is not kept stale. On large servers `--max-pages 0` can
+take a long time; raise `--timeout` rather than lowering it.
 
 ## Global options
 
