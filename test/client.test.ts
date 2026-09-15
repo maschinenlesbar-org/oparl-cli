@@ -213,9 +213,29 @@ test("list legislative-term returns the terms a body embeds instead of linking a
   ];
   const filtered = client({ [fx.body10.id]: jsonResponse({ ...fx.body10, legislativeTerm: terms }) });
   const since = await filtered.c.list(fx.body10.id, "legislative-term", { modifiedSince: "2021-01-01" });
-  assert.deepEqual(since.data.map((t) => t["name"]), ["2020 - 2025"]);
+  assert.deepEqual(since.data.map((t) => t["name"]), ["2020 - 2025", "undated"]);
   const until = await filtered.c.list(fx.body10.id, "legislative-term", { modifiedUntil: "2021-01-01" });
-  assert.deepEqual(until.data.map((t) => t["name"]), ["2014 - 2020"]);
+  assert.deepEqual(until.data.map((t) => t["name"]), ["2014 - 2020", "undated"]);
+});
+
+test("a date filter keeps embedded terms the server left undated, and says so", async () => {
+  // ALLRIS 1.0 (BVV Mitte) omits the mandatory created/modified on its embedded terms;
+  // excluding them turns a filter into a silently empty answer.
+  const terms = [
+    { id: `${fx.HOST}/oparl/LegislativeTerm/1`, type: "https://schema.oparl.org/1.0/LegislativeTerm", name: "2016-2021" },
+    { id: `${fx.HOST}/oparl/LegislativeTerm/2`, type: "https://schema.oparl.org/1.0/LegislativeTerm", name: "2021-2026" },
+  ];
+  const { c } = client({ [fx.body10.id]: jsonResponse({ ...fx.body10, legislativeTerm: terms }) });
+  const result = await c.list(fx.body10.id, "legislative-term", { modifiedSince: "2000-01-01" });
+  assert.deepEqual(result.data.map((t) => t["name"]), ["2016-2021", "2021-2026"]);
+  assert.match(result.note ?? "", /2 of 2 embedded legislative terms carry no created\/modified/);
+
+  // An object with a timestamp outside the window is still excluded, undated fields aside.
+  const mixed = client({
+    [fx.body10.id]: jsonResponse({ ...fx.body10, legislativeTerm: [{ ...terms[0], modified: "1999-01-01T00:00:00+01:00" }] }),
+  });
+  const excluded = await mixed.c.list(fx.body10.id, "legislative-term", { modifiedSince: "2000-01-01", createdSince: "2000-01-01" });
+  assert.deepEqual({ data: excluded.data, note: excluded.note }, { data: [], note: undefined });
 });
 
 test("list rejects a URL that is not a Body", async () => {

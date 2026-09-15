@@ -377,7 +377,9 @@ export class OparlClient {
    *
    * A Body without a `legislativeTermList` URL (every OParl 1.0 body) embeds its terms
    * in `legislativeTerm`; those are returned as they are (`pages: 0`, nothing fetched),
-   * with the date filters applied locally.
+   * with the date filters applied locally. A term the server left without the mandatory
+   * `created`/`modified` cannot be excluded by a date filter, so it is kept and the
+   * result's `note` says how many terms the filter could not be applied to.
    */
   async list(bodyUrl: string, type: ListType, options: ListOptions = {}): Promise<ListResult<OparlObject>> {
     const field = LIST_TYPES[type];
@@ -393,8 +395,27 @@ export class OparlClient {
     const listUrl = bodyListUrl(body, type);
     const embedded = body["legislativeTerm"];
     if (field === "legislativeTermList" && typeof listUrl !== "string" && Array.isArray(embedded)) {
-      const data = embedded.filter(isObject).filter((term) => matchesDateFilters(term, query)) as OparlObject[];
-      return { data, pages: 0, next: null };
+      const terms = embedded.filter(isObject) as OparlObject[];
+      const data: OparlObject[] = [];
+      let undated = 0;
+      for (const term of terms) {
+        const outcome = matchDateFilters(term, query);
+        if (outcome === "no-match") continue;
+        if (outcome === "undated") undated += 1;
+        data.push(term);
+      }
+      return {
+        data,
+        pages: 0,
+        next: null,
+        ...(undated > 0
+          ? {
+              note:
+                `${undated} of ${terms.length} embedded legislative terms carry no created/modified timestamp, ` +
+                "so the date filter could not be applied to them; they are listed.",
+            }
+          : {}),
+      };
     }
     if (typeof listUrl !== "string") {
       const available = (Object.keys(LIST_TYPES) as ListType[]).filter((name) => typeof bodyListUrl(body, name) === "string");
@@ -479,24 +500,32 @@ export class OparlClient {
 
 /**
  * The created/modified filters of a list query, checked locally against an object's
- * `created`/`modified`. An object without a parseable timestamp does not match a filter
- * on it.
+ * `created`/`modified`: "no-match" when a timestamp is outside a filter's window,
+ * "undated" when the object carries no parseable timestamp for a filter and none of the
+ * others excludes it. An undated object cannot be excluded on the evidence — the spec
+ * makes both fields mandatory, but 1.0 servers do omit them — so the caller keeps it and
+ * reports that the filter could not be applied.
  */
-function matchesDateFilters(object: JsonObject, query: QueryParams): boolean {
+function matchDateFilters(object: JsonObject, query: QueryParams): "match" | "no-match" | "undated" {
   const bounds = [
     ["created_since", "created", 1],
     ["created_until", "created", -1],
     ["modified_since", "modified", 1],
     ["modified_until", "modified", -1],
   ] as const;
+  let undated = false;
   for (const [param, field, direction] of bounds) {
     const bound = query[param];
     if (typeof bound !== "string") continue;
     const value = object[field];
     const at = typeof value === "string" ? Date.parse(value) : Number.NaN;
-    if (Number.isNaN(at) || (at - Date.parse(bound)) * direction < 0) return false;
+    if (Number.isNaN(at)) {
+      undated = true;
+      continue;
+    }
+    if ((at - Date.parse(bound)) * direction < 0) return "no-match";
   }
-  return true;
+  return undated ? "undated" : "match";
 }
 
 function projectEntry(raw: JsonObject): RegistryEntry {
