@@ -238,10 +238,26 @@ test("a 404 exits 4 with the server's message", async () => {
   assert.match(cli.err.join("\n"), /HTTP 404 .*Not found/);
 });
 
-test("a 500 exits 1 with a hint about filters", async () => {
-  const cli = makeCli(() => rawResponse("<!DOCTYPE html><title>500</title>", "text/html", 500));
-  assert.equal(await run(["--max-retries", "0", "get", fx.SYSTEM_URL], cli.deps), 1);
-  assert.match(cli.err.join("\n"), /Hint: .*server error/);
+test("a 500 exits 1 with a hint about filters only when the request carried some", async () => {
+  const fail = (status: number) => () => rawResponse("<!DOCTYPE html><title>error</title>", "text/html", status);
+
+  // `get` and `system` take neither filters nor --limit, so the filter advice is wrong there.
+  for (const argv of [["get", fx.SYSTEM_URL], ["system", fx.SYSTEM_URL]]) {
+    const cli = makeCli(fail(500));
+    assert.equal(await run(["--max-retries", "0", ...argv], cli.deps), 1);
+    assert.match(cli.err.join("\n"), /Hint: .*server error\. Try again later/);
+    assert.doesNotMatch(cli.err.join("\n"), /--limit/);
+
+    const bad = makeCli(fail(400));
+    assert.equal(await run(["--max-retries", "0", ...argv], bad.deps), 1);
+    assert.doesNotMatch(bad.err.join("\n"), /Hint:/);
+  }
+
+  for (const status of [500, 400]) {
+    const cli = makeCli((req) => (req.url === fx.BODY_URL ? jsonResponse(fx.body) : fail(status)()));
+    assert.equal(await run(["--max-retries", "0", "list", "meeting", fx.BODY_URL, "--modified-since", "2026-09-01"], cli.deps), 1);
+    assert.match(cli.err.join("\n"), /Hint: .*--limit or the date filters|Hint: .*fail on filters or --limit/);
+  }
 });
 
 test("a refused cross-host link exits 1", async () => {

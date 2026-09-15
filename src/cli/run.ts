@@ -29,6 +29,21 @@ const EXIT = {
 } as const;
 
 /**
+ * Whether the failing request carried a date filter or `limit` — only `list` sends
+ * those, so the "retry without the filters" hint is pointless for `get`, `system`,
+ * `bodies` and `endpoints`.
+ */
+function carriedListFilters(url: string): boolean {
+  let params: URLSearchParams;
+  try {
+    params = new URL(url).searchParams;
+  } catch {
+    return false;
+  }
+  return ["created_since", "created_until", "modified_since", "modified_until", "limit"].some((name) => params.has(name));
+}
+
+/**
  * Apply exitOverride + output redirection to every command in the tree.
  * commander does not propagate these to subcommands, so a parse error on a
  * subcommand would otherwise call process.exit() and bypass our error handling.
@@ -77,10 +92,12 @@ export async function run(argv: string[], deps: CliDeps = defaultDeps): Promise<
         );
       } else if (err.status >= 500) {
         deps.io.err(
-          "Hint: the council system reported a server error. Some servers fail on filters or " +
-            "--limit; retry without them, or later.",
+          "Hint: the council system reported a server error. " +
+            (carriedListFilters(err.url)
+              ? "Some servers fail on filters or --limit; retry without them, or later."
+              : "Try again later; council systems are often down for a while."),
         );
-      } else if (err.status === 400) {
+      } else if (err.status === 400 && carriedListFilters(err.url)) {
         deps.io.err("Hint: some servers reject --limit or the date filters; retry without them.");
       }
       return EXIT.OTHER;
