@@ -481,8 +481,9 @@ export class OparlClient {
     let url: string | null = this.registryUrl;
     const seen = new Set<string>();
     for (let page = 1; url !== null && page <= MAX_REGISTRY_PAGES; page++) {
-      const value: unknown = await this.engine.getJson<unknown>(url, page === 1 ? { page: 1, limit: 100 } : undefined);
-      seen.add(url);
+      const query = page === 1 ? { page: 1, limit: 100 } : undefined;
+      const value: unknown = await this.engine.getJson<unknown>(url, query);
+      seen.add(withQuery(parseHttpUrl(url).href, query)); // the URL requested, not the base URL
       if (!isObject(value) || !Array.isArray(value["data"])) {
         throw new OparlParseError(`${url} is not the OParl endpoint registry (no data array).`);
       }

@@ -475,6 +475,15 @@ test("endpoints merges the curated list after the registry and applies the live 
   assert.equal(entries[3]?.fetched, null);
 });
 
+test("a registry next link back to the page just fetched ends the registry walk", async () => {
+  // The guard used to store the bare registry URL while the request went to
+  // ?page=1&limit=100, so a `next` back to page 1 refetched it.
+  const page = (n: number) => jsonResponse({ data: fx.registryPage2.data, meta: { next: `${fx.REGISTRY_URL}?page=${n}&limit=100` } });
+  const { c, mt } = client({ [`${fx.REGISTRY_URL}?page=1&limit=100`]: page(2), [`${fx.REGISTRY_URL}?page=2&limit=100`]: page(1) });
+  assert.deepEqual((await c.endpoints({ source: "registry" })).map((e) => e.title), ["Gemeinde Musterdorf"]);
+  assert.deepEqual(mt.calls.map((call) => call.url), [`${fx.REGISTRY_URL}?page=1&limit=100`, `${fx.REGISTRY_URL}?page=2&limit=100`]);
+});
+
 test("endpoints lists a System the registry holds twice only once", async () => {
   const entry = fx.registryPage2.data[0]!;
   const doubled = { data: [entry, { ...entry, id: 4, title: "Gemeinde Musterdorf (again)", url: `${entry.url}/` }], meta: {} };
