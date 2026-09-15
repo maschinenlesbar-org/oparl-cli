@@ -67,6 +67,26 @@ test("system prints the System object", async () => {
   assert.equal((cli.json() as { body: string }).body, fx.BODIES_URL);
 });
 
+test("bodies prints https ids for a server that publishes http ids, so list stays on https", async () => {
+  // Somacos servers (Dresden, Düsseldorf) serve https but publish http:// ids.
+  const httpIds = (value: unknown) => JSON.parse(JSON.stringify(value).replaceAll("https://ris.example.de", "http://ris.example.de")) as unknown;
+  const cli = makeCli((req) => {
+    if (req.url === fx.SYSTEM_URL) return jsonResponse(httpIds(fx.system));
+    if (req.url === fx.BODIES_URL) return jsonResponse(httpIds(fx.bodyList));
+    if (req.url === fx.BODY_URL) return jsonResponse(httpIds(fx.body));
+    if (req.url.startsWith(fx.MEETINGS_URL)) return jsonResponse(httpIds(fx.meetingPages[1]));
+    return jsonResponse({ error: "unexpected" }, 404);
+  });
+  await run(["bodies", fx.SYSTEM_URL], cli.deps);
+  const bodyId = (cli.json() as { data: Array<{ id: string }> }).data[0]!.id;
+  assert.equal(bodyId, fx.BODY_URL);
+
+  cli.out.length = 0;
+  assert.equal(await run(["list", "meeting", bodyId], cli.deps), 0);
+  assert.ok(cli.mt.calls.every((c) => c.url.startsWith("https://")), cli.mt.calls.map((c) => c.url).join(" "));
+  assert.match((cli.json() as { next: string }).next, /^https:\/\//);
+});
+
 test("bodies prints { data, pages, next }", async () => {
   const cli = makeCli();
   await run(["bodies", fx.SYSTEM_URL], cli.deps);

@@ -88,6 +88,8 @@ are meant to support the date filters, but some ignore them or fail on them.
 
 **Same-host rule.** Links (`next`, list URLs) and redirects are only followed on the host
 they came from; an `http:` link on an `https:` server is upgraded. Anything else stops with
-"Refusing to follow …".
+"Refusing to follow …". The same upgrade applies to what is printed: in a response fetched
+over https, `http://` URLs on that host are shown as `https://`, so ids you pass back to
+`list` or `get` stay encrypted.
 
 **`pages` / `next` (list output).** How many pages were fetched, and the link to continue.

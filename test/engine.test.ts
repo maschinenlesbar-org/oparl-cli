@@ -173,6 +173,29 @@ test("resolveLink keeps links on the same host and upgrades http to https", () =
   }
 });
 
+test("http:// URLs on the host of an https response are printed as https://", async () => {
+  const served = {
+    id: "http://ris.example.de/oparl/bodies/0001",
+    meeting: "HTTP://RIS.EXAMPLE.DE:80/oparl/bodies/0001/meetings?page=2",
+    legislativeTerm: [{ id: "http://ris.example.de/oparl/terms/1", body: "http://ris.example.de" }],
+    website: "http://www.example.de/",
+    other: "http://ris.example.de:8080/x",
+    note: "see http://ris.example.de/oparl",
+  };
+  const e = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(served)).transport });
+  assert.deepEqual(await e.getJson("https://ris.example.de/oparl/bodies/0001"), {
+    id: "https://ris.example.de/oparl/bodies/0001",
+    meeting: "https://ris.example.de/oparl/bodies/0001/meetings?page=2",
+    legislativeTerm: [{ id: "https://ris.example.de/oparl/terms/1", body: "https://ris.example.de" }],
+    website: "http://www.example.de/", // another host
+    other: "http://ris.example.de:8080/x", // another port
+    note: "see http://ris.example.de/oparl", // not a URL value
+  });
+
+  const overHttp = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(served)).transport });
+  assert.deepEqual(await overHttp.getJson("http://ris.example.de/oparl/bodies/0001"), served);
+});
+
 test("withQuery leaves the URL alone when no parameter survives", () => {
   assert.equal(withQuery("https://a.de/x?page=1", { limit: undefined }), "https://a.de/x?page=1");
   assert.equal(withQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");

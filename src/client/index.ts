@@ -2,7 +2,15 @@
 
 export { OparlClient, DEFAULT_REGISTRY_URL, LIST_TYPES, listQuery, normalizeTimestamp } from "./client.js";
 export type { ListOptions, ListType, OparlClientOptions } from "./client.js";
-export { RequestEngine, carryQuery, parseHttpUrl, resolveLink, sanitizeServerText, withQuery } from "./engine.js";
+export {
+  RequestEngine,
+  carryQuery,
+  parseHttpUrl,
+  resolveLink,
+  sanitizeServerText,
+  upgradeSameHostUrls,
+  withQuery,
+} from "./engine.js";
 export type { EngineOptions } from "./engine.js";
 export { nodeHttpTransport } from "./http.js";
 export type { Transport, HttpRequest, HttpResponse } from "./http.js";

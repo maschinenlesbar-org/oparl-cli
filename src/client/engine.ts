@@ -136,6 +136,46 @@ export function resolveLink(from: string, link: string): string {
   return target.href;
 }
 
+/**
+ * Rewrite `http://` URLs on the host a response was fetched from over https to
+ * `https://`, everywhere in the decoded JSON. Several servers (Somacos in Dresden and
+ * Düsseldorf) publish `http://` ids while serving https; printed as-is, passing such an
+ * id back to the CLI — the documented `bodies` → `list` workflow — sent every later
+ * request in plain text, or hung where port 80 is closed. Only default ports are
+ * rewritten; other hosts and responses fetched over http are left alone.
+ */
+export function upgradeSameHostUrls<T>(value: T, fetchedFrom: string): T {
+  const base = new URL(fetchedFrom);
+  if (base.protocol !== "https:" || base.port !== "") return value;
+  const host = base.hostname.toLowerCase();
+  const rewrite = (text: string): string => {
+    if (text.length < 8 || text.slice(0, 7).toLowerCase() !== "http://") return text;
+    const end = text.slice(7).search(/[/?#]/);
+    const authority = end === -1 ? text.slice(7) : text.slice(7, 7 + end);
+    let parsed: URL;
+    try {
+      parsed = new URL(`http://${authority}`);
+    } catch {
+      return text;
+    }
+    if (parsed.hostname.toLowerCase() !== host || (parsed.port !== "" && parsed.port !== "80") || parsed.username !== "") {
+      return text;
+    }
+    return `https://${base.host}${end === -1 ? "" : text.slice(7 + end)}`;
+  };
+  const walk = (node: unknown): unknown => {
+    if (typeof node === "string") return rewrite(node);
+    if (Array.isArray(node)) return node.map(walk);
+    if (node !== null && typeof node === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(node)) out[key] = walk(child);
+      return out;
+    }
+    return node;
+  };
+  return walk(value) as T;
+}
+
 /** Append query parameters to a URL, keeping any it already carries. */
 export function withQuery(url: string, query?: QueryParams): string {
   if (!query) return url;
@@ -249,7 +289,7 @@ export class RequestEngine {
         throw this.toApiError(current, status, response.body);
       }
 
-      return this.decode<T>(current, response.body);
+      return upgradeSameHostUrls(this.decode<T>(current, response.body), current);
     }
   }
 
