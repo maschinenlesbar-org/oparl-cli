@@ -94,6 +94,12 @@ If a server ignores `--modified-since`, you get its first page unfiltered — co
 since the date, including old papers edited since and deleted ones (`deleted: true`, with
 empty fields), which the `select` drops. For new papers only, also compare `date`.
 
+Some servers answer a filter they cannot satisfy with an error instead of an empty list:
+SD.NET RIM (Bremen, Essen and most other `…/webservice/oparl/…` endpoints) replies HTTP
+**404** when no object falls into the window, so the CLI exits `4` "not found" although
+the list exists. Repeat the call without the filter: if that returns data, the window was
+simply empty.
+
 ### 7. Meetings, several pages at once
 
 ```bash
@@ -153,7 +159,8 @@ Deleted objects may appear with `deleted: true` — apply them to your copy as d
 Each object appears once per `id`, and where a page repeated it (a list that changes while
 it is being walked does that), the delta holds the **last** copy the server sent, so an
 object edited or deleted mid-walk is not kept stale. On large servers `--max-pages 0` can
-take a long time; raise `--timeout` rather than lowering it.
+take a long time; raise `--timeout` rather than lowering it. An empty window can come back
+as exit `4` on SD.NET servers — see recipe 6.
 
 ## Global options
 

@@ -93,7 +93,10 @@ antwortet (ein SD.NET-Build in Essen), wird als einzelne Seite gelesen.
 
 **Filter.** OParl definiert für Listen `created_since`, `created_until`, `modified_since`,
 `modified_until`, `limit` und `omit_internal` (`--modified-since` …). Server sollen die
-Datumsfilter unterstützen, manche ignorieren sie jedoch oder scheitern daran.
+Datumsfilter unterstützen, manche ignorieren sie jedoch oder scheitern daran. SD.NET-RIM-Server
+antworten auf ein Datumsfenster ohne Objekte mit HTTP 404 – die CLI endet dann mit `4`
+(„nicht gefunden"), obwohl die Liste existiert; wiederholen Sie den Aufruf ohne Filter, um
+beides zu unterscheiden.
 
 **Gelöschte Objekte (`deleted: true`).** Server dürfen gelöschte Objekte, markiert als
 `deleted`, in Listen behalten, damit synchronisierende Clients sie entfernen können. Manche

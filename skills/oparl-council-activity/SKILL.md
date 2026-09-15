@@ -80,6 +80,12 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
   others fail with exit `1` and a 400/500 hint. Check `modified` against the cut-off
   (recipe 3) and say which happened. On a failure, retry without the filter and filter
   with `jq`.
+- **Exit `4` after a date filter is usually an empty window, not a missing list.** SD.NET
+  RIM servers (most `…/webservice/oparl/…` endpoints, e.g. Bremen and Essen) answer a
+  window with no objects in it with HTTP 404 ("Die angeforderte Ressource wurde nicht
+  gefunden."), a few with 400 ("Keine Adressen vorhanden"). Repeat the same call without
+  the filter: if that returns data, report "no changes in that window", not "the list
+  does not exist". Only if the unfiltered call also fails is the list really unavailable.
 - **Some timestamps are fake.** more! rubin servers (e.g. Freiburg, OParl 1.0) stamp every
   object's `created` and `modified` with the current date, so a date filter "matches"
   everything and recipe 3 can't tell. If all `modified` values on a page share today's

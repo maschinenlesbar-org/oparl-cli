@@ -9,8 +9,8 @@ question — "does Köln publish OParl?", "which motions did the council file th
 and to report the answer with references rather than guesswork. They encode the parts that
 are easy to get wrong: there is no central API, the public registry is a stale snapshot (the
 CLI adds a curated list and live checks), servers may
-silently ignore date filters, list order is the server's, and data licenses differ per
-municipality.
+silently ignore date filters or answer an empty filter window with a 404, list order is the
+server's, and data licenses differ per municipality.
 
 ## Skills
 

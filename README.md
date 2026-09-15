@@ -135,7 +135,7 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
 | --- | --- |
 | `0` | Success (also `--help` / `--version`) |
 | `2` | Bad usage / invalid argument (nothing was sent) |
-| `4` | Not found (`404` from the server) |
+| `4` | Not found (`404` from the server) — on SD.NET servers also an empty date-filter window, see Troubleshooting |
 | `6` | Network / transport failure (DNS, connection, timeout, size cap) |
 | `1` | Any other error — a non-OParl response, a refused link, another HTTP status |
 
@@ -165,6 +165,12 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
   serve the same page, or an empty one, under ever-new `?page=n` links — seen on the
   OWL-IT server). The output holds every distinct object, `looped: true` and, where the
   server offered one, a `next` to continue from with `oparl get`.
+- **Exit `4` "not found" after adding a date filter** — SD.NET RIM servers (most of the
+  working endpoints, e.g. Bremen) answer a date window with no objects in it with HTTP 404
+  (`Die angeforderte Ressource wurde nicht gefunden.`) instead of an empty list, and a few
+  answer 400 (`Keine Adressen vorhanden`). The list is not gone: re-run without the filter
+  — if that works, the window was simply empty. The CLI does not turn such a 404 into an
+  empty result, because a 404 also means a wrong URL.
 - **Exit `6` / "timed out"** — council systems can take a minute or more for one list
   page. Raise `--timeout <ms>` (`0` = no timeout) and keep `--max-pages` small.
 - **Exit `1` with a 400 or 500 after adding a filter** — the server doesn't support that

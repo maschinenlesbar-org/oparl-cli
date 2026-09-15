@@ -90,7 +90,10 @@ bare JSON array instead of a page (an SD.NET build in Essen) is read as a single
 
 **Filters.** OParl defines `created_since`, `created_until`, `modified_since`,
 `modified_until`, `limit` and `omit_internal` for lists (`--modified-since` …). Servers
-are meant to support the date filters, but some ignore them or fail on them.
+are meant to support the date filters, but some ignore them or fail on them. SD.NET RIM
+servers answer a date window with no objects in it with HTTP 404 — the CLI then exits `4`
+"not found" although the list exists; repeat the call without the filter to tell the two
+apart.
 
 **Deleted objects (`deleted: true`).** Servers may keep deleted objects in lists, marked
 `deleted`, so that syncing clients can remove them. A list only shows them with
