@@ -48,6 +48,24 @@ export const LIST_TYPES = {
 
 export type ListType = keyof typeof LIST_TYPES;
 
+/**
+ * Non-spec Body fields some servers use instead of the spec name, tried when the spec
+ * field is missing. Düsseldorf's Somacos server (ris-oparl.itk-rheinland.de) links
+ * `consultations` and `files`.
+ */
+const LIST_FIELD_FALLBACKS: Partial<Record<ListType, string>> = {
+  consultation: "consultations",
+  file: "files",
+};
+
+/** The list URL a Body links for `type`, under the spec field or its known fallback. */
+function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
+  const url = body[LIST_TYPES[type]];
+  if (typeof url === "string") return url;
+  const fallback = LIST_FIELD_FALLBACKS[type];
+  return fallback !== undefined && typeof body[fallback] === "string" ? body[fallback] : url;
+}
+
 /** Guard against a server whose `next` links never end. */
 const MAX_PAGES_HARD_LIMIT = 10_000;
 const MAX_REGISTRY_PAGES = 50;
@@ -249,16 +267,14 @@ export class OparlClient {
     if (!/\/Body$/.test(bodyType)) {
       throw new OparlParseError(`${bodyUrl} is not an OParl Body (type: ${bodyType || "missing"}). Use a body URL from \`oparl bodies\`.`);
     }
-    const listUrl = body[field];
+    const listUrl = bodyListUrl(body, type);
     const embedded = body["legislativeTerm"];
     if (field === "legislativeTermList" && typeof listUrl !== "string" && Array.isArray(embedded)) {
       const data = embedded.filter(isObject).filter((term) => matchesDateFilters(term, query)) as OparlObject[];
       return { data, pages: 0, next: null };
     }
     if (typeof listUrl !== "string") {
-      const available = Object.entries(LIST_TYPES)
-        .filter(([, key]) => typeof body[key] === "string")
-        .map(([name]) => name);
+      const available = (Object.keys(LIST_TYPES) as ListType[]).filter((name) => typeof bodyListUrl(body, name) === "string");
       throw new OparlParseError(
         `This body has no ${type} list. It links: ${available.join(", ") || "none"}` +
           (/\/1\.0\//.test(bodyType) ? " (OParl 1.0 bodies only link organization, person, meeting and paper)." : "."),

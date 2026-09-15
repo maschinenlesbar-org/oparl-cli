@@ -137,6 +137,30 @@ test("list on a 1.0 body without that list names what the body links", async () 
   assert.equal(mt.calls.length, 1);
 });
 
+test("list consultation and file follow the plural Body fields some servers use", async () => {
+  // Düsseldorf's Somacos server links `consultations` and `files` instead of the spec's
+  // `consultation` and `file`.
+  const { consultation, file, ...rest } = fx.body;
+  const plural = { ...rest, consultations: consultation, files: file };
+  const page = { data: [{ id: `${consultation}/1`, type: "https://schema.oparl.org/1.1/Consultation" }], links: {} };
+  const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(plural), [consultation]: jsonResponse(page), [file]: jsonResponse({ data: [], links: {} }) });
+  assert.deepEqual((await c.list(fx.BODY_URL, "consultation")).data, page.data);
+  assert.equal(mt.last().url, consultation);
+  await c.list(fx.BODY_URL, "file");
+  assert.equal(mt.last().url, file);
+
+  // The spec field wins when a body has both, and the error lists the fallbacks as available.
+  const both = client({ [fx.BODY_URL]: jsonResponse({ ...fx.body, files: `${fx.BODY_URL}/other-files` }), [file]: jsonResponse({ data: [], links: {} }) });
+  await both.c.list(fx.BODY_URL, "file");
+  assert.equal(both.mt.last().url, file);
+  const { membership: _m, ...noMembership } = plural;
+  const missing = client({ [fx.BODY_URL]: jsonResponse(noMembership) });
+  await assert.rejects(
+    () => missing.c.list(fx.BODY_URL, "membership"),
+    (err) => err instanceof OparlParseError && /agenda-item, consultation, file, location/.test(err.message),
+  );
+});
+
 test("list legislative-term returns the terms a body embeds instead of linking a list", async () => {
   // OParl 1.0 bodies (e.g. Castrop-Rauxel) embed legislativeTerm and have no legislativeTermList.
   const { c, mt } = client({ [fx.body10.id]: jsonResponse(fx.body10) });
