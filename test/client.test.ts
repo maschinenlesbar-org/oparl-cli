@@ -200,15 +200,32 @@ test("a list page without a data array is rejected", async () => {
   await assert.rejects(() => c.list(fx.BODY_URL, "meeting"), (err) => err instanceof OparlParseError && /not an OParl object list/.test(err.message));
 });
 
-test("a Body list URL or next link on another host is refused", async () => {
+test("a Body list URL on another host is refused", async () => {
   const foreignBody = { ...fx.body, meeting: "https://tracker.example.com/meetings" };
   const one = client({ [fx.BODY_URL]: jsonResponse(foreignBody) });
   await assert.rejects(() => one.c.list(fx.BODY_URL, "meeting"), OparlLinkError);
   assert.equal(one.mt.calls.length, 1);
+});
 
-  const foreignNext = { data: [fx.meeting(1)], links: { next: "https://tracker.example.com/page2" } };
-  const two = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse(foreignNext) });
-  await assert.rejects(() => two.c.list(fx.BODY_URL, "meeting", { maxPages: 0 }), OparlLinkError);
+test("a next link this client won't follow ends the walk but keeps the pages fetched", async () => {
+  // A server behind a proxy that publishes its `next` on another host, a javascript:
+  // link, an unparseable one: none of them may cost the user the page already fetched.
+  for (const link of ["https://tracker.example.com/page2", "javascript:alert(1)", "http://["]) {
+    const table = {
+      [fx.BODY_URL]: jsonResponse(fx.body),
+      [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1)], links: { next: link } }),
+    };
+    for (const maxPages of [1, 0]) {
+      const { c } = client(table);
+      const result = await c.list(fx.BODY_URL, "meeting", { maxPages });
+      assert.deepEqual(
+        { ids: result.data.map((m) => m["id"]), pages: result.pages, next: result.next, looped: result.looped },
+        { ids: [fx.meeting(1).id], pages: 1, next: null, looped: undefined },
+        `${link} with maxPages ${maxPages}`,
+      );
+      assert.match(result.note ?? "", /stopped after page 1: (Refusing to follow|The server returned an invalid link)/);
+    }
+  }
 });
 
 test("a next link pointing back at a fetched page ends the walk", async () => {
@@ -216,21 +233,83 @@ test("a next link pointing back at a fetched page ends the walk", async () => {
   const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse(loop) });
   const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
   assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped }, { pages: 1, next: null, looped: true });
+  assert.match(result.note ?? "", /points back to a page already fetched/);
   assert.equal(mt.calls.length, 2);
 });
 
-test("a page that only repeats objects already listed ends the walk", async () => {
-  // A server that serves the same page under ever-new ?page=n links (seen live on a
-  // shared Somacos server): without the check, the walk runs to the hard page limit.
+test("the first page is remembered with its filters, so a next link back to it is caught", async () => {
+  // The page's `next` is the page itself, filters included: without the filters in the
+  // loop guard the walk refetches it and hands the user a `next` that leads nowhere else.
+  const selfNext = (req: { url: string }) =>
+    jsonResponse({ data: [fx.meeting(1)], links: { next: `${fx.MEETINGS_URL}${new URL(req.url).search}` } });
+  const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: selfNext });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0, modifiedSince: "2026-01-01" });
+  assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped }, { pages: 1, next: null, looped: true });
+  assert.equal(mt.calls.length, 2); // body + the one page
+});
+
+test("a run of pages that add nothing ends the walk, with a next link to resume from", async () => {
+  // A server that serves the same page under ever-new ?page=n links (seen live on the
+  // OWL-IT server): without the check, the walk runs to the hard page limit.
   const repeating = (req: { url: string }) => {
     const n = Number(new URL(req.url).searchParams.get("page") ?? "1");
     return jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=${n + 1}` } });
   };
   const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: repeating });
   const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
-  assert.deepEqual(result.data.map((m) => m.id), [fx.meeting(1).id, fx.meeting(2).id]);
-  assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped }, { pages: 2, next: null, looped: true });
-  assert.equal(mt.calls.length, 3);
+  assert.deepEqual(result.data.map((m) => m["id"]), [fx.meeting(1).id, fx.meeting(2).id]);
+  assert.deepEqual(
+    { pages: result.pages, next: result.next, looped: result.looped },
+    { pages: 4, next: `${fx.MEETINGS_URL}?page=5`, looped: true },
+  );
+  assert.match(result.note ?? "", /the last 3 pages added no object/);
+  assert.equal(mt.calls.length, 5);
+});
+
+test("an endless run of empty pages ends the walk instead of paging to the hard limit", async () => {
+  const empty = (req: { url: string }) => {
+    const n = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    return jsonResponse({ data: [], links: { next: `${fx.MEETINGS_URL}?page=${n + 1}` } });
+  };
+  const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: empty });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(
+    { n: result.data.length, pages: result.pages, next: result.next, looped: result.looped },
+    { n: 0, pages: 3, next: `${fx.MEETINGS_URL}?page=4`, looped: true },
+  );
+  assert.equal(mt.calls.length, 4);
+});
+
+test("a page that repeats objects because the list shifted does not truncate the walk", async () => {
+  // Two objects are inserted at the head of the list between page 1 and page 2, so page 2
+  // repeats page 1 — indistinguishable from a repeating server until the next page.
+  const shifted = (req: { url: string }) => {
+    const page = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    if (page === 1) return jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=2` } });
+    if (page === 2) return jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=3` } });
+    return jsonResponse({ data: [fx.meeting(3), fx.meeting(4)], links: {} });
+  };
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: shifted });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(result.data.map((m) => m["id"]), [1, 2, 3, 4].map((n) => fx.meeting(n).id));
+  assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped, note: result.note }, { pages: 3, next: null, looped: undefined, note: undefined });
+});
+
+test("a repeated id keeps the last copy the server sent, tombstones included", async () => {
+  // The spec's sync model relies on the newer copy arriving later: an object edited
+  // during the walk, and a deleted one that comes back as { id, deleted: true }.
+  const edited = { ...fx.meeting(1), name: "Sitzung des Rates (verlegt)", modified: "2026-09-16T10:00:00+02:00" };
+  const tombstone = { id: fx.meeting(2).id, type: fx.meeting(2).type, created: fx.meeting(2).created, modified: "2026-09-16T10:00:00+02:00", deleted: true };
+  const { c } = client({
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=2` } }),
+    [`${fx.MEETINGS_URL}?page=2`]: jsonResponse({ data: [edited, tombstone, fx.meeting(3)], links: {} }),
+  });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(result.data.map((m) => m["id"]), [1, 2, 3].map((n) => fx.meeting(n).id));
+  assert.deepEqual(result.data[0], edited); // the later, newer copy, in the first copy's place
+  assert.deepEqual(result.data[1], tombstone);
+  assert.deepEqual({ pages: result.pages, next: result.next }, { pages: 2, next: null });
 });
 
 test("objects repeated across pages are listed once, and the walk goes on", async () => {

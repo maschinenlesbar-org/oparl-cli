@@ -34,18 +34,32 @@ export interface OparlListPage<T extends JsonObject = OparlObject> {
 
 /** The result of walking an object list across one or more pages. */
 export interface ListResult<T extends JsonObject = OparlObject> {
-  /** Every object from the pages fetched, in server order. */
+  /**
+   * Every object from the pages fetched, in server order, once per `id`. Where pages
+   * repeated an `id`, this is the last copy the server sent — the newer one, including
+   * a `deleted: true` tombstone.
+   */
   data: T[];
   /** Number of pages fetched. */
   pages: number;
-  /** The `next` link of the last page fetched, or null when the list is exhausted. */
+  /**
+   * The `next` link of the last page fetched, or null when the list is exhausted, when
+   * the walk stopped at a `next` leading back to a page already fetched, or when the
+   * link is one this client refuses to follow (see `note`).
+   */
   next: string | null;
   /**
-   * Present (and true) when the walk stopped at a paging loop: the server's `next` link
-   * pointed back at a page already fetched, or a page only repeated objects already
-   * listed. `data` then holds every distinct object seen.
+   * Present (and true) when the walk gave up before the list ended: the server's `next`
+   * link pointed back at a page already fetched, or several pages in a row added no
+   * object that wasn't already listed. `data` then holds every distinct object seen, and
+   * `next` the link to continue from where the walk stopped, when there is one.
    */
   looped?: true;
+  /**
+   * Why the walk stopped early, or which filter could not be applied — a sentence for
+   * the user (the CLI prints it on stderr). Absent when there is nothing to report.
+   */
+  note?: string;
 }
 
 /**

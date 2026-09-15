@@ -44,13 +44,12 @@ export function foldSearchText(text: string): string {
     .replace(/([aou])e/g, "$1");
 }
 
-/** Tell the user on stderr that a walk stopped at a paging loop. */
-function noteLoop(deps: CliDeps, result: ListResult<JsonObject>): void {
-  if (result.looped) {
-    deps.io.err(
-      `Note: stopped after page ${result.pages}: the server's next page repeated a page or objects already listed.`,
-    );
-  }
+/**
+ * Tell the user on stderr what the walk has to report: why it stopped before the list
+ * ended, or which filter it could not apply.
+ */
+function noteWalk(deps: CliDeps, result: ListResult<JsonObject>): void {
+  if (result.note !== undefined) deps.io.err(`Note: ${result.note}`);
 }
 
 export function registerCommands(program: Command, deps: CliDeps): void {
@@ -111,7 +110,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
     .action(
       action(deps, async ({ client, global, opts }, [url]) => {
         const result = await client.bodies(url as string, { maxPages: opts["maxPages"] as number });
-        noteLoop(deps, result);
+        noteWalk(deps, result);
         renderJson(deps, global, result);
       }),
     );
@@ -141,7 +140,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
         if (opts["limit"] !== undefined) options.limit = opts["limit"] as number;
         if (opts["omitInternal"]) options.omitInternal = true;
         const result = await client.list(bodyUrl as string, type as ListType, options);
-        noteLoop(deps, result);
+        noteWalk(deps, result);
         renderJson(deps, global, result);
       }),
     );

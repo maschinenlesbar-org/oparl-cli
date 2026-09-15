@@ -114,7 +114,7 @@ test("endpoints --source and --working use the curated list and the live checks"
   assert.equal(await run(["endpoints", "--source", "everything"], bad.deps), 2);
 });
 
-test("bodies notes on stderr when the server's pages repeat", async () => {
+test("bodies notes on stderr when the server's pages repeat, and hands back a next link", async () => {
   const repeating = (req: HttpRequest) => {
     if (req.url === fx.SYSTEM_URL) return jsonResponse(fx.system);
     const n = Number(new URL(req.url).searchParams.get("page") ?? "1");
@@ -122,9 +122,12 @@ test("bodies notes on stderr when the server's pages repeat", async () => {
   };
   const cli = makeCli(repeating);
   assert.equal(await run(["bodies", fx.SYSTEM_URL], cli.deps), 0);
-  const result = cli.json() as { data: unknown[]; pages: number; looped?: boolean };
-  assert.deepEqual({ n: result.data.length, pages: result.pages, looped: result.looped }, { n: fx.bodyList.data.length, pages: 2, looped: true });
-  assert.match(cli.err.join("\n"), /stopped after page 2/);
+  const result = cli.json() as { data: unknown[]; pages: number; next: string | null; looped?: boolean };
+  assert.deepEqual(
+    { n: result.data.length, pages: result.pages, next: result.next, looped: result.looped },
+    { n: fx.bodyList.data.length, pages: 4, next: `${fx.BODIES_URL}?page=5`, looped: true },
+  );
+  assert.match(cli.err.join("\n"), /Note: stopped after page 4: the last 3 pages added no object/);
 });
 
 test("endpoints --registry-url points at another registry", async () => {

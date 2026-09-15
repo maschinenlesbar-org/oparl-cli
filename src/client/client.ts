@@ -13,9 +13,9 @@
 //   const { data: bodies } = await c.bodies(system.id);     // its bodies
 //   const meetings = await c.list(bodies[0].id, "meeting"); // first page of meetings
 
-import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, sanitizeServerText, type EngineOptions } from "./engine.js";
+import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, sanitizeServerText, withQuery, type EngineOptions } from "./engine.js";
 import type { QueryParams } from "./query.js";
-import { OparlParseError, OparlValidationError } from "./errors.js";
+import { OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 import type {
   CuratedEndpoint,
@@ -73,6 +73,14 @@ function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
 /** Guard against a server whose `next` links never end. */
 const MAX_PAGES_HARD_LIMIT = 10_000;
 const MAX_REGISTRY_PAGES = 50;
+/**
+ * Consecutive pages that may add nothing new before a walk gives up: a server that
+ * serves the same page (or an empty one) under ever-new `?page=n` links would
+ * otherwise be paged until the hard limit. Two such pages in a row are tolerated,
+ * because a list that grows or is reordered while it is being walked also repeats a
+ * page, and the walk should get past that instead of truncating the list.
+ */
+const MAX_UNPRODUCTIVE_PAGES = 3;
 
 export interface ListOptions {
   /** Pages to fetch; 0 means all. Defaults to 1. */
@@ -230,10 +238,17 @@ export class OparlClient {
    * `maxPages` 0 fetches every page. The `query` (filters) is set on every page,
    * including on the server's `next` links (see carryQuery), and on the `next` returned.
    *
-   * Objects are de-duplicated by `id`. The walk stops at a paging loop, and marks the
-   * result `looped`: when `next` points back at a page already fetched, or when a page
-   * after the first adds no object that wasn't already listed (some servers serve the
-   * same page under ever-new `?page=n` links).
+   * Objects are listed once per `id`; when a page repeats an `id`, the later copy wins,
+   * since that is the newer one — a list that changes while it is being walked serves
+   * the edited object, or the spec's `deleted: true` tombstone, on the later page.
+   *
+   * The walk gives up early — `looped: true` plus a `note` saying why — when the
+   * server's `next` points back at a page already fetched, or when MAX_UNPRODUCTIVE_PAGES
+   * pages in a row add no object that wasn't already listed (some servers serve the same
+   * page, or an empty one, under ever-new `?page=n` links). The `next` of the last page
+   * fetched is still returned in that case, so the walk can be resumed by hand. A `next`
+   * this client refuses to follow (another host, not http) also ends the walk with a
+   * `note`, keeping the pages already fetched.
    */
   async walk<T extends JsonObject = OparlObject>(url: string, query?: QueryParams, maxPages = 1): Promise<ListResult<T>> {
     if (!Number.isInteger(maxPages) || maxPages < 0) {
@@ -242,39 +257,70 @@ export class OparlClient {
     const limit = maxPages === 0 ? MAX_PAGES_HARD_LIMIT : maxPages;
     const data: T[] = [];
     const seenPages = new Set<string>();
-    const seenIds = new Set<string>();
+    const positionById = new Map<string, number>();
     let current: string | null = url;
     let pages = 0;
     let next: string | null = null;
     let looped = false;
+    let note: string | undefined;
+    let unproductive = 0;
     while (current !== null && pages < limit) {
-      const page: OparlListPage<T> = await this.page<T>(current, pages === 0 ? query : undefined);
-      seenPages.add(current);
+      const pageQuery = pages === 0 ? query : undefined;
+      const page: OparlListPage<T> = await this.page<T>(current, pageQuery);
+      // The URL the request actually went to, filters included, so that a `next` link
+      // leading back to it is recognised.
+      seenPages.add(withQuery(parseHttpUrl(current).href, pageQuery));
       pages += 1;
       let added = 0;
       for (const object of page.data) {
         const id = object["id"];
         if (typeof id === "string") {
-          if (seenIds.has(id)) continue;
-          seenIds.add(id);
+          const at = positionById.get(id);
+          if (at !== undefined) {
+            data[at] = object; // the later copy is the newer one
+            continue;
+          }
+          positionById.set(id, data.length);
         }
         data.push(object);
         added += 1;
       }
-      if (pages > 1 && page.data.length > 0 && added === 0) {
-        next = null; // the page only repeats objects already listed
-        looped = true;
+      unproductive = added === 0 ? unproductive + 1 : 0;
+      const link = page.links?.next;
+      if (typeof link !== "string" || link === "") {
+        next = null; // the last page
         break;
       }
-      const link = page.links?.next;
-      next = typeof link === "string" && link !== "" ? carryQuery(resolveLink(current, link), query) : null;
-      if (next !== null && seenPages.has(next)) {
+      try {
+        next = carryQuery(resolveLink(current, link), query);
+      } catch (err) {
+        if (!(err instanceof OparlLinkError)) throw err;
+        next = null; // keep the pages already fetched and say why the walk stopped
+        note = `stopped after page ${pages}: ${err.message}`;
+        break;
+      }
+      if (seenPages.has(next)) {
         next = null; // the server's `next` points back at a page already fetched
         looped = true;
+        note = `stopped after page ${pages}: the server's next link points back to a page already fetched.`;
+        break;
+      }
+      if (unproductive >= MAX_UNPRODUCTIVE_PAGES) {
+        looped = true;
+        note =
+          `stopped after page ${pages}: the last ${unproductive} pages added no object that wasn't already ` +
+          "listed. Pass the returned `next` to `oparl get` if you think the list goes on.";
+        break;
       }
       current = next;
     }
-    return looped ? { data, pages, next, looped: true } : { data, pages, next };
+    return {
+      data,
+      pages,
+      next,
+      ...(looped ? { looped: true as const } : {}),
+      ...(note !== undefined ? { note } : {}),
+    };
   }
 
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
