@@ -53,7 +53,8 @@ const MAX_JSON_DEPTH = 256;
  * `detail` snippet that ends up in an OparlApiError.message printed raw to stderr by
  * run.ts. Without this, a hostile or spoofed server could drive ANSI/OSC escape
  * sequences (display spoofing, terminal title changes) into the user's terminal.
- * The success path is already safe (JSON.stringify escapes these).
+ * The CLI's JSON output is escaped separately (escapeControlChars in cli/shared.ts):
+ * JSON.stringify alone leaves DEL and the C1 range raw.
  *
  * Written as a char-code filter so no raw control byte ever appears in this source.
  */
