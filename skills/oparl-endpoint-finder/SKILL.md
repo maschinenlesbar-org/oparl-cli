@@ -32,14 +32,18 @@ oparl endpoints --search "<place or part of the URL>" --compact \
 ```
 
 - Search by place name (`köln`, `münster`) or product host (`ratsinfomanagement`,
-  `gremien.info`). Umlauts matter as written in the title ("Köln", but "Dusseldorf").
+  `gremien.info`). The search ignores case, accents and ä/ae spellings: `düsseldorf`,
+  `duesseldorf` and `Dusseldorf` all find "Landeshauptstadt Dusseldorf", and `koeln`
+  finds "Stadt Köln".
 - No hit does **not** mean the municipality has no OParl API — the registry is incomplete.
   Say so, and suggest checking the municipality's council portal for an OParl link.
 - `oparl endpoints --working --oparl-version 1.1` answers "which councils publish OParl?".
 
 ## Step 2 — Verify it live
 
-The registry's `working` is a snapshot from `fetched`. Check now:
+The registry's `working` is a snapshot from `fetched`, and it can be months old:
+on 2026-09-15 Bonn and Leipzig were listed as working (fetched 2026-01-17) but neither
+answered. Check now:
 
 ```bash
 oparl system "<System URL>" --compact | jq '{name, oparlVersion, vendor, product, license}'
@@ -50,6 +54,8 @@ oparl system "<System URL>" --compact | jq '{name, oparlVersion, vendor, product
   before calling it down.
 - Exit `1` "not an OParl System" or an HTML page, or exit `4` → the endpoint moved or is
   gone. Report that, with the registry's `fetched` date.
+- Exit `1` with `HTTP 500` (or another 5xx) → the server is up but failing. Retry once;
+  if it fails again, report it as not answering today rather than gone.
 
 ## Step 3 — Bodies and what they offer
 
@@ -67,6 +73,10 @@ OParl **1.0** bodies only link `organization`, `person`, `meeting`, `paper`.
 Give: title, System URL, Body URL(s), OParl version, product/vendor, whether it answered
 live, and the declared `license` of System/Body. **If no license is declared, say that
 reuse beyond reading needs the operator's permission** — don't imply the data is open.
+Treat a `license` that is neither a license URL nor a recognisable license name as not
+clearly declared, and quote it: Düsseldorf's System says `"license": "Open"`, and its
+Body has only `licenseValidSince` (a date, no license). A `licenseValidSince` without
+`license` declares nothing.
 
 ## Traps
 
