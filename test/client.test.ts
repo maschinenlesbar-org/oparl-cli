@@ -124,6 +124,24 @@ test("list on a 1.0 body without that list names what the body links", async () 
   assert.equal(mt.calls.length, 1);
 });
 
+test("list legislative-term returns the terms a body embeds instead of linking a list", async () => {
+  // OParl 1.0 bodies (e.g. Castrop-Rauxel) embed legislativeTerm and have no legislativeTermList.
+  const { c, mt } = client({ [fx.body10.id]: jsonResponse(fx.body10) });
+  assert.deepEqual(await c.list(fx.body10.id, "legislative-term"), { data: fx.body10.legislativeTerm, pages: 0, next: null });
+  assert.equal(mt.calls.length, 1);
+
+  const terms = [
+    { id: `${fx.HOST}/oparl/LegislativeTerm/1`, name: "2014 - 2020", modified: "2020-11-01T00:00:00+01:00" },
+    { id: `${fx.HOST}/oparl/LegislativeTerm/2`, name: "2020 - 2025", modified: "2025-11-01T00:00:00+01:00" },
+    { id: `${fx.HOST}/oparl/LegislativeTerm/3`, name: "undated" },
+  ];
+  const filtered = client({ [fx.body10.id]: jsonResponse({ ...fx.body10, legislativeTerm: terms }) });
+  const since = await filtered.c.list(fx.body10.id, "legislative-term", { modifiedSince: "2021-01-01" });
+  assert.deepEqual(since.data.map((t) => t["name"]), ["2020 - 2025"]);
+  const until = await filtered.c.list(fx.body10.id, "legislative-term", { modifiedUntil: "2021-01-01" });
+  assert.deepEqual(until.data.map((t) => t["name"]), ["2014 - 2020"]);
+});
+
 test("list rejects a URL that is not a Body", async () => {
   const { c } = client({ [fx.SYSTEM_URL]: jsonResponse(fx.system) });
   await assert.rejects(() => c.list(fx.SYSTEM_URL, "meeting"), (err) => err instanceof OparlParseError && /not an OParl Body/.test(err.message));

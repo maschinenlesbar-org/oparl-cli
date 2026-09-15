@@ -207,6 +207,10 @@ export class OparlClient {
    * Walk one of a Body's object lists (meetings, papers, persons, …). Filters are
    * passed to the server as OParl query parameters; servers are required to support
    * the date filters, but in practice some ignore them.
+   *
+   * A Body without a `legislativeTermList` URL (every OParl 1.0 body) embeds its terms
+   * in `legislativeTerm`; those are returned as they are (`pages: 0`, nothing fetched),
+   * with the date filters applied locally.
    */
   async list(bodyUrl: string, type: ListType, options: ListOptions = {}): Promise<ListResult<OparlObject>> {
     const field = LIST_TYPES[type];
@@ -220,6 +224,11 @@ export class OparlClient {
       throw new OparlParseError(`${bodyUrl} is not an OParl Body (type: ${bodyType || "missing"}). Use a body URL from \`oparl bodies\`.`);
     }
     const listUrl = body[field];
+    const embedded = body["legislativeTerm"];
+    if (field === "legislativeTermList" && typeof listUrl !== "string" && Array.isArray(embedded)) {
+      const data = embedded.filter(isObject).filter((term) => matchesDateFilters(term, query)) as OparlObject[];
+      return { data, pages: 0, next: null };
+    }
     if (typeof listUrl !== "string") {
       const available = Object.entries(LIST_TYPES)
         .filter(([, key]) => typeof body[key] === "string")
@@ -257,6 +266,28 @@ export class OparlClient {
     }
     return entries;
   }
+}
+
+/**
+ * The created/modified filters of a list query, checked locally against an object's
+ * `created`/`modified`. An object without a parseable timestamp does not match a filter
+ * on it.
+ */
+function matchesDateFilters(object: JsonObject, query: QueryParams): boolean {
+  const bounds = [
+    ["created_since", "created", 1],
+    ["created_until", "created", -1],
+    ["modified_since", "modified", 1],
+    ["modified_until", "modified", -1],
+  ] as const;
+  for (const [param, field, direction] of bounds) {
+    const bound = query[param];
+    if (typeof bound !== "string") continue;
+    const value = object[field];
+    const at = typeof value === "string" ? Date.parse(value) : Number.NaN;
+    if (Number.isNaN(at) || (at - Date.parse(bound)) * direction < 0) return false;
+  }
+  return true;
 }
 
 function projectEntry(raw: JsonObject): RegistryEntry {

@@ -81,8 +81,9 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
   state how many pages you searched.
 - **`next` is the way on.** For more than a few pages use `--max-pages n` or `oparl get
   <next>`; with `--max-pages 0` on a large server, warn that it can take very long.
-- **1.0 bodies** have no `agenda-item`, `consultation`, `file`, `membership`,
-  `location` or `legislative-term` lists; the error names what exists.
+- **1.0 bodies** have no `agenda-item`, `consultation`, `file`, `membership` or
+  `location` lists; the error names what exists. `legislative-term` still works: it
+  prints the terms the body embeds (`pages: 0`).
 - **Cite references.** Quote paper `reference` numbers and the Body name. Council papers
   are largely *amtliche Werke*; motions from groups, attached files and person data are not
   free to republish — don't bulk-copy person records, and check the server's `license`.

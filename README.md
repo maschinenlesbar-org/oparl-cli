@@ -76,7 +76,9 @@ New to *Body*, *Paper* or *Consultation*? The **[Glossary](GLOSSARY.md)** decode
 `membership` · `location` · `legislative-term`
 
 OParl 1.0 bodies only link `organization`, `person`, `meeting` and `paper`; asking for
-another list on such a body names what it does link.
+another list on such a body names what it does link. The exception is `legislative-term`:
+1.0 bodies embed their terms, and `list` prints those (`pages: 0`, date filters applied
+locally).
 
 ### `list` options
 

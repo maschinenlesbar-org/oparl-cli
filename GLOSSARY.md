@@ -69,7 +69,8 @@ does not download files.
 **Location (`list location`) — *Ort*.** An address or room, often embedded in meetings.
 
 **LegislativeTerm (`list legislative-term`) — *Wahlperiode*.** A council term with
-`startDate` and `endDate`. OParl 1.0 bodies embed these as an array instead of a list URL.
+`startDate` and `endDate`. OParl 1.0 bodies embed these as an array instead of a list URL;
+`list legislative-term` then prints the embedded terms with `pages: 0`.
 
 ## Lists and paging
 
