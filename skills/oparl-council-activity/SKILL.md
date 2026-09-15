@@ -41,16 +41,25 @@ minute per page.
 ## Recipes
 
 ```bash
-# Recent papers: date, reference, type, title
+# Papers changed since the cut-off (not only new ones): date, reference, type, title
 oparl list paper "$BODY" --modified-since 2026-09-01 --compact \
-  | jq -r '.data[] | [.date // "", .reference // "", .paperType // "", .name] | @tsv'
+  | jq -r '.data[] | select(.deleted != true) | [.date // "", .reference // "", .paperType // "", .name] | @tsv'
 
-# Did the server honour the filter? Count objects older than the cut-off
+# New papers only: also require a paper date on or after the cut-off
+oparl list paper "$BODY" --modified-since 2026-09-01 --compact \
+  | jq -r '.data[] | select(.deleted != true and (.date // "") >= "2026-09-01") | [.date, .reference // "", .name] | @tsv'
+
+# Did the server honour the filter? Count objects modified before the cut-off
 oparl list paper "$BODY" --modified-since 2026-09-01 --compact \
   | jq '[.data[] | select(.modified < "2026-09-01")] | length'
 
 # Meetings on the first pages, with dates
 oparl list meeting "$BODY" --max-pages 2 --compact | jq -r '.data[] | [.start // "", .name] | @tsv'
+
+# Meetings from today on, on those pages, soonest first, plus the link to continue
+oparl list meeting "$BODY" --max-pages 2 --compact \
+  | jq -r --arg today "$(date +%F)" \
+      '([.data[] | select(.deleted != true and (.start // "") >= $today)] | sort_by(.start)[] | [.start, .name] | @tsv), "next: \(.next)"'
 
 # Committees and groups
 oparl list organization "$BODY" --max-pages 0 --compact \
@@ -68,22 +77,37 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
 
 - **Filters may be ignored.** Some servers return everything despite `--modified-since`;
   others fail with exit `1` and a 400/500 hint. Check `modified` against the cut-off
-  (recipe 2) and say which happened. On a failure, retry without the filter and filter
+  (recipe 3) and say which happened. On a failure, retry without the filter and filter
   with `jq`.
 - **Some timestamps are fake.** more! rubin servers (e.g. Freiburg, OParl 1.0) stamp every
   object's `created` and `modified` with the current date, so a date filter "matches"
-  everything and recipe 2 can't tell. If all `modified` values on a page share today's
+  everything and recipe 3 can't tell. If all `modified` values on a page share today's
   date, say that the server's change dates are unusable and use `date` (papers) or
   `start` (meetings) instead.
-- **Order is the server's.** Meeting lists often start with far-future dates; sort by
-  `start` yourself and don't call page 1 "the latest".
+- **"Modified since" is not "new since".** A server that honours `--modified-since`
+  still returns old papers that were only edited after the cut-off (Düsseldorf,
+  2026-09-15: 66 of 158 papers were dated 2025-06-02 to 2026-08-31). For "new papers"
+  also check `date` (recipe 2); say which one you report.
+- **Deleted objects stay in lists.** Objects with `"deleted": true` have an empty
+  `name`, `reference` and `paperType` (6 of those 158 papers). Drop them with
+  `select(.deleted != true)` before printing or counting.
+- **Order is the server's.** Meeting lists often start with far-future dates, and pages
+  aren't sorted by date (Düsseldorf orders by internal id); sort by `start` yourself and
+  don't call page 1 "the latest". For **upcoming** meetings, a page limit can cut some
+  off (Düsseldorf's page 2 still held meetings in December 2026). Keep fetching with
+  `oparl get <next>` (a raw page; its continuation is `.links.next`) while a page still
+  has meetings from today on, and stop after the first page with none. Say how many
+  pages you checked.
 - **No full-text search in OParl.** Title search is client-side over the pages fetched —
   state how many pages you searched.
 - **`next` is the way on.** For more than a few pages use `--max-pages n` or `oparl get
   <next>`; with `--max-pages 0` on a large server, warn that it can take very long.
 - **1.0 bodies** have no `agenda-item`, `consultation`, `file`, `membership` or
   `location` lists; the error names what exists. `legislative-term` still works: it
-  prints the terms the body embeds (`pages: 0`).
+  prints the terms the body embeds (`pages: 0`). Some servers use non-spec field names
+  (Düsseldorf links `consultations` and `files`; the CLI follows those two). If `list`
+  says a 1.1 body lacks a list, look at the Body (`oparl get <bodyUrl>`) before telling
+  the user it doesn't exist, and `oparl get` a matching list URL directly.
 - **Cite references.** Quote paper `reference` numbers and the Body name. Council papers
   are largely *amtliche Werke*; motions from groups, attached files and person data are not
   free to republish — don't bulk-copy person records, and check the server's `license`.
