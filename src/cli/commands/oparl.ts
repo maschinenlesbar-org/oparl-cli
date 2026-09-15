@@ -24,11 +24,25 @@ import {
 
 const MAX_PAGES_OPTION = "pages to fetch, following links.next (0 = all)";
 
+/**
+ * Fold text for the endpoints search: case, Unicode normalisation form, accents and the
+ * German umlaut spellings all compare equal, so "Köln" (typed composed or decomposed),
+ * "koln" and "koeln" match each other, and "düsseldorf" matches "Dusseldorf".
+ */
+export function foldSearchText(text: string): string {
+  return text
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replaceAll("ß", "ss")
+    .replace(/([aou])e/g, "$1");
+}
+
 export function registerCommands(program: Command, deps: CliDeps): void {
   program
     .command("endpoints")
     .description("List public OParl endpoints from the registry at dev.oparl.org")
-    .option("--search <text>", "only endpoints whose title or URL contains this text (case-insensitive)", parseNonEmpty)
+    .option("--search <text>", "only endpoints whose title or URL contains this text (ignores case, accents and ä/ae spellings)", parseNonEmpty)
     .option("--oparl-version <version>", "only endpoints speaking this OParl version, e.g. 1.1", parseNonEmpty)
     .option("--working", "only endpoints the registry could reach on its last fetch")
     .option("--registry-url <url>", "registry URL", parseUrl, DEFAULT_REGISTRY_URL)
@@ -40,9 +54,9 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           const search = opts["search"] as string | undefined;
           const version = opts["oparlVersion"] as string | undefined;
           if (search !== undefined) {
-            const needle = search.trim().toLowerCase();
+            const needle = foldSearchText(search.trim());
             entries = entries.filter(
-              (e: RegistryEntry) => e.title.toLowerCase().includes(needle) || e.url.toLowerCase().includes(needle),
+              (e: RegistryEntry) => foldSearchText(e.title).includes(needle) || foldSearchText(e.url).includes(needle),
             );
           }
           if (version !== undefined) {

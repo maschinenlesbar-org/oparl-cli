@@ -55,6 +55,30 @@ test("endpoints --search, --oparl-version and --working filter client-side", asy
   assert.deepEqual((cli2.json() as Array<{ title: string }>).map((e) => e.title), ["Amt Irgendwo"]);
 });
 
+test("endpoints --search ignores Unicode form, accents and umlaut spellings", async () => {
+  const entry = (title: string, url: string) => ({ title, url, system: [] });
+  const registry = {
+    data: [
+      entry("Köln", "https://ratsinformation.stadt-koeln.de/oparl/system"),
+      entry("Dusseldorf", "https://ris.duesseldorf.de/oparl/system"),
+      entry("Münster", "https://www.stadt-muenster.de/sessionnetbi/oparl/system"),
+      entry("Gießen", "https://ris.giessen.de/oparl/system"),
+    ],
+    meta: {},
+  };
+  const titles = async (search: string) => {
+    const cli = makeCli(() => jsonResponse(registry));
+    assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, "--search", search], cli.deps), 0);
+    return (cli.json() as Array<{ title: string }>).map((e) => e.title);
+  };
+  assert.deepEqual(await titles("Köln".normalize("NFD")), ["Köln"]);
+  assert.deepEqual(await titles("koeln"), ["Köln"]);
+  assert.deepEqual(await titles("düsseldorf"), ["Dusseldorf"]);
+  assert.deepEqual(await titles("MUNSTER"), ["Münster"]);
+  assert.deepEqual(await titles("giessen"), ["Gießen"]);
+  assert.deepEqual(await titles("irgendwo"), []);
+});
+
 test("endpoints --registry-url points at another registry", async () => {
   const cli = makeCli(() => jsonResponse({ data: [], meta: {} }));
   assert.equal(await run(["endpoints", "--registry-url", "https://mirror.example.org/endpoints"], cli.deps), 0);

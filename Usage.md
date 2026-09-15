@@ -31,7 +31,8 @@ oparl endpoints --search köln | jq -r '.[] | "\(.title)\t\(.working)\t\(.url)"'
 ```
 
 `working` is the registry's last check (see `fetched`). Search by place name or by a part
-of the URL (e.g. `--search ratsinfomanagement`).
+of the URL (e.g. `--search ratsinfomanagement`). The search ignores case, accents and umlaut
+spellings: `köln`, `koln` and `koeln` find the same entries.
 
 ### 2. All working endpoints on OParl 1.1
 
