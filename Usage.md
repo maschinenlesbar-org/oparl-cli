@@ -73,11 +73,13 @@ OParl 1.0 bodies link only `organization`, `person`, `meeting` and `paper`.
 
 ```bash
 oparl list paper "$BODY" --modified-since 2026-09-01 \
-  | jq -r '.data[] | "\(.date)\t\(.reference)\t\(.paperType // "")\t\(.name)"'
+  | jq -r '.data[] | select(.deleted != true) | "\(.date)\t\(.reference)\t\(.paperType // "")\t\(.name)"'
 ```
 
 If a server ignores `--modified-since`, you get its first page unfiltered — compare the
-`modified` field.
+`modified` field. Even when it honours the filter, the list holds every paper *changed*
+since the date, including old papers edited since and deleted ones (`deleted: true`, with
+empty fields), which the `select` drops. For new papers only, also compare `date`.
 
 ### 7. Meetings, several pages at once
 

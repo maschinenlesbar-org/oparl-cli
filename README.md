@@ -51,7 +51,7 @@ oparl bodies https://buergerinfo.stadt-koeln.de/oparl/system | jq -r '.data[] | 
 
 # 3. Papers (Vorlagen, Anträge, Anfragen) changed since a date
 oparl list paper https://buergerinfo.stadt-koeln.de/oparl/bodies/stadtverwaltung_koeln \
-  --modified-since 2026-09-01 | jq -r '.data[] | "\(.date)\t\(.reference)\t\(.name)"'
+  --modified-since 2026-09-01 | jq -r '.data[] | select(.deleted != true) | "\(.date)\t\(.reference)\t\(.name)"'
 
 # 4. The first page of meetings
 oparl list meeting https://buergerinfo.stadt-koeln.de/oparl/bodies/stadtverwaltung_koeln \
