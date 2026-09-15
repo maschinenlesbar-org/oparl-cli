@@ -82,6 +82,9 @@ const MAX_REGISTRY_PAGES = 50;
  */
 const MAX_UNPRODUCTIVE_PAGES = 3;
 
+/** The lists an OParl 1.0 Body links; 1.1 added the rest of LIST_TYPES. */
+const LIST_TYPES_1_0: readonly ListType[] = ["organization", "person", "meeting", "paper"];
+
 export interface ListOptions {
   /** Pages to fetch; 0 means all. Defaults to 1. */
   maxPages?: number;
@@ -233,9 +236,15 @@ export class OparlClient {
   async system(url: string): Promise<OparlSystem> {
     const system = await this.get<JsonObject>(url);
     const type = str(system["type"]) ?? "";
-    if (!/\/System$/.test(type) || typeof system["body"] !== "string") {
+    if (!/\/System$/.test(type)) {
       throw new OparlParseError(
         `${url} is not an OParl System (type: ${type || "missing"}). Use the endpoint's System URL, e.g. from \`oparl endpoints\`.`,
+      );
+    }
+    if (typeof system["body"] !== "string") {
+      throw new OparlParseError(
+        `${url} is an OParl System, but its \`body\` is ${describeJson(system["body"])} instead of the URL of its list ` +
+          "of bodies, so its bodies cannot be listed. `oparl get` shows the object as the server sent it.",
       );
     }
     return system as OparlSystem;
@@ -389,9 +398,12 @@ export class OparlClient {
     }
     if (typeof listUrl !== "string") {
       const available = (Object.keys(LIST_TYPES) as ListType[]).filter((name) => typeof bodyListUrl(body, name) === "string");
+      // Only add the 1.0 note when the body really links no list beyond the 1.0 four:
+      // some servers publish a 1.0 `type` on a body that links all of them.
+      const only1_0 = available.every((name) => LIST_TYPES_1_0.includes(name));
       throw new OparlParseError(
         `This body has no ${type} list. It links: ${available.join(", ") || "none"}` +
-          (/\/1\.0\//.test(bodyType) ? " (OParl 1.0 bodies only link organization, person, meeting and paper)." : "."),
+          (/\/1\.0\//.test(bodyType) && only1_0 ? " (OParl 1.0 bodies only link organization, person, meeting and paper)." : "."),
       );
     }
     return this.walk(resolveLink(bodyUrl, listUrl), query, options.maxPages ?? 1);

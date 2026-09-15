@@ -38,6 +38,21 @@ test("system rejects an object that is not a System", async () => {
   await assert.rejects(() => c.system(fx.BODY_URL), (err) => err instanceof OparlParseError && /not an OParl System/.test(err.message));
 });
 
+test("a System whose body is not a URL is reported as what it is", async () => {
+  // A System that embeds its bodies, or leaves `body` out: telling the user it is not a
+  // System and pointing at the URL they just used sends them looking for the wrong thing.
+  const cases: Array<[unknown, RegExp]> = [
+    [[fx.body], /is an OParl System, but its `body` is an array instead of the URL/],
+    [undefined, /is an OParl System, but its `body` is missing instead of the URL/],
+  ];
+  for (const [value, expected] of cases) {
+    const { body: _drop, ...rest } = fx.system;
+    const served = value === undefined ? rest : { ...rest, body: value };
+    const { c } = client({ [fx.SYSTEM_URL]: jsonResponse(served) });
+    await assert.rejects(() => c.system(fx.SYSTEM_URL), (err) => err instanceof OparlParseError && expected.test(err.message));
+  }
+});
+
 test("an OParl/vendor error object is reported, not returned", async () => {
   const { c } = client({ [fx.SYSTEM_URL]: jsonResponse({ error: "OParl is not active." }) });
   await assert.rejects(() => c.get(fx.SYSTEM_URL), (err) => err instanceof OparlParseError && /OParl is not active/.test(err.message));
@@ -146,6 +161,19 @@ test("list on a 1.0 body without that list names what the body links", async () 
     (err) => err instanceof OparlParseError && /organization, person, meeting, paper/.test(err.message) && /OParl 1\.0/.test(err.message),
   );
   assert.equal(mt.calls.length, 1);
+});
+
+test("the 1.0 note is left out when the body links lists beyond the 1.0 four", async () => {
+  // Politik bei Uns publishes a 1.0 `type` on bodies that link nine lists: the note then
+  // contradicted the list of links right in front of it.
+  const rich = { ...fx.body, type: "https://schema.oparl.org/1.0/Body", legislativeTermList: undefined };
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(rich) });
+  await assert.rejects(
+    () => c.list(fx.BODY_URL, "legislative-term"),
+    (err) =>
+      err instanceof OparlParseError &&
+      /It links: organization, person, meeting, paper, agenda-item, consultation, file, membership, location\.$/.test(err.message),
+  );
 });
 
 test("list consultation and file follow the plural Body fields some servers use", async () => {
