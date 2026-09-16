@@ -47,6 +47,10 @@ oparl endpoints --working --oparl-version 1.1 | jq -r '.[] | "\(.title)\t\(.syst
 oparl endpoints --source curated --working | jq -r '.[] | "\(.title)\t\(.url)"'
 ```
 
+`--oparl-version` takes the short form (`1.0`, `1.1`) or the whole version URI a System
+reports (`https://schema.oparl.org/1.1/`); anything else is a usage error rather than an
+empty result.
+
 Not listed at all? Any System URL works: `oparl system <url>`. Council portals often link
 their OParl interface, and many vendors use fixed paths (e.g. `…/webservice/oparl/v1.1/system`
 on SD.NET, `…/oparl/system` on Session).

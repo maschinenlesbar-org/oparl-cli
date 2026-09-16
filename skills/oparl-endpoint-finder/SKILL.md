@@ -48,6 +48,7 @@ the registry's own last fetch (`fetched`).
   Say so, and suggest checking the municipality's council portal for an OParl link; any
   System URL found there works with `oparl system`.
 - `oparl endpoints --working --oparl-version 1.1` answers "which councils publish OParl?".
+  `--oparl-version` takes `1.0`/`1.1` or the whole version URI (`https://schema.oparl.org/1.1/`).
 
 ## Step 2 — Verify it live
 

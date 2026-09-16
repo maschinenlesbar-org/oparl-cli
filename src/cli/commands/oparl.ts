@@ -8,11 +8,12 @@
 //   list <type> <body>   a body's meetings, papers, persons, … (paged)
 //   get <url>            any OParl object or list page by URL
 
-import { Argument, Option, type Command } from "commander";
+import { Argument, InvalidArgumentError, Option, type Command } from "commander";
 import type { CliDeps } from "../io.js";
 import {
   DEFAULT_REGISTRY_URL,
   LIST_TYPES,
+  shortOparlVersion,
   type EndpointSource,
   type ListOptions,
   type ListType,
@@ -45,6 +46,22 @@ export function foldSearchText(text: string): string {
 }
 
 /**
+ * commander value-parser for `--oparl-version`: the short form the endpoint list holds
+ * ("1.1"), or the version URI a System carries ("https://schema.oparl.org/1.1/") — what
+ * `oparl system` prints, and so the natural thing to paste. Every other string used to
+ * be accepted and matched nothing, which reads as "no such servers".
+ */
+export function parseOparlVersion(value: string): string {
+  const version = shortOparlVersion(value.trim());
+  if (!/^\d+\.\d+$/.test(version)) {
+    throw new InvalidArgumentError(
+      "Expected an OParl version such as 1.0 or 1.1, or the version URI a System reports (https://schema.oparl.org/1.1/).",
+    );
+  }
+  return version;
+}
+
+/**
  * Tell the user on stderr what the walk has to report: why it stopped before the list
  * ended, or which filter it could not apply.
  */
@@ -60,7 +77,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
         "servers it lacks, with the date and result of their last live check",
     )
     .option("--search <text>", "only endpoints whose title or URL contains this text (ignores case, accents and ä/ae spellings)", parseNonEmpty)
-    .option("--oparl-version <version>", "only endpoints speaking this OParl version, e.g. 1.1", parseNonEmpty)
+    .option("--oparl-version <version>", "only endpoints speaking this OParl version: 1.0, 1.1, or the full version URI", parseOparlVersion)
     .option("--working", "only endpoints that worked on their last check")
     .addOption(
       new Option("--source <source>", "registry entries, curated entries, or both")
@@ -81,10 +98,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
               (e: RegistryEntry) => foldSearchText(e.title).includes(needle) || foldSearchText(e.url).includes(needle),
             );
           }
-          if (version !== undefined) {
-            const wanted = version.trim();
-            entries = entries.filter((e) => e.oparlVersion === wanted);
-          }
+          if (version !== undefined) entries = entries.filter((e) => e.oparlVersion === version);
           if (opts["working"]) entries = entries.filter((e) => e.working);
           renderJson(deps, global, entries);
         },

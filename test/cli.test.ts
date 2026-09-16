@@ -65,6 +65,24 @@ test("endpoints --search, --oparl-version and --working filter client-side", asy
   assert.deepEqual((cli2.json() as Array<{ title: string }>).map((e) => e.title), ["Amt Irgendwo"]);
 });
 
+test("endpoints --oparl-version takes the short form or a version URI, and rejects the rest", async () => {
+  const uri = makeCli();
+  assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, "--oparl-version", "https://schema.oparl.org/1.0/"], uri.deps), 0);
+  assert.deepEqual((uri.json() as Array<{ title: string }>).map((e) => e.title), ["Gemeinde Musterdorf"]);
+
+  const padded = makeCli();
+  assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, "--oparl-version", " 1.1 "], padded.deps), 0);
+  assert.deepEqual((padded.json() as Array<{ title: string }>).map((e) => e.title), ["Stadt Beispiel"]);
+
+  // These used to return an empty list and exit 0, which reads as "no such servers".
+  for (const bad of ["1", "v1.1", "1.0.0", "https://schema.oparl.org/", "eins"]) {
+    const cli = makeCli();
+    assert.equal(await run(["endpoints", "--oparl-version", bad], cli.deps), 2, bad);
+    assert.match(cli.err.join("\n"), /Expected an OParl version/, bad);
+    assert.equal(cli.mt.calls.length, 0, bad);
+  }
+});
+
 test("endpoints --search ignores Unicode form, accents and umlaut spellings", async () => {
   const entry = (title: string, url: string) => ({ title, url, system: [] });
   const registry = {
