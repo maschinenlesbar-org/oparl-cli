@@ -576,6 +576,13 @@ function applyCheck(entry: RegistryEntry, checks: Map<string, RegistryCheck>): R
   return {
     ...entry,
     working: check.working,
+    // The check read the live System; the registry's cached copy of it is rarely
+    // refreshed and missing altogether for some endpoints. Where the check has no
+    // value (it failed, or the server doesn't publish the field), the registry's stands.
+    oparlVersion: check.oparlVersion ?? entry.oparlVersion,
+    systemName: check.systemName ?? entry.systemName,
+    vendor: check.vendor ?? entry.vendor,
+    bodyCount: check.bodyCount ?? entry.bodyCount,
     checked: check.checked,
     problem: check.problem,
     replacedBy: check.replacedBy,

@@ -475,6 +475,37 @@ test("endpoints merges the curated list after the registry and applies the live 
   assert.equal(entries[3]?.fetched, null);
 });
 
+test("a live check's System data is preferred over the registry's cached copy", async () => {
+  // The registry's `system` is a rarely refreshed snapshot, and missing altogether for
+  // some endpoints (Amt Irgendwo), while the check fetched the real System.
+  const { c } = client(registryTable, {
+    registryChecks: [
+      {
+        url: "https://www.irgendwo.sitzung-online.de/bi/oparl/1.0/system.asp",
+        working: true,
+        checked: "2026-09-16",
+        problem: null,
+        oparlVersion: "1.0",
+        systemName: "ALLRIS",
+        vendor: "http://cc-egov.de/",
+        bodyCount: 2,
+        replacedBy: null,
+        note: null,
+      },
+      // A failed check read no System, so the registry's own data stands.
+      { url: fx.SYSTEM_URL, working: false, checked: "2026-09-16", problem: "timeout", replacedBy: null, note: null },
+    ],
+  });
+  assert.deepEqual(
+    (await c.endpoints({ source: "registry" })).map((e) => [e.title, e.working, e.oparlVersion, e.systemName, e.vendor, e.bodyCount]),
+    [
+      ["Stadt Beispiel", false, "1.1", "Stadt Beispiel - OParl 1.1", "https://www.somacos.de?oparl=v1.6.1", 1],
+      ["Amt Irgendwo", true, "1.0", "ALLRIS", "http://cc-egov.de/", 2],
+      ["Gemeinde Musterdorf", true, "1.0", "SD.NET RIM", "https://www.somacos.de?oparl=v1.6.1", 0],
+    ],
+  );
+});
+
 test("a registry next link back to the page just fetched ends the registry walk", async () => {
   // The guard used to store the bare registry URL while the request went to
   // ?page=1&limit=100, so a `next` back to page 1 refetched it.

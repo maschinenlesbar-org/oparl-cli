@@ -131,6 +131,17 @@ if (only !== "curated") {
       working: result.working,
       checked: today,
       problem: result.problem,
+      // The check fetched the System: its version, name, vendor and body count are
+      // fresher than the registry's cached copy, which is missing for some endpoints.
+      // A failed check knows nothing, so the last known values are kept.
+      ...(result.working
+        ? { oparlVersion: result.oparlVersion, systemName: result.systemName, vendor: result.vendor, bodyCount: result.bodyCount }
+        : {
+            oparlVersion: before?.oparlVersion ?? null,
+            systemName: before?.systemName ?? null,
+            vendor: before?.vendor ?? null,
+            bodyCount: before?.bodyCount ?? null,
+          }),
       replacedBy: before?.replacedBy ?? null,
       note: before?.note ?? null,
     };
@@ -172,7 +183,7 @@ if (dryRun) {
 
 function render(curatedList, checks) {
   const curatedFields = ["title", "url", "working", "checked", "problem", "oparlVersion", "systemName", "vendor", "bodyCount", "note"];
-  const checkFields = ["url", "working", "checked", "problem", "replacedBy", "note"];
+  const checkFields = ["url", "working", "checked", "problem", "oparlVersion", "systemName", "vendor", "bodyCount", "replacedBy", "note"];
   const pick = (object, fields) => Object.fromEntries(fields.map((field) => [field, object[field] ?? null]));
   const json = (list, fields) => JSON.stringify(list.map((item) => pick(item, fields)), null, 2);
   return `// The curated OParl endpoint list, maintained with scripts/check-endpoints.mjs.

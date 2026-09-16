@@ -171,7 +171,9 @@ many working servers weren't listed at all. So the package ships
 
 - `CURATED_ENDPOINTS` — servers the registry lacks, each with the result of its last live
   check (`working`, `checked`, `problem`) and the System's version, vendor and body count;
-- `REGISTRY_CHECKS` — the same check for every registry entry, plus `replacedBy` (the new
+- `REGISTRY_CHECKS` — the same check for every registry entry, with the version, name,
+  vendor and body count the check read from its System (the registry's own cached copy of
+  them is rarely refreshed, and missing for some endpoints), plus `replacedBy` (the new
   URL of a server that moved) and `note`.
 
 `endpoints()` applies the checks to the registry entries and appends the curated ones,

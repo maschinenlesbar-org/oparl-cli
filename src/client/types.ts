@@ -119,6 +119,16 @@ export interface RegistryCheck {
   /** The day of the check (YYYY-MM-DD). */
   checked: string;
   problem: string | null;
+  /**
+   * What the check read from the endpoint's System. The registry's own cached System
+   * is rarely refreshed and missing for some endpoints, so these values are preferred
+   * over it; null (or absent) means the check has nothing newer to say and the
+   * registry's value stands.
+   */
+  oparlVersion?: string | null;
+  systemName?: string | null;
+  vendor?: string | null;
+  bodyCount?: number | null;
   replacedBy: string | null;
   note: string | null;
 }
