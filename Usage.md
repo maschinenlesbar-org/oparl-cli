@@ -36,7 +36,9 @@ live check (`checked`, with the reason in `problem`); for a registry entry nobod
 checked, it is the registry's own last fetch (`fetched`). A server that moved has
 `replacedBy`, the new System URL. Search by place name or by a part of the URL (e.g.
 `--search ratsinfomanagement`). The search ignores case, accents and umlaut spellings:
-`köln`, `koln` and `koeln` find the same entries.
+`köln`, `koln` and `koeln` find the same entries. When dev.oparl.org cannot be reached,
+`endpoints` notes that on stderr and lists the curated servers alone, as of their last
+check — `--source curated` does the same without trying the network.
 
 ### 2. All working endpoints on OParl 1.1
 

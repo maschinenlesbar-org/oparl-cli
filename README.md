@@ -141,6 +141,11 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
 
 ## Troubleshooting
 
+- **The registry is unreachable** — dev.oparl.org is a single third-party host. When it
+  cannot be read, `oparl endpoints` says so on stderr and lists only the curated servers
+  that ship with this tool, as of the last live check before this release (`checked`);
+  `--source curated` does the same without trying the network at all. `--source registry`
+  still reports the error.
 - **A listed endpoint fails** — `working`, `checked` and `problem` in `oparl endpoints`
   show the last live check; servers switch OParl off or move. Where a server moved,
   `replacedBy` gives the new System URL. A municipality that isn't listed may still have

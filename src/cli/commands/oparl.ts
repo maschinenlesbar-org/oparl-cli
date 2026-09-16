@@ -18,6 +18,8 @@ import {
   type ListOptions,
   type ListType,
 } from "../../client/client.js";
+import type { OparlClient } from "../../client/client.js";
+import { OparlError, OparlValidationError } from "../../client/errors.js";
 import type { JsonObject, ListResult, RegistryEntry } from "../../client/types.js";
 import {
   action,
@@ -62,6 +64,32 @@ export function parseOparlVersion(value: string): string {
 }
 
 /**
+ * The known endpoints, falling back to the curated list alone when the registry cannot
+ * be read. That list ships with the package and needs no network, so one unreachable
+ * third-party host should not take down the documented entry point of every workflow —
+ * but the user is told on stderr, since the answer is then only as fresh as this
+ * release. `--source registry` keeps failing: there would be nothing left to show.
+ */
+async function endpointsOrCuratedOnly(
+  deps: CliDeps,
+  client: OparlClient,
+  source: EndpointSource,
+  registryUrl: string,
+): Promise<RegistryEntry[]> {
+  try {
+    return await client.endpoints({ source });
+  } catch (err) {
+    if (source !== "all" || !(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
+    deps.io.err(
+      `Note: the endpoint registry at ${registryUrl} could not be read (${err.message}) — ` +
+        "listing only the curated endpoints that ship with this tool, as of their last check (`checked`). " +
+        "Use --source curated to skip the registry, or --source registry to see the error.",
+    );
+    return client.endpoints({ source: "curated" });
+  }
+}
+
+/**
  * Tell the user on stderr what the walk has to report: why it stopped before the list
  * ended, or which filter it could not apply.
  */
@@ -89,7 +117,12 @@ export function registerCommands(program: Command, deps: CliDeps): void {
       action(
         deps,
         async ({ client, global, opts }) => {
-          let entries = await client.endpoints({ source: opts["source"] as EndpointSource });
+          let entries = await endpointsOrCuratedOnly(
+            deps,
+            client,
+            opts["source"] as EndpointSource,
+            opts["registryUrl"] as string,
+          );
           const search = opts["search"] as string | undefined;
           const version = opts["oparlVersion"] as string | undefined;
           if (search !== undefined) {

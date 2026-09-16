@@ -148,6 +148,26 @@ test("bodies notes on stderr when the server's pages repeat, and hands back a ne
   assert.match(cli.err.join("\n"), /Note: stopped after page 4: the last 3 pages added no object/);
 });
 
+test("endpoints falls back to the curated list when the registry is unreachable", async () => {
+  const lists = {
+    curatedEndpoints: [
+      { title: "Stadt Neu", url: "https://ris.neu.example/oparl/system", working: true, checked: "2026-09-16", problem: null, oparlVersion: "1.1", systemName: null, vendor: null, bodyCount: 1, note: null },
+    ],
+  };
+  const dead = () => {
+    throw new OparlNetworkError("connect ECONNREFUSED 127.0.0.1:1");
+  };
+  const cli = makeCli(dead, lists);
+  assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, "--search", "neu"], cli.deps), 0);
+  assert.deepEqual((cli.json() as Array<{ title: string }>).map((e) => e.title), ["Stadt Neu"]);
+  assert.match(cli.err.join("\n"), /registry at https:\/\/registry\.example\.org\/api\/endpoints could not be read/);
+  assert.match(cli.err.join("\n"), /curated endpoints that ship with this tool/);
+
+  // --source registry has nothing else to show, so it still reports the failure.
+  const registryOnly = makeCli(dead, lists);
+  assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, "--source", "registry"], registryOnly.deps), 6);
+});
+
 test("endpoints --registry-url points at another registry", async () => {
   const cli = makeCli(() => jsonResponse({ data: [], meta: {} }));
   assert.equal(await run(["endpoints", "--registry-url", "https://mirror.example.org/endpoints"], cli.deps), 0);

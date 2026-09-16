@@ -44,6 +44,8 @@ the registry's own last fetch (`fetched`).
   finds "Stadt Köln".
 - **`replacedBy` set** → the server moved; use that URL (it is listed too), not the old one.
 - **`note` set** → read it: it flags aggregators, archives and servers with known problems.
+- **A note on stderr that the registry could not be read** → only the curated servers are
+  listed, as of their `checked` date. Say so before concluding that a place has no server.
 - No hit does **not** mean the municipality has no OParl API — both lists are incomplete.
   Say so, and suggest checking the municipality's council portal for an OParl link; any
   System URL found there works with `oparl system`.
