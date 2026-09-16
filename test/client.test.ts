@@ -522,6 +522,41 @@ test("endpoints lists a System the registry holds twice only once", async () => 
   assert.deepEqual((await c.endpoints()).map((e) => e.title), ["Gemeinde Musterdorf"]);
 });
 
+test("registry entries without a fetchable url are left out", async () => {
+  // The registry carries a few entries with no `url`; they all keyed alike, so the
+  // second one looked like a duplicate of the first and vanished, while the others
+  // were listed as endpoints although nothing can be fetched from them.
+  const { c } = client({
+    [`${fx.REGISTRY_URL}?page=1&limit=100`]: jsonResponse({
+      data: [
+        { id: 1, title: "No URL A", system: null },
+        { id: 2, title: "No URL B", system: null },
+        { id: 3, title: "Bad URL", url: "not a url", system: null },
+        { id: 4, title: "Not http", url: "ftp://ris.example.de/oparl/system", system: null },
+        { id: 5, title: "Stadt Beispiel", url: fx.SYSTEM_URL, system: fx.system },
+      ],
+      meta: {},
+    }),
+  });
+  assert.deepEqual((await c.endpoints({ source: "registry" })).map((e) => e.title), ["Stadt Beispiel"]);
+});
+
+test("an endpoint list option without a url is a validation error, not a TypeError", () => {
+  assert.throws(() => client(registryTable, { curatedEndpoints: [{ title: "no url" } as unknown as CuratedEndpoint] }), OparlValidationError);
+  assert.throws(() => client(registryTable, { registryChecks: [{ working: true } as unknown as RegistryCheck] }), OparlValidationError);
+  assert.throws(() => client(registryTable, { curatedEndpoints: "nope" as unknown as CuratedEndpoint[] }), OparlValidationError);
+});
+
+test("the shipped endpoint lists cannot be changed by a consumer", () => {
+  // `readonly` is compile-time only, and a push from JS would change what every
+  // existing and future client reports.
+  assert.throws(() => (CURATED_ENDPOINTS as CuratedEndpoint[]).push({ ...CURATED_ENDPOINTS[0]! }), TypeError);
+  assert.throws(() => (REGISTRY_CHECKS as RegistryCheck[]).push({ ...REGISTRY_CHECKS[0]! }), TypeError);
+  assert.throws(() => {
+    (CURATED_ENDPOINTS[0] as CuratedEndpoint).working = false;
+  }, TypeError);
+});
+
 test("endpoints source registry leaves out the curated list; source curated makes no request", async () => {
   const lists = { curatedEndpoints: [curated("Stadt Neu", "https://ris.neu.example/oparl/system")] };
   const registryOnly = client(registryTable, lists);

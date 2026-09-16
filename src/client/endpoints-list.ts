@@ -10,7 +10,13 @@
 
 import type { CuratedEndpoint, RegistryCheck } from "./types.js";
 
-export const CURATED_ENDPOINTS: readonly CuratedEndpoint[] = [
+/**
+ * Freeze a list and its entries: `readonly` is compile-time only, and these are the
+ * data every OparlClient reads, so a JS consumer must not be able to change them.
+ */
+const frozen = <T>(list: T[]): readonly T[] => Object.freeze(list.map((entry) => Object.freeze(entry)));
+
+export const CURATED_ENDPOINTS: readonly CuratedEndpoint[] = frozen([
   {
     "title": "Regionalrat Köln",
     "url": "https://bezreg-koeln.ratsinfomanagement.net/webservice/oparl/v1.1/system",
@@ -575,9 +581,9 @@ export const CURATED_ENDPOINTS: readonly CuratedEndpoint[] = [
     "bodyCount": 1,
     "note": null
   }
-];
+]);
 
-export const REGISTRY_CHECKS: readonly RegistryCheck[] = [
+export const REGISTRY_CHECKS: readonly RegistryCheck[] = frozen([
   {
     "url": "http://rahden.ratsinfomanagement.net/webservice/oparl/v1.1/system",
     "working": true,
@@ -1570,4 +1576,4 @@ export const REGISTRY_CHECKS: readonly RegistryCheck[] = [
     "replacedBy": null,
     "note": null
   }
-];
+]);

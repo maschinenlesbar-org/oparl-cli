@@ -198,8 +198,14 @@ function render(curatedList, checks) {
 
 import type { CuratedEndpoint, RegistryCheck } from "./types.js";
 
-export const CURATED_ENDPOINTS: readonly CuratedEndpoint[] = ${json(curatedList, curatedFields)};
+/**
+ * Freeze a list and its entries: \`readonly\` is compile-time only, and these are the
+ * data every OparlClient reads, so a JS consumer must not be able to change them.
+ */
+const frozen = <T>(list: T[]): readonly T[] => Object.freeze(list.map((entry) => Object.freeze(entry)));
 
-export const REGISTRY_CHECKS: readonly RegistryCheck[] = ${json(checks, checkFields)};
+export const CURATED_ENDPOINTS: readonly CuratedEndpoint[] = frozen(${json(curatedList, curatedFields)});
+
+export const REGISTRY_CHECKS: readonly RegistryCheck[] = frozen(${json(checks, checkFields)});
 `;
 }

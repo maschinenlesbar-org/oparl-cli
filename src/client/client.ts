@@ -119,6 +119,36 @@ const isObject = (value: unknown): value is JsonObject =>
 
 const str = (value: JsonValue | undefined): string | null => (typeof value === "string" ? value : null);
 
+/** Whether a URL is one this client could fetch: a valid absolute http/https URL. */
+function isFetchableUrl(url: string): boolean {
+  try {
+    parseHttpUrl(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check a caller-supplied endpoint list (the `curatedEndpoints` and `registryChecks`
+ * options). Both are keyed by their `url`, so an entry without one, or a value that is
+ * not an array at all, would otherwise surface as a TypeError from inside `endpoints()`.
+ */
+function checkedEndpointList<T extends { url: string }>(list: readonly T[], option: string): readonly T[] {
+  if (!Array.isArray(list)) {
+    throw new OparlValidationError(`The ${option} option must be an array of endpoints.`);
+  }
+  for (const entry of list) {
+    const url: unknown = (entry as { url?: unknown } | null)?.url;
+    if (typeof url !== "string" || !isFetchableUrl(url)) {
+      throw new OparlValidationError(
+        `Every entry of the ${option} option needs a \`url\` holding an http(s) System URL.`,
+      );
+    }
+  }
+  return list;
+}
+
 /** What arrived where an OParl object or URL was expected, for an error message. */
 function describeJson(value: JsonValue | undefined): string {
   if (value === undefined) return "missing";
@@ -212,8 +242,8 @@ export class OparlClient {
   constructor(options: OparlClientOptions = {}) {
     this.engine = new RequestEngine(options);
     this.registryUrl = options.registryUrl ?? DEFAULT_REGISTRY_URL;
-    this.curatedEndpoints = options.curatedEndpoints ?? CURATED_ENDPOINTS;
-    this.registryChecks = options.registryChecks ?? REGISTRY_CHECKS;
+    this.curatedEndpoints = checkedEndpointList(options.curatedEndpoints ?? CURATED_ENDPOINTS, "curatedEndpoints");
+    this.registryChecks = checkedEndpointList(options.registryChecks ?? REGISTRY_CHECKS, "registryChecks");
   }
 
   /**
@@ -474,7 +504,10 @@ export class OparlClient {
     return [...registry, ...curated];
   }
 
-  /** The registry at `registryUrl`, projected to the useful fields, without the curated checks. */
+  /**
+   * The registry at `registryUrl`, projected to the useful fields, without the curated
+   * checks. Entries whose `url` is missing or not an http(s) URL are left out.
+   */
   private async registry(): Promise<RegistryEntry[]> {
     parseHttpUrl(this.registryUrl);
     const entries: RegistryEntry[] = [];
@@ -488,7 +521,12 @@ export class OparlClient {
         throw new OparlParseError(`${url} is not the OParl endpoint registry (no data array).`);
       }
       for (const raw of value["data"]) {
-        if (isObject(raw)) entries.push(projectEntry(raw));
+        if (!isObject(raw)) continue;
+        const entry = projectEntry(raw);
+        // Skip an entry whose `url` is missing or not an http(s) URL: it is nothing
+        // this client can fetch, and every such entry would key alike and so hide
+        // the others (the registry does carry a few without a `url`).
+        if (isFetchableUrl(entry.url)) entries.push(entry);
       }
       const meta = isObject(value["meta"]) ? value["meta"] : {};
       const nextLink = str(meta["next"]);
