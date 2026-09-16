@@ -203,6 +203,10 @@ export function upgradeSameHostUrls<T>(value: T, fetchedFrom: string): T {
     if (text.length < 8 || text.slice(0, 7).toLowerCase() !== "http://") return text;
     const end = text.slice(7).search(/[/?#]/);
     const authority = end === -1 ? text.slice(7) : text.slice(7, 7 + end);
+    // Only a plain host[:port] is rewritten. A backslash, whitespace or userinfo ends
+    // the authority for WHATWG URL parsing but not for the scan above, so rewriting
+    // such a string would drop the rest of it ("http://host\evil" → "https://host").
+    if (!/^[a-z0-9.:[\]-]*$/i.test(authority)) return text;
     let parsed: URL;
     try {
       parsed = new URL(`http://${authority}`);

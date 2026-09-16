@@ -18,6 +18,9 @@
 //   npm run check-endpoints                    # build, check, rewrite the list
 //   node scripts/check-endpoints.mjs --dry-run # check and report only
 //
+// A failing endpoint is checked a second time after a short pause, so that one timeout
+// doesn't record a healthy server as not working.
+//
 // Options: --dry-run, --concurrency <n> (default 4), --timeout <ms> (default 60000),
 // --only registry|curated, --allow-shrink (write even when the registry lists far fewer
 // endpoints than are on record). Run it from anywhere, after `npm run build`.
@@ -35,6 +38,8 @@ import {
 
 const LIST_FILE = new URL("../src/client/endpoints-list.ts", import.meta.url);
 const BODY_PAGES = 20;
+/** Pause before a failed endpoint is checked a second time. */
+const RETRY_DELAY_MS = 3000;
 /**
  * The share of the registry entries on record that a registry answer has to still list
  * before this script rewrites the file. A registry that answers HTTP 200 with a fraction
@@ -191,7 +196,7 @@ function describeFailure(err) {
   }
 }
 
-async function probe(url) {
+async function probeOnce(url) {
   try {
     const system = await client.system(url);
     const bodies = await client.walk(resolveLink(url, system.body), undefined, BODY_PAGES);
@@ -208,6 +213,18 @@ async function probe(url) {
     // take down `pool`'s Promise.all and with it the whole run, reporting nothing.
     return { working: false, problem: describeFailure(err) };
   }
+}
+
+/**
+ * Check one endpoint, retrying a failure once after a pause. Council systems time out
+ * or drop a connection now and then, and a single bad moment would otherwise record a
+ * healthy server as not working — which is what the list ships to every user.
+ */
+export async function probe(url, retryDelayMs = RETRY_DELAY_MS) {
+  const first = await probeOnce(url);
+  if (first.working) return first;
+  await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  return probeOnce(url);
 }
 
 /** Run `fn` over `items`, `concurrency` at a time, reporting progress on stderr. */

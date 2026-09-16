@@ -106,6 +106,8 @@ test("endpoints --search ignores Unicode form, accents and umlaut spellings", as
       entry("Dusseldorf", "https://ris.duesseldorf.de/oparl/system"),
       entry("Münster", "https://www.stadt-muenster.de/sessionnetbi/oparl/system"),
       entry("Gießen", "https://ris.giessen.de/oparl/system"),
+      entry("Aue", "https://aue.ratsinfomanagement.net/oparl/system"),
+      entry("Bad Aibling", "https://aibling.example.org/oparl/system"),
     ],
     meta: {},
   };
@@ -119,7 +121,46 @@ test("endpoints --search ignores Unicode form, accents and umlaut spellings", as
   assert.deepEqual(await titles("düsseldorf"), ["Dusseldorf"]);
   assert.deepEqual(await titles("MUNSTER"), ["Münster"]);
   assert.deepEqual(await titles("giessen"), ["Gießen"]);
+  assert.deepEqual(await titles("duesseldorf"), ["Dusseldorf"]);
   assert.deepEqual(await titles("irgendwo"), []);
+});
+
+test("endpoints --search does not collapse ordinary vowel pairs", async () => {
+  // The umlaut pass ("koeln" finds "Köln") must not turn "ae"/"aue" into "a"/"au",
+  // which used to match almost every entry.
+  const entry = (title: string, url: string) => ({ title, url, system: [] });
+  const registry = {
+    data: [
+      entry("Köln", "https://ratsinformation.stadt-koeln.de/oparl/system"),
+      entry("Aue", "https://aue.ratsinfomanagement.net/oparl/system"),
+      entry("Bad Aibling", "https://aibling.example.org/oparl/system"),
+      entry("Gemeinde Ahaus", "https://ahaus.example.org/oparl/system"),
+    ],
+    meta: {},
+  };
+  const titles = async (search: string) => {
+    const cli = makeCli(() => jsonResponse(registry));
+    assert.equal(await run(["endpoints", "--registry-url", fx.REGISTRY_URL, "--search", search], cli.deps), 0);
+    return (cli.json() as Array<{ title: string }>).map((e) => e.title);
+  };
+  assert.deepEqual(await titles("ae"), [], "a two-letter term must not reach the umlaut pass");
+  assert.deepEqual(await titles("Aue"), ["Aue"], "a literal hit wins over the umlaut pass");
+  assert.deepEqual(await titles("ahaus"), ["Gemeinde Ahaus"]);
+  assert.deepEqual(await titles("koeln"), ["Köln"], "the umlaut pass still works");
+});
+
+test("a URL argument's credentials are not echoed in a parse error", async () => {
+  const cli = makeCli();
+  assert.equal(await run(["get", "ftp://user:hunter2@example.org/x"], cli.deps), 2);
+  const err = cli.err.join("\n");
+  assert.doesNotMatch(err, /hunter2/, err);
+  assert.match(err, /<redacted>@/);
+});
+
+test("-o with an empty name is a usage error, not stdout", async () => {
+  const cli = makeCli();
+  assert.equal(await run(["system", fx.SYSTEM_URL, "-o", ""], cli.deps), 2);
+  assert.equal(cli.out.join(""), "");
 });
 
 test("endpoints --source and --working use the curated list and the live checks", async () => {

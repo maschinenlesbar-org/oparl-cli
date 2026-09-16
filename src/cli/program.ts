@@ -9,7 +9,7 @@ import type { CliDeps } from "./io.js";
 import { defaultIO } from "./io.js";
 import { OparlClient } from "../client/client.js";
 import { MAX_TIMEOUT_MS } from "../client/http.js";
-import { parseBoundedInt, parseHeaderValue, parseIntArg } from "./shared.js";
+import { parseBoundedInt, parseHeaderValue, parseIntArg, parseNonEmpty } from "./shared.js";
 import { registerCommands } from "./commands/oparl.js";
 
 /**
@@ -62,7 +62,7 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
       parseIntArg,
     )
     .option("--compact", "print JSON on a single line instead of pretty-printed")
-    .option("-o, --output <file>", "write output to this file instead of stdout")
+    .option("-o, --output <file>", "write output to this file instead of stdout", parseNonEmpty)
     .showHelpAfterError();
 
   registerCommands(program, deps);

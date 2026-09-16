@@ -34,17 +34,46 @@ import {
 const MAX_PAGES_OPTION = "pages to fetch, following links.next (0 = all)";
 
 /**
- * Fold text for the endpoints search: case, Unicode normalisation form, accents and the
- * German umlaut spellings all compare equal, so "Köln" (typed composed or decomposed),
- * "koln" and "koeln" match each other, and "düsseldorf" matches "Dusseldorf".
+ * Fold text for the endpoints search: case, Unicode normalisation form and accents
+ * compare equal, and `ß` counts as `ss`. So "Köln" typed composed or decomposed, and
+ * "koln", match each other.
  */
 export function foldSearchText(text: string): string {
   return text
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
-    .replaceAll("ß", "ss")
-    .replace(/([aou])e/g, "$1");
+    .replaceAll("ß", "ss");
+}
+
+/**
+ * The same text with the German umlaut spellings contracted, so `ae`/`oe`/`ue` compare
+ * equal to `a`/`o`/`u`: "koeln" and "köln" (folded to "koln") both become "koln".
+ *
+ * Only used as a second pass, because it also collapses ordinary words — "Aue" becomes
+ * "au" and matches half the register. See {@link searchMatches}.
+ */
+export function contractUmlautSpellings(folded: string): string {
+  return folded.replace(/([aou])e/g, "$1");
+}
+
+/** A search needs this many characters before the umlaut pass runs. */
+const MIN_UMLAUT_PASS_LENGTH = 4;
+
+/**
+ * The entries a `--search` term matches: those containing it literally (accents and
+ * `ß` folded) and, only when nothing matched literally, those that match with the
+ * umlaut spellings contracted — so "koeln" still finds "Köln" and "duesseldorf" finds
+ * "Dusseldorf", while "ae" no longer matches every entry with an "a".
+ */
+export function searchMatches<T>(entries: readonly T[], term: string, text: (entry: T) => string[]): T[] {
+  const needle = foldSearchText(term.trim());
+  const literal = entries.filter((entry) => text(entry).some((value) => foldSearchText(value).includes(needle)));
+  if (literal.length > 0 || needle.length < MIN_UMLAUT_PASS_LENGTH) return literal;
+  const contracted = contractUmlautSpellings(needle);
+  return entries.filter((entry) =>
+    text(entry).some((value) => contractUmlautSpellings(foldSearchText(value)).includes(contracted)),
+  );
 }
 
 /**
@@ -104,7 +133,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
       "List known OParl endpoints: the registry at dev.oparl.org plus a curated list of " +
         "servers it lacks, with the date and result of their last live check",
     )
-    .option("--search <text>", "only endpoints whose title or URL contains this text (ignores case, accents and ä/ae spellings)", parseNonEmpty)
+    .option("--search <text>", "only endpoints whose title, URL or note contains this text (ignores case and accents; falls back to ä/ae spellings)", parseNonEmpty)
     .option("--oparl-version <version>", "only endpoints speaking this OParl version: 1.0, 1.1, or the full version URI", parseOparlVersion)
     .option("--working", "only endpoints that worked on their last check")
     .addOption(
@@ -126,10 +155,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           const search = opts["search"] as string | undefined;
           const version = opts["oparlVersion"] as string | undefined;
           if (search !== undefined) {
-            const needle = foldSearchText(search.trim());
-            entries = entries.filter(
-              (e: RegistryEntry) => foldSearchText(e.title).includes(needle) || foldSearchText(e.url).includes(needle),
-            );
+            entries = searchMatches(entries, search, (e: RegistryEntry) => [e.title, e.url, e.note ?? ""]);
           }
           if (version !== undefined) entries = entries.filter((e) => e.oparlVersion === version);
           if (opts["working"]) entries = entries.filter((e) => e.working);

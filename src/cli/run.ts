@@ -5,6 +5,7 @@
 import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
 import type { CliDeps } from "./io.js";
+import { redactCredentials } from "./shared.js";
 import {
   OparlApiError,
   OparlError,
@@ -57,7 +58,14 @@ function configureTree(command: Command, deps: CliDeps): void {
   for (const child of command.commands) configureTree(child, deps);
 }
 
-export async function run(argv: string[], deps: CliDeps = defaultDeps): Promise<number> {
+export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {
+  // Everything written to stderr — our messages and commander's parse errors, which
+  // quote the raw argument — gets any URL userinfo redacted. stdout is left alone: it
+  // carries the server's data, which must stay byte-exact.
+  const deps: CliDeps = {
+    ...rawDeps,
+    io: { ...rawDeps.io, err: (text) => rawDeps.io.err(redactCredentials(text)) },
+  };
   const program = buildProgram(deps);
   configureTree(program, deps);
 

@@ -70,6 +70,16 @@ export function parseUrl(value: string): string {
   return value;
 }
 
+/**
+ * Replace the userinfo of any URL in a text with `<redacted>`. `parseUrl` strips
+ * `user:password@` from every URL the client uses, but commander quotes the raw
+ * argument back in its own parse errors ("argument '…' is invalid"), so anything the
+ * CLI prints goes through this first.
+ */
+export function redactCredentials(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1<redacted>@");
+}
+
 /** commander value-parser for an OParl timestamp filter (YYYY-MM-DD or an ISO 8601 date-time with offset). */
 export function parseTimestamp(value: string): string {
   try {

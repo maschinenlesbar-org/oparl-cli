@@ -322,6 +322,13 @@ test("http:// URLs on the host of an https response are printed as https://", as
     note: "see http://ris.example.de/oparl", // not a URL value
   });
 
+  // An authority that isn't a plain host[:port] is left alone: a backslash or a space
+  // ends the authority for URL parsing but not for the scan, so rewriting such a string
+  // used to drop everything after it.
+  const odd = { a: "http://ris.example.de\\evil.example/x", b: "http://ris.example.de evil", c: "http://user@ris.example.de/x" };
+  const oddEngine = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(odd)).transport });
+  assert.deepEqual(await oddEngine.getJson("https://ris.example.de/oparl"), odd);
+
   const overHttp = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(served)).transport });
   assert.deepEqual(await overHttp.getJson("http://ris.example.de/oparl/bodies/0001"), served);
 });
