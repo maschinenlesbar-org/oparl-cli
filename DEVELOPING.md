@@ -180,7 +180,9 @@ many working servers weren't listed at all. So the package ships
 leaving out any System listed twice (compared by `endpointKey`: scheme, host, port, path
 and query, ignoring host case and a trailing slash). The scheme is part of the key because
 the registry lists a few councils under both `http://` and `https://`, and those two don't
-always answer alike.
+always answer alike. Where both lists hold a System — the registry can catch up with a
+curated server — it is listed once, under the registry's entry, reporting whichever of the
+two live checks is newer.
 
 **Refreshing it.** `npm run check-endpoints` builds, then runs `scripts/check-endpoints.mjs`.
 The script checks every registry and curated endpoint live: an endpoint works when its
@@ -188,15 +190,18 @@ System and the first 20 pages of its bodies list load. It then rewrites the file
 `url`, `note` and `replacedBy` are kept, everything else is overwritten. It takes a few
 minutes, since some servers need 40 seconds for a page. Options: `--dry-run` (report only),
 `--concurrency <n>` (default 4), `--timeout <ms>` (default 60000), `--only registry|curated`.
-Run it before a release and commit the result; it also reports entries that changed state
-and curated entries the registry has caught up with.
+Run it before a release and commit the result; it also reports entries that changed state.
+A curated entry the registry has caught up with is folded into `REGISTRY_CHECKS` (keeping
+its `note`, and its check where that is the newer one) and dropped from
+`CURATED_ENDPOINTS`, so that the file keeps one record per System.
 
 **Adding a server.** Verify it first (`oparl system <url>` and `oparl bodies <url>`). Then
 append an object to `CURATED_ENDPOINTS` with `title` (the council's official name), `url`
 (the System URL) and, if useful, a `note`. Set the other fields to `null`/`false` and
 `checked` to today, and run the script. When a registry entry moved, set its `replacedBy`
-in `REGISTRY_CHECKS` to the new URL, which must be a curated entry (the test
-`the shipped curated list is consistent` checks this). Good places to look for servers:
+in `REGISTRY_CHECKS` to the new URL, which must be an endpoint this package knows — a
+curated entry or another registry entry (the test `the shipped curated list is consistent`
+checks this). Good places to look for servers:
 [mandari's source list](https://github.com/mandariOSS/mandari/blob/main/ingestor/src/sources.py),
 the CKAN portals of GovData, Open.NRW and daten.berlin.de (search "oparl"), and the council
 portal of the municipality itself.

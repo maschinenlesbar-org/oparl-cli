@@ -162,17 +162,47 @@ if (only !== "registry") {
   curated.sort((a, b) => a.title.localeCompare(b.title, "de"));
 }
 
+/**
+ * Fold a curated entry into the registry check for the same System: the newer of the
+ * two checks decides whether the endpoint works, and the hand-written note is kept.
+ */
+function fold(check, entry) {
+  const fresher =
+    entry.checked > check.checked
+      ? {
+          working: entry.working,
+          checked: entry.checked,
+          problem: entry.problem,
+          oparlVersion: entry.oparlVersion,
+          systemName: entry.systemName,
+          vendor: entry.vendor,
+          bodyCount: entry.bodyCount,
+        }
+      : {};
+  return { ...check, ...fresher, note: check.note ?? entry.note };
+}
+
+// The registry has caught up with a curated server: the file keeps one record per
+// System, so the curated entry is folded into the registry check and dropped. Left in
+// place it would fail the shipped consistency test, and `endpoints()` lists the System
+// once anyway.
+const checkIndex = new Map(registryChecks.map((check, i) => [endpointKey(check.url), i]));
+const keptCurated = [];
+for (const entry of curated) {
+  const at = checkIndex.get(endpointKey(entry.url));
+  if (at === undefined) {
+    keptCurated.push(entry);
+    continue;
+  }
+  registryChecks[at] = fold(registryChecks[at], entry);
+  changes.push(`folded into the registry checks, which list it now: "${entry.title}"`);
+}
+curated = keptCurated;
+
 const count = (list) => `${list.filter((e) => e.working).length} of ${list.length} working`;
 console.log(`registry: ${count(registryChecks)}`);
 console.log(`curated:  ${count(curated)}`);
 for (const change of changes) console.log(`  ${change}`);
-
-const registryKeys = new Set(registryChecks.map((check) => endpointKey(check.url)));
-for (const entry of curated) {
-  if (registryKeys.has(endpointKey(entry.url))) {
-    console.log(`  note: "${entry.title}" is now in the registry and can be removed from the curated list`);
-  }
-}
 
 if (dryRun) {
   console.log("dry run: src/client/endpoints-list.ts not changed");

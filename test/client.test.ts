@@ -465,7 +465,8 @@ test("endpoints merges the curated list after the registry and applies the live 
   assert.deepEqual(
     entries.map((e) => [e.title, e.source, e.working, e.checked, e.problem, e.replacedBy, e.note]),
     [
-      ["Stadt Beispiel", "registry", true, null, null, null, null],
+      // The curated duplicate carries the only live check of this System.
+      ["Stadt Beispiel", "registry", true, "2026-09-16", null, null, null],
       ["Amt Irgendwo", "registry", false, "2026-09-16", "HTTP 404", "https://ris.neu.example/oparl/system", null],
       ["Gemeinde Musterdorf", "registry", false, "2026-09-16", "timeout", null, "slow"],
       ["Stadt Neu", "curated", true, "2026-09-16", null, null, null],
@@ -520,6 +521,35 @@ test("endpoints lists a System the registry holds twice only once", async () => 
   const doubled = { data: [entry, { ...entry, id: 4, title: "Gemeinde Musterdorf (again)", url: `${entry.url}/` }], meta: {} };
   const { c } = client({ [`${fx.REGISTRY_URL}?page=1&limit=100`]: jsonResponse(doubled) });
   assert.deepEqual((await c.endpoints()).map((e) => e.title), ["Gemeinde Musterdorf"]);
+});
+
+test("where both lists hold a System, the fresher of the two checks decides", async () => {
+  // The registry catches up with a curated server: its snapshot must not overwrite a
+  // newer curated check (and vice versa).
+  const entries = async (checked: string) => {
+    const { c } = client(registryTable, {
+      curatedEndpoints: [
+        curated("Stadt Beispiel (curated)", fx.SYSTEM_URL, {
+          working: false,
+          checked: "2026-09-20",
+          problem: "TLS certificate not verifiable",
+          note: "sends no intermediate certificate",
+        }),
+      ],
+      registryChecks: [{ url: fx.SYSTEM_URL, working: true, checked, problem: null, replacedBy: null, note: null }],
+    });
+    const listed = await c.endpoints();
+    assert.equal(listed.length, 3); // the System is listed once, under the registry entry
+    return [listed[0]!.title, listed[0]!.working, listed[0]!.checked, listed[0]!.problem, listed[0]!.note];
+  };
+  assert.deepEqual(await entries("2026-09-10"), [
+    "Stadt Beispiel",
+    false,
+    "2026-09-20",
+    "TLS certificate not verifiable",
+    "sends no intermediate certificate",
+  ]);
+  assert.deepEqual(await entries("2026-09-30"), ["Stadt Beispiel", true, "2026-09-30", null, null]);
 });
 
 test("registry entries without a fetchable url are left out", async () => {
@@ -590,6 +620,7 @@ test("the shipped curated list is consistent", () => {
     assert.ok(!curatedKeys.has(key), `duplicate curated URL ${entry.url}`);
     curatedKeys.add(key);
   }
+  const allCheckKeys = new Set(REGISTRY_CHECKS.map((check) => endpointKey(check.url)));
   const checkKeys = new Set<string>();
   for (const check of REGISTRY_CHECKS) {
     assert.match(check.checked, day, check.url);
@@ -598,7 +629,10 @@ test("the shipped curated list is consistent", () => {
     assert.ok(!curatedKeys.has(key), `${check.url} is both a registry check and a curated entry`);
     checkKeys.add(key);
     if (check.replacedBy !== null) {
-      assert.ok(curatedKeys.has(endpointKey(check.replacedBy)), `replacedBy ${check.replacedBy} is not in the curated list`);
+      // The new URL has to be an endpoint this package knows: a curated entry, or a
+      // registry entry (a server that moved to a URL the registry lists itself).
+      const target = endpointKey(check.replacedBy);
+      assert.ok(curatedKeys.has(target) || allCheckKeys.has(target), `replacedBy ${check.replacedBy} is not a known endpoint`);
     }
   }
 });

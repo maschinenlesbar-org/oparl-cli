@@ -463,11 +463,11 @@ export class OparlClient {
   /**
    * Known OParl endpoints: the public registry at dev.oparl.org merged with the curated
    * list (`source` "all", the default), or either one alone. The registry is a snapshot
-   * that is rarely updated; where the curated list holds a newer live check of a
-   * registry entry, its `working`, `checked`, `problem`, `replacedBy` and `note` apply.
-   * Curated entries follow the registry's. A System listed twice (the registry has a few
-   * duplicates, and the curated list may catch up with the registry) appears once, under
-   * its first entry. `source` "curated" makes no request.
+   * that is rarely updated; the live checks shipped with this package decide what an
+   * entry reports (`working`, `checked`, `problem`, `replacedBy`, `note` and the System
+   * data). Curated entries follow the registry's. A System listed twice appears once —
+   * under the registry's entry where both lists hold it, reporting whichever of the two
+   * live checks is newer. `source` "curated" makes no request.
    */
   async endpoints(options: { source?: EndpointSource } = {}): Promise<RegistryEntry[]> {
     const source = options.source ?? "all";
@@ -475,32 +475,22 @@ export class OparlClient {
       throw new OparlValidationError(`Unknown endpoint source "${String(source)}". Use all, registry or curated.`);
     }
     const checks = new Map(this.registryChecks.map((check) => [endpointKey(check.url), check]));
-    const listed = new Set<string>();
-    const registry = (source === "curated" ? [] : await this.registry())
-      .filter((entry) => {
-        const key = endpointKey(entry.url);
-        return !listed.has(key) && listed.add(key) !== undefined; // the registry lists a few Systems twice
-      })
-      .map((entry) => applyCheck(entry, checks));
+    const listed = new Map<string, number>();
+    const registry: RegistryEntry[] = [];
+    for (const entry of source === "curated" ? [] : await this.registry()) {
+      const key = endpointKey(entry.url);
+      if (listed.has(key)) continue; // the registry lists a few Systems twice
+      listed.set(key, registry.length);
+      registry.push(applyCheck(entry, checks));
+    }
     if (source === "registry") return registry;
-    const curated = this.curatedEndpoints
-      .filter((entry) => !listed.has(endpointKey(entry.url)))
-      .map((entry): RegistryEntry => ({
-        title: entry.title,
-        url: entry.url,
-        source: "curated",
-        working: entry.working,
-        oparlVersion: entry.oparlVersion,
-        systemName: entry.systemName,
-        vendor: entry.vendor,
-        bodyCount: entry.bodyCount,
-        wikidata: null,
-        fetched: null,
-        checked: entry.checked,
-        problem: entry.problem,
-        replacedBy: null,
-        note: entry.note,
-      }));
+    const curated: RegistryEntry[] = [];
+    for (const entry of this.curatedEndpoints) {
+      const listedAt = listed.get(endpointKey(entry.url));
+      const projected = curatedRegistryEntry(entry);
+      if (listedAt === undefined) curated.push(projected);
+      else registry[listedAt] = preferFresherCheck(registry[listedAt]!, projected);
+    }
     return [...registry, ...curated];
   }
 
@@ -611,6 +601,50 @@ export function endpointKey(url: string): string {
   } catch {
     return url.trim();
   }
+}
+
+/** A curated endpoint as `endpoints()` lists it. */
+function curatedRegistryEntry(entry: CuratedEndpoint): RegistryEntry {
+  return {
+    title: entry.title,
+    url: entry.url,
+    source: "curated",
+    working: entry.working,
+    oparlVersion: entry.oparlVersion,
+    systemName: entry.systemName,
+    vendor: entry.vendor,
+    bodyCount: entry.bodyCount,
+    wikidata: null,
+    fetched: null,
+    checked: entry.checked,
+    problem: entry.problem,
+    replacedBy: null,
+    note: entry.note,
+  };
+}
+
+/**
+ * A registry entry and a curated entry for the same System: whichever carries the newer
+ * live check says whether the endpoint works and why not, while the registry's entry
+ * keeps its `title`, `source`, `wikidata`, `fetched` and `replacedBy`. The generated
+ * list normally holds one record per System — `check-endpoints` folds a curated entry
+ * the registry has caught up with into the registry checks — but an installed copy of
+ * this package is merged with a registry snapshot it never saw.
+ */
+function preferFresherCheck(listed: RegistryEntry, curated: RegistryEntry): RegistryEntry {
+  if (curated.checked === null) return listed;
+  if (listed.checked !== null && listed.checked >= curated.checked) return listed;
+  return {
+    ...listed,
+    working: curated.working,
+    oparlVersion: curated.oparlVersion ?? listed.oparlVersion,
+    systemName: curated.systemName ?? listed.systemName,
+    vendor: curated.vendor ?? listed.vendor,
+    bodyCount: curated.bodyCount ?? listed.bodyCount,
+    checked: curated.checked,
+    problem: curated.problem,
+    note: curated.note ?? listed.note,
+  };
 }
 
 function applyCheck(entry: RegistryEntry, checks: Map<string, RegistryCheck>): RegistryEntry {
