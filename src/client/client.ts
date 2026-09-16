@@ -556,15 +556,20 @@ export function shortOparlVersion(version: string): string {
 }
 
 /**
- * The key two endpoint URLs share when they name the same System: host (lowercase,
- * without a default port), path without a trailing slash, and query — ignoring the
- * scheme, since registry entries are sometimes http:// for an https:// server.
+ * The key two endpoint URLs share when they name the same System: scheme, host
+ * (lowercase, without a default port), path without a trailing slash, and query.
+ *
+ * The scheme is part of the key because `http://` and `https://` on the same host are
+ * not interchangeable: of the councils the registry lists under both, some answer only
+ * over one of them (Harsum's http vhost redirects to a host that does not exist, while
+ * its https one answers HTTP 500). Ignoring it pasted the check taken on one scheme
+ * onto the entry showing the other.
  */
 export function endpointKey(url: string): string {
   try {
     const u = new URL(url);
     const port = u.port === "" || u.port === "80" || u.port === "443" ? "" : `:${u.port}`;
-    return `${u.hostname.toLowerCase()}${port}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+    return `${u.protocol}//${u.hostname.toLowerCase()}${port}${u.pathname.replace(/\/+$/, "")}${u.search}`;
   } catch {
     return url.trim();
   }

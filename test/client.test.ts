@@ -446,8 +446,8 @@ test("endpoints merges the curated list after the registry and applies the live 
   const { c } = client(registryTable, {
     curatedEndpoints: [
       curated("Stadt Neu", "https://ris.neu.example/oparl/system"),
-      // The registry already lists this System (http:// and a trailing slash aside).
-      curated("Stadt Beispiel (duplicate)", `${fx.SYSTEM_URL.replace("https:", "http:")}/`),
+      // The registry already lists this System (a trailing slash aside).
+      curated("Stadt Beispiel (duplicate)", `${fx.SYSTEM_URL}/`),
     ],
     registryChecks: [
       {
@@ -534,10 +534,13 @@ test("endpoints source registry leaves out the curated list; source curated make
   await assert.rejects(() => curatedOnly.c.endpoints({ source: "everything" as "all" }), OparlValidationError);
 });
 
-test("endpointKey ignores scheme, host case, default port and a trailing slash", () => {
-  assert.equal(endpointKey("http://RIS.Example.org:80/oparl/system/"), endpointKey("https://ris.example.org/oparl/system"));
+test("endpointKey ignores host case, a default port and a trailing slash, but keeps the scheme", () => {
+  assert.equal(endpointKey("https://RIS.Example.org:443/oparl/system/"), endpointKey("https://ris.example.org/oparl/system"));
   assert.notEqual(endpointKey("https://ris.example.org:8443/oparl/system"), endpointKey("https://ris.example.org/oparl/system"));
   assert.notEqual(endpointKey("https://ris.example.org/oparl/system?body=1"), endpointKey("https://ris.example.org/oparl/system"));
+  // http:// and https:// on the same host are different endpoints: the registry lists
+  // both for a few councils, and they don't answer alike (Harsum, Rosbach).
+  assert.notEqual(endpointKey("http://ris.example.org/oparl/system"), endpointKey("https://ris.example.org/oparl/system"));
 });
 
 test("the shipped curated list is consistent", () => {

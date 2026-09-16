@@ -177,8 +177,10 @@ many working servers weren't listed at all. So the package ships
   URL of a server that moved) and `note`.
 
 `endpoints()` applies the checks to the registry entries and appends the curated ones,
-leaving out any System listed twice (compared by `endpointKey`: host, port, path and query,
-ignoring the scheme and a trailing slash).
+leaving out any System listed twice (compared by `endpointKey`: scheme, host, port, path
+and query, ignoring host case and a trailing slash). The scheme is part of the key because
+the registry lists a few councils under both `http://` and `https://`, and those two don't
+always answer alike.
 
 **Refreshing it.** `npm run check-endpoints` builds, then runs `scripts/check-endpoints.mjs`.
 The script checks every registry and curated endpoint live: an endpoint works when its
