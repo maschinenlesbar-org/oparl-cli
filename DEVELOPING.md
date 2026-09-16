@@ -188,8 +188,14 @@ two live checks is newer.
 The script checks every registry and curated endpoint live: an endpoint works when its
 System and the first 20 pages of its bodies list load. It then rewrites the file. `title`,
 `url`, `note` and `replacedBy` are kept, everything else is overwritten. It takes a few
-minutes, since some servers need 40 seconds for a page. Options: `--dry-run` (report only),
-`--concurrency <n>` (default 4), `--timeout <ms>` (default 60000), `--only registry|curated`.
+minutes, since some servers need 40 seconds for a page. The lists it starts from are read
+from `src/client/endpoints-list.ts` itself, not from `dist/`, so a hand-added entry is
+checked and kept (keep such an edit in the same plain JSON as the rest of the file).
+Options: `--dry-run` (report only), `--concurrency <n>` (default 4), `--timeout <ms>`
+(default 60000), `--only registry|curated`, `--allow-shrink` (write even when the registry
+answers with far fewer endpoints than are on record — without it, such an answer aborts the
+run rather than deleting the checks and notes of the missing ones). An unknown or mistyped
+option is a usage error, so a slip like `--dryrun` cannot rewrite the file.
 Run it before a release and commit the result; it also reports entries that changed state.
 A curated entry the registry has caught up with is folded into `REGISTRY_CHECKS` (keeping
 its `note`, and its check where that is the newer one) and dropped from

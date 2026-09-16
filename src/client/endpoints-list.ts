@@ -4,9 +4,11 @@
 // REGISTRY_CHECKS: live checks of the registry's own entries (the registry is rarely
 // updated), with the new URL of servers that moved.
 //
-// `npm run check-endpoints` re-checks every endpoint and rewrites this file. To add an
-// endpoint, append { title, url, note } plus the other fields (null/false/"") to
-// CURATED_ENDPOINTS and run it. `note` and `replacedBy` are kept as written.
+// `npm run check-endpoints` re-checks every endpoint and rewrites this file, reading the
+// two lists from here — so a hand-added entry is checked and kept, as long as it stays in
+// the same plain JSON as the rest. To add an endpoint, append { title, url, note } plus
+// the other fields (null/false/"") to CURATED_ENDPOINTS and run it. `note` and
+// `replacedBy` are kept as written.
 
 import type { CuratedEndpoint, RegistryCheck } from "./types.js";
 

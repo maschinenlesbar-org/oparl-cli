@@ -7,20 +7,23 @@
 // as `working`/`checked`/`problem`. `title`, `url`, `note` and `replacedBy` are kept as
 // written; everything else is overwritten.
 //
+// The lists themselves are read from src/client/endpoints-list.ts, the file this script
+// rewrites, so that a hand-added endpoint or a hand-edited note is checked and kept; only
+// the client comes from dist/, which `npm run check-endpoints` builds first.
+//
 //   npm run check-endpoints                    # build, check, rewrite the list
 //   node scripts/check-endpoints.mjs --dry-run # check and report only
 //
 // Options: --dry-run, --concurrency <n> (default 4), --timeout <ms> (default 60000),
-// --only registry|curated. Run it from the repository root, after `npm run build`.
+// --only registry|curated, --allow-shrink (write even when the registry lists far fewer
+// endpoints than are on record). Run it from anywhere, after `npm run build`.
 
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import {
-  CURATED_ENDPOINTS,
   OparlApiError,
   OparlClient,
   OparlLinkError,
   OparlNetworkError,
-  REGISTRY_CHECKS,
   endpointKey,
   resolveLink,
   shortOparlVersion,
@@ -28,31 +31,131 @@ import {
 
 const LIST_FILE = new URL("../src/client/endpoints-list.ts", import.meta.url);
 const BODY_PAGES = 20;
+/**
+ * The share of the registry entries on record that a registry answer has to still list
+ * before this script rewrites the file. A registry that answers HTTP 200 with a fraction
+ * of its entries (or none) would otherwise delete the checks, notes and `replacedBy` URLs
+ * of every endpoint it left out.
+ */
+const REGISTRY_FLOOR = 0.8;
 
-function option(name, fallback) {
-  const i = process.argv.indexOf(name);
-  return i === -1 ? fallback : process.argv[i + 1];
-}
-const dryRun = process.argv.includes("--dry-run");
-const concurrency = Number(option("--concurrency", "4"));
-const timeoutMs = Number(option("--timeout", "60000"));
-const only = option("--only", "all");
-if (!["all", "registry", "curated"].includes(only) || !(concurrency >= 1) || !(timeoutMs >= 1000)) {
-  console.error("Usage: check-endpoints.mjs [--dry-run] [--concurrency n] [--timeout ms] [--only registry|curated]");
+const USAGE =
+  "Usage: check-endpoints.mjs [--dry-run] [--allow-shrink] [--concurrency n] [--timeout ms] [--only registry|curated]";
+/** A usage error: nothing was checked and nothing written. */
+function usageError(message) {
+  console.error(`${message}\n${USAGE}`);
   process.exit(2);
+}
+/** A run that cannot finish safely. */
+function abort(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+// Strict parsing: an unknown or mistyped flag must not be dropped silently, since
+// `--dryrun` would then rewrite the list and fire a few hundred requests at municipal
+// servers, and `--only=curated` would check the whole registry.
+const SWITCHES = ["--dry-run", "--allow-shrink"];
+const VALUED = ["--concurrency", "--timeout", "--only"];
+const given = { "--concurrency": "4", "--timeout": "60000", "--only": "all" };
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const token = argv[i];
+  const eq = token.indexOf("=");
+  const name = eq === -1 ? token : token.slice(0, eq);
+  if (SWITCHES.includes(name)) {
+    if (eq !== -1) usageError(`${name} takes no value.`);
+    given[name] = true;
+  } else if (VALUED.includes(name)) {
+    const value = eq === -1 ? argv[++i] : token.slice(eq + 1);
+    if (value === undefined || value === "" || value.startsWith("-")) usageError(`${name} needs a value.`);
+    given[name] = value;
+  } else {
+    usageError(`Unknown option "${token}".`);
+  }
+}
+const dryRun = given["--dry-run"] === true;
+const allowShrink = given["--allow-shrink"] === true;
+const concurrency = Number(given["--concurrency"]);
+const timeoutMs = Number(given["--timeout"]);
+const only = given["--only"];
+if (!["all", "registry", "curated"].includes(only)) usageError(`--only takes all, registry or curated, not "${only}".`);
+if (!(concurrency >= 1)) usageError("--concurrency takes a number >= 1.");
+if (!(timeoutMs >= 1000)) usageError("--timeout takes a number of milliseconds >= 1000.");
+
+/**
+ * One of the JSON arrays in the generated list file. This script writes the file, so its
+ * arrays are plain JSON; a hand edit has to keep that form.
+ */
+function readList(source, name) {
+  const at = source.indexOf(`export const ${name}`);
+  // From the `=`, so that the `[]` of the type annotation is not mistaken for the list.
+  const eq = at === -1 ? -1 : source.indexOf("=", at);
+  const open = eq === -1 ? -1 : source.indexOf("[", eq);
+  if (open === -1) abort(`${name} is not in ${LIST_FILE.pathname}; nothing was checked.`);
+  let depth = 0;
+  let inString = false;
+  for (let i = open; i < source.length; i++) {
+    const char = source[i];
+    if (inString) {
+      if (char === "\\") i += 1;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === "[" || char === "{") depth += 1;
+    else if (char === "]" || char === "}") {
+      depth -= 1;
+      if (depth > 0) continue;
+      try {
+        return JSON.parse(source.slice(open, i + 1));
+      } catch (err) {
+        abort(`${name} in ${LIST_FILE.pathname} is not plain JSON (${err.message}); nothing was checked.`);
+      }
+    }
+  }
+  abort(`${name} in ${LIST_FILE.pathname} is not a closed array; nothing was checked.`);
+}
+
+const listSource = readFileSync(LIST_FILE, "utf8");
+const curatedOnRecord = readList(listSource, "CURATED_ENDPOINTS");
+const checksOnRecord = readList(listSource, "REGISTRY_CHECKS");
+// Every entry of both lists has exactly one `url`, so this catches a file whose shape
+// the reader above got wrong before anything is overwritten with a partial list.
+const urlsInFile = (listSource.match(/^\s*"url":/gm) ?? []).length;
+if (urlsInFile !== curatedOnRecord.length + checksOnRecord.length) {
+  abort(
+    `Read ${curatedOnRecord.length + checksOnRecord.length} endpoints from ${LIST_FILE.pathname}, which holds ` +
+      `${urlsInFile}; nothing was checked.`,
+  );
 }
 
 const client = new OparlClient({ timeoutMs, curatedEndpoints: [], registryChecks: [] });
 const today = new Date().toISOString().slice(0, 10);
 const text = (value) => (typeof value === "string" && value !== "" ? value : null);
 
+/**
+ * A short reason for a link (or redirect `Location`) this client refuses to follow.
+ * The target is dug out of the message, which is all the error carries — and it is
+ * server text, so it is not necessarily a URL at all.
+ */
+function linkProblem(message) {
+  if (/invalid link/.test(message)) return "the server returned an invalid link";
+  let target = null;
+  try {
+    target = new URL(/Refusing to follow (?:a non-http link: )?(\S+)/.exec(message)?.[1] ?? "");
+  } catch {
+    target = null;
+  }
+  if (/non-http link/.test(message)) return `link to a non-http URL${target ? ` (${target.protocol})` : ""}`;
+  if (/another port/.test(message)) return `points to another port${target ? `: ${target.port}` : ""}`;
+  return `points to another host${target ? `: ${target.host}` : ""}`;
+}
+
 /** A short reason for a failed check. */
 function problemOf(err) {
   if (err instanceof OparlApiError) return `HTTP ${err.status}`;
-  if (err instanceof OparlLinkError) {
-    const target = /follow (\S+)/.exec(err.message)?.[1];
-    return target ? `redirects to ${new URL(target).host}` : "link to another host";
-  }
+  if (err instanceof OparlLinkError) return linkProblem(err.message);
   if (err instanceof OparlNetworkError) {
     const code = err.cause?.code;
     if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "host not found";
@@ -66,7 +169,22 @@ function problemOf(err) {
   if (/HTML page/.test(message)) return "HTML page instead of OParl";
   if (/not an OParl System/.test(message)) return "not an OParl System";
   if (/error object/.test(message)) return message.replace(/^.*error object: /, "error: ").slice(0, 80);
+  // These three name the URL first, so the fallback below would record a `problem` that
+  // is a cut-off copy of the endpoint's own URL ("Expected an OParl object from https://…").
+  const notAnObject = /^Expected an OParl object from \S+ but got (.*)\.$/.exec(message);
+  if (notAnObject) return `not an OParl object (got ${notAnObject[1]})`;
+  if (/^Empty response from /.test(message)) return "empty response";
+  if (/^Failed to parse JSON response from /.test(message)) return "response is not JSON";
   return message.slice(0, 80);
+}
+
+/** `problemOf` must never be the reason a whole run fails: see the note in `probe`. */
+function describeFailure(err) {
+  try {
+    return problemOf(err);
+  } catch {
+    return "check failed";
+  }
 }
 
 async function probe(url) {
@@ -82,7 +200,9 @@ async function probe(url) {
       bodyCount: bodies.data.length,
     };
   } catch (err) {
-    return { working: false, problem: problemOf(err) };
+    // Everything one endpoint can do ends here: a rejection escaping this catch would
+    // take down `pool`'s Promise.all and with it the whole run, reporting nothing.
+    return { working: false, problem: describeFailure(err) };
   }
 }
 
@@ -112,7 +232,7 @@ function note(title, before, after) {
   }
 }
 
-let registryChecks = [...REGISTRY_CHECKS];
+let registryChecks = checksOnRecord;
 if (only !== "curated") {
   // The registry lists a few Systems twice; check each once.
   const keys = new Set();
@@ -120,7 +240,20 @@ if (only !== "curated") {
     const key = endpointKey(entry.url);
     return !keys.has(key) && keys.add(key);
   });
-  const previous = new Map(REGISTRY_CHECKS.map((check) => [endpointKey(check.url), check]));
+  const previous = new Map(checksOnRecord.map((check) => [endpointKey(check.url), check]));
+  if (registry.length < Math.floor(previous.size * REGISTRY_FLOOR) && !allowShrink) {
+    abort(
+      `The registry answered with ${registry.length} endpoints, but ${previous.size} checks are on record. ` +
+        "Refusing to rewrite the list from what looks like a partial answer: it would delete the checks, " +
+        "notes and replacedBy URLs of every endpoint it left out. Try again later, or pass --allow-shrink " +
+        "if the registry really has shrunk that much.",
+    );
+  }
+  for (const [key, check] of previous) {
+    if (keys.has(key)) continue;
+    const handWritten = check.note || check.replacedBy ? " — it carried a note or replacedBy" : "";
+    changes.push(`dropped, the registry no longer lists it: ${check.url}${handWritten}`);
+  }
   const probed = await pool(registry, (entry) => probe(entry.url));
   registryChecks = registry.map((entry, i) => {
     const before = previous.get(endpointKey(entry.url));
@@ -149,7 +282,7 @@ if (only !== "curated") {
   registryChecks.sort((a, b) => a.url.localeCompare(b.url));
 }
 
-let curated = [...CURATED_ENDPOINTS];
+let curated = curatedOnRecord;
 if (only !== "registry") {
   const probed = await pool(curated, (entry) => probe(entry.url));
   curated = curated.map((entry, i) => {
@@ -222,9 +355,11 @@ function render(curatedList, checks) {
 // REGISTRY_CHECKS: live checks of the registry's own entries (the registry is rarely
 // updated), with the new URL of servers that moved.
 //
-// \`npm run check-endpoints\` re-checks every endpoint and rewrites this file. To add an
-// endpoint, append { title, url, note } plus the other fields (null/false/"") to
-// CURATED_ENDPOINTS and run it. \`note\` and \`replacedBy\` are kept as written.
+// \`npm run check-endpoints\` re-checks every endpoint and rewrites this file, reading the
+// two lists from here — so a hand-added entry is checked and kept, as long as it stays in
+// the same plain JSON as the rest. To add an endpoint, append { title, url, note } plus
+// the other fields (null/false/"") to CURATED_ENDPOINTS and run it. \`note\` and
+// \`replacedBy\` are kept as written.
 
 import type { CuratedEndpoint, RegistryCheck } from "./types.js";
 
