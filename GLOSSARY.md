@@ -24,8 +24,11 @@ fetch (`fetched`), and it is rarely updated. Some entries are duplicates or aggr
 the registry lacks, and a live check of every registry entry. `oparl endpoints` lists both
 (`source`: `registry` or `curated`). `checked` is the day of the last check, `working` its
 result, `problem` the reason it failed, and `replacedBy` the new URL of a server that moved.
-The maintainers refresh it with `npm run check-endpoints`. When the registry cannot be
-reached, `endpoints` lists the curated entries alone and says so on stderr.
+The maintainers refresh it with `npm run check-endpoints`, which checks a failing endpoint
+twice before recording it as down. When the registry cannot be reached, `endpoints` lists the
+curated entries alone and says so on stderr. `--search` matches title, URL and note, ignoring
+case and accents, and falls back to the umlaut spellings (`koeln` → `Köln`) only when nothing
+matches literally.
 
 **Object type URI (`type`).** Every OParl object has `type`, e.g.
 `https://schema.oparl.org/1.1/Meeting`; the version in the path tells 1.0 from 1.1.

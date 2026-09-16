@@ -39,9 +39,11 @@ the CLI's maintainers (`checked`, reason in `problem`); only where `checked` is 
 the registry's own last fetch (`fetched`).
 
 - Search by place name (`köln`, `münster`) or product host (`ratsinfomanagement`,
-  `gremien.info`). The search ignores case, accents and ä/ae spellings: `düsseldorf`,
-  `duesseldorf` and `Dusseldorf` all find "Landeshauptstadt Dusseldorf", and `koeln`
-  finds "Stadt Köln".
+  `gremien.info`). It matches the title, URL and note, ignoring case and accents
+  (`düsseldorf` finds "Landeshauptstadt Dusseldorf"). Only when nothing matches literally
+  does it fall back to the ä/ae spellings, so `duesseldorf` and `koeln` find their cities
+  while a term like `Aue` isn't read as `Au`. A short term (under 4 characters) never gets
+  that fallback.
 - **`replacedBy` set** → the server moved; use that URL (it is listed too), not the old one.
 - **`note` set** → read it: it flags aggregators, archives and servers with known problems.
 - **A note on stderr that the registry could not be read** → only the curated servers are

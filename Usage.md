@@ -35,8 +35,10 @@ servers the registry lacks (`source` says which). `working` is the result of the
 live check (`checked`, with the reason in `problem`); for a registry entry nobody has
 checked, it is the registry's own last fetch (`fetched`). A server that moved has
 `replacedBy`, the new System URL. Search by place name or by a part of the URL (e.g.
-`--search ratsinfomanagement`). The search ignores case, accents and umlaut spellings:
-`köln`, `koln` and `koeln` find the same entries. When dev.oparl.org cannot be reached,
+`--search ratsinfomanagement`). The search covers the title, the URL and the note, and
+ignores case and accents, so `köln` and `koln` match the same entries. Only when nothing
+matches literally does it try the umlaut spellings, so `koeln` still finds `Köln` while an
+ordinary word like `Aue` keeps its own meaning. When dev.oparl.org cannot be reached,
 `endpoints` notes that on stderr and lists the curated servers alone, as of their last
 check — `--source curated` does the same without trying the network.
 
@@ -81,10 +83,13 @@ Most servers host one body; regional providers host several municipalities.
 ### 5. See which lists a body offers
 
 ```bash
-oparl get "$BODY" | jq -r 'to_entries[] | select(.value | type == "string" and test("^https?://")) | .key'
+oparl get "$BODY" | jq -r 'to_entries[] | select(.key | test("^(organization|person|meeting|paper|agendaItem|consultation|consultations|file|files|membership|locationList|legislativeTermList)$")) | .key'
 ```
 
-OParl 1.0 bodies link only `organization`, `person`, `meeting` and `paper`.
+Every other URL a body carries — its own `id`, its `system`, its `website` — is not an
+object list, which is why the recipe matches the list names instead of "looks like a URL".
+OParl 1.0 bodies link only `organization`, `person`, `meeting` and `paper`; some servers
+use the plural `consultations`/`files`, which `oparl list` follows too.
 
 ## Meetings, papers, committees
 

@@ -228,8 +228,10 @@ System and the first 20 pages of its bodies list load. It then rewrites the file
 `url`, `note` and `replacedBy` are kept as written, and `working`, `checked` and `problem`
 always come from the run; the System's version, name, vendor and body count are refreshed
 by a check that reached the System and keep their last known values when a check fails, so
-an endpoint that is down still shows what it last served. It takes a few
-minutes, since some servers need 40 seconds for a page. The lists it starts from are read
+an endpoint that is down still shows what it last served. A failing endpoint is checked a
+second time after a short pause, so that one timeout doesn't record a healthy server as
+down — the list ships to every user. It takes a few minutes, since some servers need 40
+seconds for a page. The lists it starts from are read
 from `src/client/endpoints-list.ts` itself, not from `dist/`, so a hand-added entry is
 checked and kept (keep such an edit in the same plain JSON as the rest of the file).
 Options: `--dry-run` (report only), `--concurrency <n>` (default 4), `--timeout <ms>`

@@ -46,9 +46,10 @@ some servers need a minute per page.
 oparl list paper "$BODY" --modified-since 2026-09-01 --compact \
   | jq -r '.data[] | select(.deleted != true) | [.date // "", .reference // "", .paperType // "", .name] | @tsv'
 
-# New papers only: also require a paper date on or after the cut-off
+# New papers only: a paper date on or after the cut-off — and those without a date
 oparl list paper "$BODY" --modified-since 2026-09-01 --compact \
-  | jq -r '.data[] | select(.deleted != true and (.date // "") >= "2026-09-01") | [.date, .reference // "", .name] | @tsv'
+  | jq -r '.data[] | select(.deleted != true and ((.date // .created // "") >= "2026-09-01" or .date == null))
+      | [.date // "(no date)", .reference // "", .name] | @tsv'
 
 # Did the server honour the filter? Count objects modified before the cut-off
 oparl list paper "$BODY" --modified-since 2026-09-01 --compact \
@@ -76,6 +77,10 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
 
 ## Traps
 
+- **Not every paper has a `date`.** On ALLRIS 1.0 servers (the Berlin BVVs) `date` is
+  absent on most papers, so a "new since" filter on `date` alone answers zero although the
+  server returned papers. Fall back to `created`, and report papers without a date rather
+  than dropping them.
 - **Filters may be ignored.** Some servers return everything despite `--modified-since`;
   others fail with exit `1` and a 400/500 hint. Check `modified` against the cut-off
   (recipe 3) and say which happened. On a failure, retry without the filter and filter

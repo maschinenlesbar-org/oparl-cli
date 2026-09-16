@@ -123,9 +123,9 @@ stays clean.
 # How many working endpoints per OParl version?
 oparl endpoints --working | jq -r 'group_by(.oparlVersion)[] | "\(.[0].oparlVersion): \(length)"'
 
-# Which lists does a body link?
+# Which object lists does a body link?
 oparl get https://buergerinfo.stadt-koeln.de/oparl/bodies/stadtverwaltung_koeln \
-  | jq -r 'to_entries[] | select(.value | type == "string" and test("^https?://")) | .key'
+  | jq -r 'to_entries[] | select(.key | test("^(organization|person|meeting|paper|agendaItem|consultation|consultations|file|files|membership|locationList|legislativeTermList)$")) | .key'
 
 # Continue a list from where the last call stopped
 next=$(oparl list meeting "$BODY" | jq -r .next)
