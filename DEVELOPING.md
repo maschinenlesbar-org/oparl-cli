@@ -26,6 +26,18 @@ refused URL is never handed back as a continuation link. List walks also stop wh
 filters included). OParl is anonymous, so any `user:password@`
 in a URL — typed or handed out — is dropped: never sent as Basic auth, never echoed.
 
+"The URL it came from" is the URL the request **ended** on: `RequestEngine.fetchJson`
+returns the last redirect target alongside the decoded body (`getJson` is the same call
+without it), and `client.ts` resolves `System.body`, a Body's list URLs and `links.next`
+against that, as RFC 3986 §5.1.3 requires. A server that redirects `/oparl` to
+`/v1/system` and hands out a relative `"body": "bodies"` otherwise sends the client to
+`/bodies`. The engine also re-applies the caller's query on every redirect hop, so a
+server that redirects a filtered list URL to a path without the query cannot answer the
+unfiltered list unnoticed. One rule for all of it: `carryQuery` **sets** the caller's
+parameters, replacing whatever copy the URL carried — the requested URL, a redirect
+target and a `next` link alike (`withQuery`, which appends, is no longer used for
+requests; sending `limit` twice with different values let the server choose).
+
 What we found probing real servers (September 2026) and designed around:
 
 | Server (product) | Behaviour |
@@ -38,7 +50,8 @@ What we found probing real servers (September 2026) and designed around:
 | Essen (SD.NET RIM, 1.1) | serves a bare `[]` for its `legislativeterm` list instead of a list page, which `page()` reads as one page |
 | Bremen / Essen (SD.NET RIM, 1.1) | a date window with no objects in it answers HTTP **404** (`{ error, code }`), so the CLI exits 4 although the list exists. Documented in the README, Usage, the glossaries and the council-activity skill; never translated into an empty result in code, since a 404 also means a wrong URL |
 | OWL-IT (SessionNet, 1.1) | serves all 27 bodies under every `?page=n`, with an ever-new `next`: the walk's unproductive-page counter ends it after four requests |
-| Berlin BVV Mitte (ALLRIS, 1.0) | embedded legislative terms without the mandatory `created`/`modified`, so a local date filter can only keep them and say so |
+| Berlin BVV Mitte (ALLRIS, 1.0) | embedded legislative terms without the mandatory `created`/`modified`, so a local date filter can only keep them and say so; list URLs carry a query (`papers.asp?body=1`), which is why filters replace rather than append |
+| Aachen (`ratsinfo.aachen.de`) | answers some list URLs with HTTP **200** `text/html` and an error page that begins with an HTML comment — hence the body *and* `Content-Type` sniffing in `decode` |
 
 Hence: a 120 s default timeout, filters passed through with a clear caveat, type checks on
 every object (`system` must be a System, `list` needs a Body, pages need a `data` array of
@@ -89,8 +102,8 @@ const one = await client.get(papers.data[0]!.id);
 | `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) |
 | `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
 | `maxRedirects` | `3` | Same-host redirects followed per request |
-| `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited) |
-| `userAgent` | `oparl-cli` | `User-Agent` header |
+| `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too |
+| `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1, else an `OparlValidationError` |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock) |
 
 ### Methods
@@ -128,8 +141,9 @@ src/
     types.ts     # OParl object, list page, registry entry types (open records)
     query.ts     # dependency-free query-string builder
     http.ts      # Transport interface + default node:http/https transport
-    engine.ts    # absolute-URL GETs, retries, same-host redirects, JSON decoding,
-                 # resolveLink (the same-host rule), error mapping
+    engine.ts    # absolute-URL GETs, retries, same-host redirects, gzip/deflate/br
+                 # decoding, JSON decoding, resolveLink (the same-host rule),
+                 # sanitizeServerText, error mapping
     errors.ts    # OparlError / OparlApiError / OparlNetworkError / OparlParseError /
                  # OparlValidationError / OparlLinkError
     client.ts    # OparlClient — endpoints, System, bodies, lists, get
@@ -152,14 +166,38 @@ dependency is `commander`.
 
 | Error | Raised when | CLI exit |
 | --- | --- | --- |
-| `OparlValidationError` | bad URL, timestamp or option before any request | 2 |
+| `OparlValidationError` | bad URL, timestamp, header value or option before any request | 2 |
 | `OparlApiError` | non-2xx status, or a redirect not followed | 4 for 404, else 1 |
-| `OparlNetworkError` | DNS, connection, timeout, size cap | 6 |
-| `OparlParseError` | not JSON, HTML page, wrong object type, `{ error }` object | 1 |
+| `OparlNetworkError` | DNS, connection, timeout, size cap, a request that ends without a response | 6 |
+| `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), wrong object type, `{ error }` object | 1 |
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
 
-Server text that reaches an error message is stripped of control characters, and JSON
-deeper than 256 levels is rejected before it can blow the stack.
+Server text that reaches an error message goes through `sanitizeServerText`: control
+characters are dropped, whitespace (newlines and the Unicode line separators included) is
+collapsed to single spaces, and the result is cut to 200 characters. A hostile or
+man-in-the-middled endpoint would otherwise drive ANSI/OSC escape sequences into the
+terminal, print an `Error:` line of its own next to the CLI's, or bury the diagnostic
+under kilobytes of its own text. It applies to every server-derived string, the object
+`type` of the type checks and a response's `Content-Type` included; the JSON output
+escapes the same characters instead (`escapeControlChars`). JSON deeper than 256 levels
+is rejected before it can blow the stack.
+
+A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
+characters *and* by `Content-Type`, since Aachen's error page starts with an HTML comment
+and Apache's with an XML declaration), an XML document or a PDF — and a body that starts
+like JSON is reported as broken JSON whatever the server declared. JSON under a
+`text/html` content type is still accepted: several servers send it that way. A
+`Content-Encoding` of gzip, x-gzip, deflate (with or without the zlib wrapper) or br is
+decoded with `node:zlib`; no `Accept-Encoding` is sent, but RFC 9110 §12.5.3 lets a
+server compress anyway.
+
+The transport rejects a request that ends without a response — a server answering
+HTTP 101 (`upgrade`), a socket closed after the headers — instead of leaving the promise
+pending: with `timeoutMs` 0 nothing else would ever settle it, and the CLI exited 0 with
+no output at all. Header values Node refuses (a `--user-agent` outside ASCII/Latin-1, a
+control character, a name that is not a token) are rejected by the engine as an
+`OparlValidationError`, and the transport's synchronous `request()` throw is wrapped as
+well, so neither reaches the caller as an internal fault.
 
 ## The endpoint list
 

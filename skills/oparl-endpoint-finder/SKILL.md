@@ -65,6 +65,10 @@ oparl system "<System URL>" --compact | jq '{name, oparlVersion, vendor, product
 - Exit `0` with a `body` URL → live.
 - Exit `6` (timeout) → the server may just be slow; retry once with `--timeout 300000`
   before calling it down.
+- Exit `6` "closed the connection without sending a response" or "answered with HTTP 101
+  (protocol upgrade)" → something answers at that address, but not with an HTTP response
+  (a proxy, a WebSocket endpoint). A longer `--timeout` will not help; report the URL as
+  not an OParl endpoint.
 - Exit `1` "not an OParl System" or an HTML page, or exit `4` → the endpoint moved or is
   gone. Report that, with the `checked` (or `fetched`) date, and any `replacedBy`.
 - Exit `1` "is an OParl System, but its `body` is …" → the URL is right and the server's

@@ -21,9 +21,9 @@ their meetings, papers or persons as clean JSON you can pipe straight into
 - **Follows the standard's navigation** — `endpoints` → `system` → `bodies` → `list`,
   paging through `links.next` for you, or `get` any object by URL.
 - **Careful with the network** — links and redirects are only followed on the server
-  they came from, pagination loops are detected (also servers that serve the same page,
-  or an empty one, over and over) and leave you a link to resume from, and slow servers
-  get a 2-minute timeout.
+  they came from, your filters survive a redirect, pagination loops are detected (also
+  servers that serve the same page, or an empty one, over and over) and leave you a link
+  to resume from, compressed answers are decoded, and slow servers get a 2-minute timeout.
 - **Clean JSON output** — pretty by default, `--compact` for scripting, `-o <file>` to
   write to disk.
 
@@ -101,6 +101,12 @@ sent to the server as the OParl `modified_since`, `limit`, … parameters. **Ser
 all honour them**: some ignore them silently, a few fail with a 400 or 500 — check the
 `modified`/`created` fields when it matters.
 
+Each filter is sent **once per request, with your value**: where the server's list URL or
+its `next` link already carries that parameter, yours replaces it — on the first page, on
+every following one, and again if the server redirects. Without that, a list URL such as
+ALLRIS's `papers.asp?body=1&limit=100` would be asked for two page sizes at once, and a
+redirect that drops the query would quietly answer the unfiltered list.
+
 `list` returns `{ "data": [...], "pages": n, "next": "…" }`. `next` is the link to the
 following page, or `null` at the end: continue with `oparl get <next>` or a higher
 `--max-pages`. Each object appears once, by `id`; where a page repeated an object, the
@@ -136,7 +142,7 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
 | `0` | Success (also `--help` / `--version`) |
 | `2` | Bad usage / invalid argument (nothing was sent) |
 | `4` | Not found (`404` from the server) — on SD.NET servers also an empty date-filter window, see Troubleshooting |
-| `6` | Network / transport failure (DNS, connection, timeout, size cap) |
+| `6` | Network / transport failure (DNS, connection, timeout, size cap, no response at all) |
 | `1` | Any other error — a non-OParl response, a refused link, another HTTP status |
 
 ## Troubleshooting
@@ -178,6 +184,15 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
   empty result, because a 404 also means a wrong URL.
 - **Exit `6` / "timed out"** — council systems can take a minute or more for one list
   page. Raise `--timeout <ms>` (`0` = no timeout) and keep `--max-pages` small.
+- **Exit `6` / "closed the connection without sending a response"**, or "answered with
+  HTTP 101 (protocol upgrade)" — something answered at that address, but not with an HTTP
+  response: a proxy, or a WebSocket endpoint rather than an OParl one. Check the URL
+  against `oparl endpoints`.
+- **"but received an HTML page / a PDF file"** (exit `1`) — the URL answers with something
+  other than OParl JSON, and the message names the content type the server sent. Council
+  systems serve error and portal pages with HTTP 200, so this is what a wrong path usually
+  looks like. A file URL answers with the file: `oparl` prints file metadata (`oparl get`
+  on the `file` object) and does not download files.
 - **Exit `1` with a 400 or 500 after adding a filter** — the server doesn't support that
   filter or `--limit`; drop it and filter the `modified` field yourself.
 - **Every object is "modified today"** — some servers (seen on more! rubin) stamp
@@ -202,10 +217,10 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `--compact` | Print JSON on a single line instead of pretty-printed |
 | `-o, --output <file>` | Write output to this file instead of stdout |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
-| `--user-agent <ua>` | `User-Agent` header value |
+| `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji or an en dash is rejected with exit `2`) |
 | `--max-retries <n>` | Retries for transient `429`/`503` responses (0..10, default `2`) |
 | `--max-redirects <n>` | Redirects to follow on the same host (0..10, default `3`) |
-| `--max-response-bytes <n>` | Cap response body size in bytes (`0` = unlimited; default 100 MiB) |
+| `--max-response-bytes <n>` | Cap response body size in bytes, decompressed size included (`0` = unlimited; default 100 MiB) |
 
 ## Learn more
 

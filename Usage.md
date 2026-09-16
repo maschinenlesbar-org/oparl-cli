@@ -100,6 +100,10 @@ If a server ignores `--modified-since`, you get its first page unfiltered — co
 since the date, including old papers edited since and deleted ones (`deleted: true`, with
 empty fields), which the `select` drops. For new papers only, also compare `date`.
 
+The filter is sent with every page: your value replaces the one a server put into its own
+`next` link (several get the encoding wrong) or into a list URL, and it is sent again if
+the server redirects the request elsewhere. So every page of the result is filtered alike.
+
 Some servers answer a filter they cannot satisfy with an error instead of an empty list:
 SD.NET RIM (Bremen, Essen and most other `…/webservice/oparl/…` endpoints) replies HTTP
 **404** when no object falls into the window, so the CLI exits `4` "not found" although
@@ -176,6 +180,9 @@ oparl --timeout 300000 --max-retries 0 list meeting "$BODY"
 
 # Compact JSON straight into jq
 oparl --compact bodies "$SYSTEM" | jq -c '.data[]'
+
+# Say who is calling (header values are ASCII or Latin-1; anything else exits 2)
+oparl --user-agent "stadtdaten-bot (kontakt@example.de)" system "$SYSTEM"
 ```
 
 See the README for the full table and the exit codes.

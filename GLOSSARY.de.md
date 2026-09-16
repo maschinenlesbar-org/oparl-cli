@@ -97,7 +97,10 @@ antwortet (ein SD.NET-Build in Essen), wird als einzelne Seite gelesen.
 Datumsfilter unterstützen, manche ignorieren sie jedoch oder scheitern daran. SD.NET-RIM-Server
 antworten auf ein Datumsfenster ohne Objekte mit HTTP 404 – die CLI endet dann mit `4`
 („nicht gefunden"), obwohl die Liste existiert; wiederholen Sie den Aufruf ohne Filter, um
-beides zu unterscheiden.
+beides zu unterscheiden. Jeder Filter geht genau einmal mit dem von Ihnen angegebenen Wert
+hinaus: Er ersetzt die Kopie des Servers in einer Listen-URL oder einem `next`-Link und
+wird auch auf dem Ziel einer Weiterleitung erneut gesetzt, sodass jede Seite gleich
+gefiltert ist.
 
 **Gelöschte Objekte (`deleted: true`).** Server dürfen gelöschte Objekte, markiert als
 `deleted`, in Listen behalten, damit synchronisierende Clients sie entfernen können. Manche
@@ -124,7 +127,17 @@ nicht angewendet werden konnte.
 verfolgt, von dem sie stammen; ein `http:`-Link auf einem `https:`-Server wird hochgestuft.
 Alles andere bricht mit „Refusing to follow …“ ab. Dieselbe Hochstufung gilt für die Ausgabe:
 In einer über https abgerufenen Antwort werden `http://`-URLs auf diesem Host als `https://`
-angezeigt, sodass IDs, die Sie an `list` oder `get` zurückgeben, verschlüsselt bleiben.
+angezeigt, sodass IDs, die Sie an `list` oder `get` zurückgeben, verschlüsselt bleiben. Ein
+relativer Link (`"body": "bodies"`) wird gegen die URL aufgelöst, von der die Antwort
+tatsächlich kam – nach einer Weiterleitung also gegen ihr Ziel und nicht gegen die URL, mit
+der die Anfrage begann.
+
+**Servertext in Meldungen.** Alles, was ein Server sendet und in einer Fehlermeldung landet –
+der `type` eines Objekts, eine Fehlermeldung, ein Link, ein Content-Type –, wird zuvor von
+Steuerzeichen befreit, auf eine Zeile gefaltet und auf 200 Zeichen gekürzt. Ein bösartiger
+oder manipulierter Endpoint könnte sonst Terminal-Escape-Sequenzen (Fenstertitel, Farben,
+Bildschirm löschen) ausführen lassen oder eine `Error:`-Zeile der CLI vortäuschen. In der
+JSON-Ausgabe werden dieselben Zeichen stattdessen escaped, sodass nichts verloren geht.
 
 **`pages` / `next` (Ausgabe von `list`).** Wie viele Seiten abgerufen wurden, und der Link zum
 Weitermachen – vorhanden, wann immer die letzte abgerufene Seite einen anbot, `null` am Ende

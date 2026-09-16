@@ -94,7 +94,9 @@ bare JSON array instead of a page (an SD.NET build in Essen) is read as a single
 are meant to support the date filters, but some ignore them or fail on them. SD.NET RIM
 servers answer a date window with no objects in it with HTTP 404 — the CLI then exits `4`
 "not found" although the list exists; repeat the call without the filter to tell the two
-apart.
+apart. Each filter goes out once with the value you gave: it replaces the server's own
+copy in a list URL or a `next` link, and it is set again on the target of a redirect, so
+every page is filtered alike.
 
 **Deleted objects (`deleted: true`).** Servers may keep deleted objects in lists, marked
 `deleted`, so that syncing clients can remove them. A list only shows them with
@@ -118,7 +120,16 @@ the CLI refuses to follow) or which filter it could not apply.
 they came from; an `http:` link on an `https:` server is upgraded. Anything else stops with
 "Refusing to follow …". The same upgrade applies to what is printed: in a response fetched
 over https, `http://` URLs on that host are shown as `https://`, so ids you pass back to
-`list` or `get` stay encrypted.
+`list` or `get` stay encrypted. A relative link (`"body": "bodies"`) is resolved against
+the URL the answer actually came from — after a redirect, that is the redirect's target,
+not the URL the request started at.
+
+**Server text in messages.** Anything a server sends that ends up in an error message —
+an object's `type`, an error `message`, a link, a content type — is first stripped of
+control characters, folded onto one line and cut to 200 characters. A hostile or
+man-in-the-middled endpoint could otherwise write terminal escape sequences (window
+title, colours, screen clearing) or fake an `Error:` line of the CLI's own. In JSON
+output the same characters are escaped instead, so nothing is lost.
 
 **`pages` / `next` (list output).** How many pages were fetched, and the link to continue —
 present whenever the last page fetched offered one, `null` at the end of the list and when
