@@ -8,7 +8,8 @@
 // two lists from here — so a hand-added entry is checked and kept, as long as it stays in
 // the same plain JSON as the rest. To add an endpoint, append { title, url, note } plus
 // the other fields (null/false/"") to CURATED_ENDPOINTS and run it. `note` and
-// `replacedBy` are kept as written.
+// `replacedBy` are kept as written, and a failing check keeps the System data (version,
+// name, vendor, body count) of the last successful one.
 
 import type { CuratedEndpoint, RegistryCheck } from "./types.js";
 

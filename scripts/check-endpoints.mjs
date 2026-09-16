@@ -4,8 +4,12 @@
 // Checks the entries of the dev.oparl.org registry and of the curated list: an endpoint
 // counts as working when its System and the first pages of its bodies list load. The
 // registry itself is rarely updated, so these checks are what `oparl endpoints` reports
-// as `working`/`checked`/`problem`. `title`, `url`, `note` and `replacedBy` are kept as
-// written; everything else is overwritten.
+// as `working`/`checked`/`problem`.
+//
+// `title`, `url`, `note` and `replacedBy` are kept as written, and `working`, `checked`
+// and `problem` always come from this run. The System data (version, name, vendor, body
+// count) is refreshed by a check that got that far, and a failing check keeps the last
+// known values, so an entry that is down still shows what it last served.
 //
 // The lists themselves are read from src/client/endpoints-list.ts, the file this script
 // rewrites, so that a hand-added endpoint or a hand-edited note is checked and kept; only
@@ -359,7 +363,8 @@ function render(curatedList, checks) {
 // two lists from here — so a hand-added entry is checked and kept, as long as it stays in
 // the same plain JSON as the rest. To add an endpoint, append { title, url, note } plus
 // the other fields (null/false/"") to CURATED_ENDPOINTS and run it. \`note\` and
-// \`replacedBy\` are kept as written.
+// \`replacedBy\` are kept as written, and a failing check keeps the System data (version,
+// name, vendor, body count) of the last successful one.
 
 import type { CuratedEndpoint, RegistryCheck } from "./types.js";
 

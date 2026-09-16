@@ -187,7 +187,10 @@ two live checks is newer.
 **Refreshing it.** `npm run check-endpoints` builds, then runs `scripts/check-endpoints.mjs`.
 The script checks every registry and curated endpoint live: an endpoint works when its
 System and the first 20 pages of its bodies list load. It then rewrites the file. `title`,
-`url`, `note` and `replacedBy` are kept, everything else is overwritten. It takes a few
+`url`, `note` and `replacedBy` are kept as written, and `working`, `checked` and `problem`
+always come from the run; the System's version, name, vendor and body count are refreshed
+by a check that reached the System and keep their last known values when a check fails, so
+an endpoint that is down still shows what it last served. It takes a few
 minutes, since some servers need 40 seconds for a page. The lists it starts from are read
 from `src/client/endpoints-list.ts` itself, not from `dist/`, so a hand-added entry is
 checked and kept (keep such an edit in the same plain JSON as the rest of the file).
