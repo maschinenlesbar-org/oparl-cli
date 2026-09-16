@@ -4,7 +4,7 @@ import { OparlClient, endpointKey, normalizeTimestamp } from "../src/client/clie
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
 import { OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
-import { jsonResponse, queryOf, routes } from "./helpers.js";
+import { hasControlChar, hostileText, jsonResponse, queryOf, redirect, routes } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
 const pages = {
@@ -248,6 +248,35 @@ test("a list page without a data array is rejected", async () => {
   await assert.rejects(() => c.list(fx.BODY_URL, "meeting"), (err) => err instanceof OparlParseError && /not an OParl object list/.test(err.message));
 });
 
+test("a server's type string cannot carry terminal escapes into a message", async () => {
+  // The three type checks were the only server text not passed through the sanitiser,
+  // so any endpoint a user named — 40 of the shipped ones speak http — could write the
+  // terminal title, set colours or fake a second `Error:` line.
+  const hostileType = { id: fx.BODY_URL, type: hostileText("/NotABody"), meeting: fx.MEETINGS_URL };
+  const cases: Array<[Promise<unknown>, RegExp]> = [
+    [client({ [fx.SYSTEM_URL]: jsonResponse({ ...hostileType, id: fx.SYSTEM_URL }) }).c.system(fx.SYSTEM_URL), /not an OParl System/],
+    [client({ [fx.BODY_URL]: jsonResponse(hostileType) }).c.list(fx.BODY_URL, "meeting"), /not an OParl Body/],
+    [
+      client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse(hostileType) }).c.list(fx.BODY_URL, "meeting"),
+      /not an OParl object list/,
+    ],
+    [
+      client({ [fx.SYSTEM_URL]: jsonResponse({ type: "https://schema.oparl.org/1.1/Error", message: hostileText() }) }).c.get(fx.SYSTEM_URL),
+      /answered with an error object/,
+    ],
+  ];
+  for (const [pending, message] of cases) {
+    await assert.rejects(pending, (err) => {
+      assert.ok(err instanceof OparlParseError);
+      assert.match(err.message, message);
+      assert.ok(!hasControlChar(err.message), err.message);
+      assert.equal(err.message.split("\n").length, 1);
+      assert.ok(err.message.length < 400, `${err.message.length} characters`);
+      return true;
+    });
+  }
+});
+
 test("a Body list URL on another host is refused", async () => {
   const foreignBody = { ...fx.body, meeting: "https://tracker.example.com/meetings" };
   const one = client({ [fx.BODY_URL]: jsonResponse(foreignBody) });
@@ -274,6 +303,30 @@ test("a next link this client won't follow ends the walk but keeps the pages fet
       assert.match(result.note ?? "", /stopped after page 1: (Refusing to follow|The server returned an invalid link)/);
     }
   }
+});
+
+test("relative links are resolved against the URL a redirect led to", async () => {
+  // /oparl 301s to /oparl/v2/system, whose `body` is the relative "bodies"; the Body
+  // there links the relative "meetings", whose page 1 links the relative "meetings?page=2".
+  // All of them used to be resolved against the URL before the redirect and 404.
+  const { c, mt } = client({
+    "https://ris.example.de/oparl": redirect("/oparl/v2/system"),
+    "https://ris.example.de/oparl/v2/system": jsonResponse({ ...fx.system, body: "bodies" }),
+    "https://ris.example.de/oparl/v2/bodies": jsonResponse({ data: [{ ...fx.body, id: "https://ris.example.de/oparl/v2/bodies/1", meeting: "1/meetings" }] }),
+    "https://ris.example.de/oparl/v2/bodies/1": jsonResponse({ ...fx.body, id: "https://ris.example.de/oparl/v2/bodies/1", meeting: "1/meetings" }),
+    "https://ris.example.de/oparl/v2/bodies/1/meetings": jsonResponse({ data: [fx.meeting(1)], links: { next: "meetings?page=2" } }),
+    "https://ris.example.de/oparl/v2/bodies/1/meetings?page=2": jsonResponse({ data: [fx.meeting(2)] }),
+  });
+  const bodies = await c.bodies("https://ris.example.de/oparl");
+  assert.deepEqual(bodies.data.map((b) => b["id"]), ["https://ris.example.de/oparl/v2/bodies/1"]);
+
+  const meetings = await c.list("https://ris.example.de/oparl/v2/bodies/1", "meeting", { maxPages: 2 });
+  assert.deepEqual(meetings.data.map((m) => m["id"]), [fx.meeting(1).id, fx.meeting(2).id]);
+  assert.equal(meetings.pages, 2);
+  assert.ok(
+    mt.calls.every((call) => !call.url.includes("/oparl/bodies")),
+    mt.calls.map((call) => call.url).join(" "),
+  );
 });
 
 test("a next link pointing back at a fetched page ends the walk", async () => {

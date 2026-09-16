@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import net from "node:net";
 import { nodeHttpTransport } from "../src/client/http.js";
 import { OparlNetworkError } from "../src/client/errors.js";
 
@@ -82,6 +83,37 @@ test("a timeoutMs beyond Node's timer range is capped, not fired after 1 ms", as
   } finally {
     process.off("warning", onWarning);
   }
+});
+
+test("a request that ends without a response rejects, even with no timeout", async () => {
+  // An HTTP 101 carries no body and reaches Node as an `upgrade`, not a response: the
+  // promise stayed pending, and with timeoutMs 0 (the documented setting for slow
+  // council systems) the event loop simply emptied and the CLI exited 0 with no output.
+  const server = net.createServer((socket) => {
+    socket.once("data", () => socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("no address");
+  const url = `http://127.0.0.1:${address.port}/oparl/system`;
+  try {
+    for (const timeoutMs of [0, 5000]) {
+      await assert.rejects(
+        () => nodeHttpTransport({ method: "GET", url, timeoutMs }),
+        (err) => err instanceof OparlNetworkError && /HTTP 101 \(protocol upgrade\)/.test(err.message),
+        `timeoutMs ${timeoutMs}`,
+      );
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a header Node refuses to send rejects instead of throwing synchronously", async () => {
+  await assert.rejects(
+    () => nodeHttpTransport({ method: "GET", url: "http://127.0.0.1:1/x", headers: { "User-Agent": "bot \u{1f680}" } }),
+    OparlNetworkError,
+  );
 });
 
 test("enforces maxResponseBytes", async () => {

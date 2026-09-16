@@ -13,7 +13,15 @@
 //   const { data: bodies } = await c.bodies(system.id);     // its bodies
 //   const meetings = await c.list(bodies[0].id, "meeting"); // first page of meetings
 
-import { RequestEngine, carryQuery, parseHttpUrl, resolveLink, sanitizeServerText, withQuery, type EngineOptions } from "./engine.js";
+import {
+  RequestEngine,
+  carryQuery,
+  parseHttpUrl,
+  resolveLink,
+  sanitizeServerText,
+  type EngineOptions,
+  type JsonResponse,
+} from "./engine.js";
 import type { QueryParams } from "./query.js";
 import { OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
@@ -182,7 +190,7 @@ function errorObjectMessage(value: JsonObject): string | null {
   if (typeof value["id"] === "string") return null;
   const message = str(value["message"]) ?? str(value["error"]);
   if (message === null && !/\/Error$/.test(str(value["type"]) ?? "")) return null;
-  return sanitizeServerText(message ?? "(no message)").slice(0, 200);
+  return sanitizeServerText(message ?? "(no message)"); // one line, capped
 }
 
 /**
@@ -251,7 +259,15 @@ export class OparlClient {
    * (`{ "type": ".../Error", "message": "…" }`, `{ "error": "…" }`) with an OparlParseError.
    */
   async get<T extends JsonObject = OparlObject>(url: string): Promise<T> {
-    const value = await this.engine.getJson<unknown>(url);
+    return (await this.getFrom<T>(url)).object;
+  }
+
+  /**
+   * As `get`, plus the URL the object was finally read from — the base for the relative
+   * links it may contain (see RequestEngine.fetchJson).
+   */
+  private async getFrom<T extends JsonObject = OparlObject>(url: string): Promise<{ object: T; url: string }> {
+    const { value, url: from } = await this.engine.fetchJson<unknown>(url);
     if (!isObject(value)) {
       throw new OparlParseError(`Expected an OParl object from ${url} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
     }
@@ -259,16 +275,22 @@ export class OparlClient {
     if (message !== null) {
       throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
     }
-    return value as T;
+    return { object: value as T, url: from };
   }
 
   /** Fetch a System, the entry point of an OParl server. */
   async system(url: string): Promise<OparlSystem> {
-    const system = await this.get<JsonObject>(url);
+    return (await this.systemFrom(url)).system;
+  }
+
+  /** As `system`, plus the URL it was finally read from (the base for a relative `body`). */
+  private async systemFrom(url: string): Promise<{ system: OparlSystem; url: string }> {
+    const { object: system, url: from } = await this.getFrom<JsonObject>(url);
     const type = str(system["type"]) ?? "";
     if (!/\/System$/.test(type)) {
       throw new OparlParseError(
-        `${url} is not an OParl System (type: ${type || "missing"}). Use the endpoint's System URL, e.g. from \`oparl endpoints\`.`,
+        `${url} is not an OParl System (type: ${sanitizeServerText(type) || "missing"}). Use the endpoint's System URL, ` +
+          "e.g. from `oparl endpoints`.",
       );
     }
     if (typeof system["body"] !== "string") {
@@ -277,7 +299,7 @@ export class OparlClient {
           "of bodies, so its bodies cannot be listed. `oparl get` shows the object as the server sent it.",
       );
     }
-    return system as OparlSystem;
+    return { system: system as OparlSystem, url: from };
   }
 
   /**
@@ -286,9 +308,17 @@ export class OparlClient {
    * SD.NET RIM build in Essen) is read as a single page holding those objects.
    */
   async page<T extends JsonObject = OparlObject>(url: string, query?: QueryParams): Promise<OparlListPage<T>> {
-    const value = await this.engine.getJson<unknown>(url, query);
+    return (await this.pageFrom<T>(url, query)).page;
+  }
+
+  /** As `page`, plus the URL it was finally read from (the base for a relative `next`). */
+  private async pageFrom<T extends JsonObject = OparlObject>(
+    url: string,
+    query?: QueryParams,
+  ): Promise<{ page: OparlListPage<T>; url: string }> {
+    const { value, url: from } = await this.engine.fetchJson<unknown>(url, query);
     if (Array.isArray(value)) {
-      return { data: listItems(url, value as JsonValue[]) as T[] };
+      return { page: { data: listItems(url, value as JsonValue[]) as T[] }, url: from };
     }
     if (!isObject(value) || !Array.isArray(value["data"])) {
       const message = isObject(value) ? errorObjectMessage(value) : null;
@@ -297,11 +327,11 @@ export class OparlClient {
       }
       const type = isObject(value) ? str(value["type"]) : null;
       throw new OparlParseError(
-        `${url} is not an OParl object list${type ? ` (got an object of type ${type})` : ""}.`,
+        `${url} is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(type)})` : ""}.`,
       );
     }
     listItems(url, value["data"]);
-    return value as unknown as OparlListPage<T>;
+    return { page: value as unknown as OparlListPage<T>, url: from };
   }
 
   /**
@@ -337,10 +367,11 @@ export class OparlClient {
     let unproductive = 0;
     while (current !== null && pages < limit) {
       const pageQuery = pages === 0 ? query : undefined;
-      const page: OparlListPage<T> = await this.page<T>(current, pageQuery);
-      // The URL the request actually went to, filters included, so that a `next` link
-      // leading back to it is recognised.
-      seenPages.add(withQuery(parseHttpUrl(current).href, pageQuery));
+      const { page, url: pageUrl } = await this.pageFrom<T>(current, pageQuery);
+      // The URL the request actually went to, filters included, and the one a redirect
+      // took it to, so that a `next` link leading back to either is recognised.
+      seenPages.add(carryQuery(parseHttpUrl(current).href, pageQuery));
+      seenPages.add(pageUrl);
       pages += 1;
       let added = 0;
       for (const object of page.data) {
@@ -363,7 +394,9 @@ export class OparlClient {
         break;
       }
       try {
-        next = carryQuery(resolveLink(current, link), query);
+        // Relative links belong to the document that carried them, so they are resolved
+        // against the URL the page was read from, not the one the request started at.
+        next = carryQuery(resolveLink(pageUrl, link), query);
       } catch (err) {
         if (!(err instanceof OparlLinkError)) throw err;
         next = null; // keep the pages already fetched and say why the walk stopped
@@ -396,8 +429,8 @@ export class OparlClient {
 
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
   async bodies(systemUrl: string, options: { maxPages?: number } = {}): Promise<ListResult<OparlBody>> {
-    const system = await this.system(systemUrl);
-    return this.walk<OparlBody>(resolveLink(systemUrl, system.body), undefined, options.maxPages ?? 0);
+    const { system, url } = await this.systemFrom(systemUrl);
+    return this.walk<OparlBody>(resolveLink(url, system.body), undefined, options.maxPages ?? 0);
   }
 
   /**
@@ -417,10 +450,13 @@ export class OparlClient {
       throw new OparlValidationError(`Unknown list type "${String(type)}". Use one of: ${Object.keys(LIST_TYPES).join(", ")}.`);
     }
     const query = listQuery(options);
-    const body = await this.get<JsonObject>(bodyUrl);
+    const { object: body, url: from } = await this.getFrom<JsonObject>(bodyUrl);
     const bodyType = str(body["type"]) ?? "";
     if (!/\/Body$/.test(bodyType)) {
-      throw new OparlParseError(`${bodyUrl} is not an OParl Body (type: ${bodyType || "missing"}). Use a body URL from \`oparl bodies\`.`);
+      throw new OparlParseError(
+        `${bodyUrl} is not an OParl Body (type: ${sanitizeServerText(bodyType) || "missing"}). ` +
+          "Use a body URL from `oparl bodies`.",
+      );
     }
     const listUrl = bodyListUrl(body, type);
     const embedded = body["legislativeTerm"];
@@ -457,7 +493,9 @@ export class OparlClient {
           (/\/1\.0\//.test(bodyType) && only1_0 ? " (OParl 1.0 bodies only link organization, person, meeting and paper)." : "."),
       );
     }
-    return this.walk(resolveLink(bodyUrl, listUrl), query, options.maxPages ?? 1);
+    // Resolved against the URL the Body was read from: a relative list URL belongs to
+    // the document that carried it, which a redirect may have moved.
+    return this.walk(resolveLink(from, listUrl), query, options.maxPages ?? 1);
   }
 
   /**
@@ -505,8 +543,11 @@ export class OparlClient {
     const seen = new Set<string>();
     for (let page = 1; url !== null && page <= MAX_REGISTRY_PAGES; page++) {
       const query = page === 1 ? { page: 1, limit: 100 } : undefined;
-      const value: unknown = await this.engine.getJson<unknown>(url, query);
-      seen.add(withQuery(parseHttpUrl(url).href, query)); // the URL requested, not the base URL
+      // Annotated because `url` is reassigned from `from` below, which TypeScript
+      // would otherwise have to infer circularly.
+      const { value, url: from }: JsonResponse<unknown> = await this.engine.fetchJson<unknown>(url, query);
+      seen.add(carryQuery(parseHttpUrl(url).href, query)); // the URL requested, not the base URL
+      seen.add(from); // and the URL a redirect took it to
       if (!isObject(value) || !Array.isArray(value["data"])) {
         throw new OparlParseError(`${url} is not the OParl endpoint registry (no data array).`);
       }
@@ -520,7 +561,7 @@ export class OparlClient {
       }
       const meta = isObject(value["meta"]) ? value["meta"] : {};
       const nextLink = str(meta["next"]);
-      url = nextLink ? resolveLink(url, nextLink) : null;
+      url = nextLink ? resolveLink(from, nextLink) : null;
       if (url !== null && seen.has(url)) url = null;
     }
     return entries;

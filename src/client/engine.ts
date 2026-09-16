@@ -8,9 +8,11 @@
 // which is why redirects and links are kept on the host they came from (see
 // resolveLink).
 
+import zlib from "node:zlib";
+import type { IncomingHttpHeaders } from "node:http";
 import { nodeHttpTransport, type Transport } from "./http.js";
 import { buildQueryString, type QueryParams } from "./query.js";
-import { OparlApiError, OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
+import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError } from "./errors.js";
 
 const DEFAULT_USER_AGENT = "oparl-cli";
 
@@ -48,25 +50,72 @@ const MAX_RETRY_AFTER_MS = 30_000;
 /** Deepest JSON nesting accepted; OParl objects are a handful of levels deep. */
 const MAX_JSON_DEPTH = 256;
 
+/** Characters of server text kept in one error message; the rest is cut with an ellipsis. */
+export const MAX_SERVER_TEXT_LENGTH = 200;
+
 /**
- * Strip control characters (all C0/C1 except tab and newline, plus DEL) out of a
- * string that originates in an attacker-controlled response body — the error
- * `detail` snippet that ends up in an OparlApiError.message printed raw to stderr by
- * run.ts. Without this, a hostile or spoofed server could drive ANSI/OSC escape
- * sequences (display spoofing, terminal title changes) into the user's terminal.
- * The CLI's JSON output is escaped separately (escapeControlChars in cli/shared.ts):
+ * Make a string that originates in an attacker-controlled response body safe to put
+ * into an error message printed raw to stderr by run.ts — an error `detail` snippet,
+ * an object `type`, a link, a `Content-Type`. Three things happen:
+ *
+ * - Control characters are dropped (all C0/C1 plus DEL). Without this, a hostile or
+ *   spoofed server could drive ANSI/OSC escape sequences (display spoofing, terminal
+ *   title changes) into the user's terminal.
+ * - Every run of whitespace — newlines and Unicode line separators included — becomes
+ *   a single space, so the result is one line and a server cannot forge a second
+ *   `Error:` line of its own next to ours.
+ * - The result is capped at `maxLength` characters, so a 3 KB "message" cannot bury
+ *   the diagnostic the CLI printed.
+ *
+ * Every server-supplied string that reaches a message goes through here. The CLI's
+ * JSON output is escaped separately (escapeControlChars in cli/shared.ts):
  * JSON.stringify alone leaves DEL and the C1 range raw.
  *
  * Written as a char-code filter so no raw control byte ever appears in this source.
  */
-export function sanitizeServerText(text: string): string {
+export function sanitizeServerText(text: string, maxLength: number = MAX_SERVER_TEXT_LENGTH): string {
   let out = "";
   for (const ch of text) {
     const n = ch.codePointAt(0) ?? 0;
-    if (n <= 8 || (n >= 0x0b && n <= 0x1f) || (n >= 0x7f && n <= 0x9f)) continue;
-    out += ch;
+    // Tab, LF, VT, FF and CR become spaces (collapsed below) so words stay apart;
+    // every other control character is dropped.
+    if (n === 0x09 || (n >= 0x0a && n <= 0x0d)) out += " ";
+    else if (n <= 0x1f || (n >= 0x7f && n <= 0x9f)) continue;
+    else out += ch;
   }
-  return out;
+  out = out.replace(/\s+/g, " ").trim();
+  return out.length > maxLength ? `${out.slice(0, maxLength)}…` : out;
+}
+
+/** HTTP header field name grammar (RFC 9110 token). */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * Check a header this client is about to send. Node throws an opaque, synchronous
+ * `ERR_INVALID_CHAR` / `ERR_INVALID_HTTP_TOKEN` from inside `request()` for a value
+ * outside `\t`, 0x20–0x7e and obs-text (0x80–0xff) or a name that is not a token —
+ * a `--user-agent` holding an emoji or an en dash surfaced as "Unexpected error".
+ * Rejecting it here makes it an OparlValidationError, which the CLI reports as the
+ * usage error it is (exit 2) and library callers can catch. Latin-1 is left through:
+ * the grammar deprecates it but Node sends it and servers read it.
+ */
+function checkHeader(name: string, value: string): void {
+  if (!HEADER_NAME.test(name)) {
+    throw new OparlValidationError(`"${sanitizeServerText(name, 40)}" is not a valid HTTP header name.`);
+  }
+  for (const ch of value) {
+    const n = ch.codePointAt(0) ?? 0;
+    if (n === 0x09) continue;
+    if (n <= 0x1f || n === 0x7f) {
+      throw new OparlValidationError(`The ${name} header value contains control characters.`);
+    }
+    if (n > 0xff) {
+      throw new OparlValidationError(
+        `The ${name} header value contains U+${n.toString(16).toUpperCase().padStart(4, "0")}, which cannot be sent ` +
+          "in an HTTP header: header values are limited to ASCII and Latin-1 characters.",
+      );
+    }
+  }
 }
 
 /**
@@ -178,7 +227,13 @@ export function upgradeSameHostUrls<T>(value: T, fetchedFrom: string): T {
   return walk(value) as T;
 }
 
-/** Append query parameters to a URL, keeping any it already carries. */
+/**
+ * Append query parameters to a URL, keeping any it already carries — including a
+ * second copy of a parameter the URL already has. Not what this client sends: every
+ * request it makes goes through `carryQuery`, so the caller's filters replace the
+ * server's copy on the first page, on a redirect target and on a `next` link alike.
+ * Kept for callers building their own URLs.
+ */
 export function withQuery(url: string, query?: QueryParams): string {
   if (!query) return url;
   const qs = buildQueryString(query);
@@ -189,11 +244,18 @@ export function withQuery(url: string, query?: QueryParams): string {
 }
 
 /**
- * Set the client's query parameters on a server-supplied `next` link, replacing any
- * copy the server put there. Servers build these links themselves and get it wrong:
- * Somacos servers echo `modified_since=…+00:00` unencoded, so the `+` arrives as a
- * space and every page after the first is silently unfiltered; others drop the
- * parameters altogether. Setting them again keeps every page filtered alike.
+ * Set the client's query parameters on a URL, replacing any copy already there. This
+ * is the one rule for every request the engine makes — the URL the caller passed, the
+ * target of a redirect, and a server-supplied `next` link are all treated alike, so
+ * the caller's filters are the ones that apply to every page.
+ *
+ * Both halves of that matter in practice. Servers build their links themselves and get
+ * it wrong: Somacos servers echo `modified_since=…+00:00` unencoded, so the `+` arrives
+ * as a space and every page after the first would be silently unfiltered; others drop
+ * the parameters altogether, or redirect to a URL without them. And list URLs that
+ * already carry a query are common (ALLRIS links `papers.asp?body=1`), so appending
+ * instead of replacing would send `limit` twice with different values — which server
+ * wins is anyone's guess.
  */
 export function carryQuery(url: string, query?: QueryParams): string {
   if (!query) return url;
@@ -222,6 +284,47 @@ function jsonDepth(value: unknown): number {
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A decoded JSON response together with the URL it was finally read from. */
+export interface JsonResponse<T> {
+  /** The decoded body. */
+  value: T;
+  /**
+   * The URL the request ended on: the last redirect target, or the requested URL when
+   * there was none. Relative links inside the body are resolved against this, as RFC
+   * 3986 §5.1.3 requires — a server that redirects `/oparl` to `/v1/system` and then
+   * hands out `"body": "bodies"` means `/v1/bodies`.
+   */
+  url: string;
+}
+
+/** The `Content-Type` of a response, without parameters, lowercased and sanitised. */
+function contentType(headers: IncomingHttpHeaders): string {
+  const raw = headers["content-type"];
+  const value = Array.isArray(raw) ? raw[0] ?? "" : raw ?? "";
+  return sanitizeServerText(value.split(";")[0]?.trim().toLowerCase() ?? "", 60);
+}
+
+/**
+ * What the server sent instead of JSON, for the error message: council systems answer
+ * list URLs with HTML error pages (Aachen's begins with an HTML comment, Apache's with
+ * an XML declaration, so a prefix test alone misses them) and file URLs with the file
+ * itself. Both the sniffed body and the declared `Content-Type` are consulted; null
+ * when neither says anything useful.
+ */
+function nonJsonBody(body: Buffer, text: string, type: string): string | null {
+  const head = text.trimStart().slice(0, 200).toLowerCase();
+  // A body that starts like JSON is broken JSON, whatever the server declared it to be.
+  if (head.startsWith("{") || head.startsWith("[")) return null;
+  if (head.includes("<!doctype html") || head.includes("<html")) return "an HTML page";
+  if (body.subarray(0, 5).toString("latin1") === "%PDF-") return "a PDF file";
+  if (head.startsWith("<?xml")) return "an XML document";
+  if (type === "text/html" || type === "application/xhtml+xml") return "an HTML page";
+  if (type === "application/pdf") return "a PDF file";
+  if (type.endsWith("/xml") || type.endsWith("+xml")) return "an XML document";
+  if (head.startsWith("<")) return "a markup document";
+  return null;
+}
+
 export class RequestEngine {
   private readonly transport: Transport;
   private readonly userAgent: string;
@@ -237,6 +340,8 @@ export class RequestEngine {
     this.transport = options.transport ?? nodeHttpTransport;
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
     this.defaultHeaders = options.defaultHeaders ?? {};
+    checkHeader("User-Agent", this.userAgent);
+    for (const [name, value] of Object.entries(this.defaultHeaders)) checkHeader(name, value);
     this.timeoutMs = options.timeoutMs ?? 120_000;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 500;
@@ -251,7 +356,19 @@ export class RequestEngine {
    * the same host, and rejects non-JSON bodies with an OparlParseError.
    */
   async getJson<T = unknown>(url: string, query?: QueryParams): Promise<T> {
-    const requested = withQuery(parseHttpUrl(url).href, query);
+    return (await this.fetchJson<T>(url, query)).value;
+  }
+
+  /**
+   * As `getJson`, but also reporting the URL the request ended on so that relative
+   * links in the body can be resolved against the document they came from.
+   *
+   * `query` is set on the requested URL and again on every redirect target: a server
+   * that redirects a filtered list URL to a path without the query would otherwise
+   * answer the unfiltered list, and nothing in the result would say so.
+   */
+  async fetchJson<T = unknown>(url: string, query?: QueryParams): Promise<JsonResponse<T>> {
+    const requested = carryQuery(parseHttpUrl(url).href, query);
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
       Accept: "application/json",
@@ -281,17 +398,18 @@ export class RequestEngine {
         const location = response.headers["location"];
         if (typeof location === "string" && location !== "" && redirects < this.maxRedirects) {
           redirects += 1;
-          current = resolveLink(current, location);
+          current = carryQuery(resolveLink(current, location), query);
           continue;
         }
-        throw this.toApiError(current, status, response.body);
+        throw this.toApiError(current, status, response.body, response.headers);
       }
 
       if (status < 200 || status >= 300) {
-        throw this.toApiError(current, status, response.body);
+        throw this.toApiError(current, status, response.body, response.headers);
       }
 
-      return upgradeSameHostUrls(this.decode<T>(current, response.body), current);
+      const value = upgradeSameHostUrls(this.decode<T>(current, response.body, response.headers), current);
+      return { value, url: current };
     }
   }
 
@@ -303,22 +421,30 @@ export class RequestEngine {
     return this.retryDelayMs * attempt;
   }
 
-  private decode<T>(url: string, body: Buffer): T {
+  private decode<T>(url: string, rawBody: Buffer, headers: IncomingHttpHeaders): T {
+    const body = this.decompress(url, rawBody, headers);
     const text = body.toString("utf8").replace(/^﻿/, "");
     if (text.trim().length === 0) {
       throw new OparlParseError(`Empty response from ${url} (expected OParl JSON).`);
-    }
-    const head = text.trimStart().slice(0, 100).toLowerCase();
-    if (head.startsWith("<!doctype html") || head.startsWith("<html")) {
-      throw new OparlParseError(
-        `Expected OParl JSON from ${url} but received an HTML page — is this an OParl URL?`,
-      );
     }
     let value: unknown;
     try {
       value = JSON.parse(text);
     } catch (cause) {
-      throw new OparlParseError(`Failed to parse JSON response from ${url}`, { cause });
+      // Only now that it is certain the body is not JSON: a server may serve perfectly
+      // good OParl JSON as text/html, and that is accepted.
+      const type = contentType(headers);
+      const what = nonJsonBody(body, text, type);
+      const typePart = type === "" ? "" : ` (content-type: ${type})`;
+      throw new OparlParseError(
+        what === null
+          ? `Failed to parse JSON response from ${url}${typePart}`
+          : `Expected OParl JSON from ${url} but received ${what}${typePart}` +
+            (what === "a PDF file"
+              ? " — this CLI prints file metadata, it does not download files."
+              : " — is this an OParl URL?"),
+        { cause },
+      );
     }
     if (jsonDepth(value) > MAX_JSON_DEPTH) {
       throw new OparlParseError(`The response from ${url} is nested too deeply to be OParl JSON.`);
@@ -326,8 +452,66 @@ export class RequestEngine {
     return value as T;
   }
 
-  private toApiError(url: string, status: number, body: Buffer): OparlApiError {
-    const text = body.toString("utf8");
+  /**
+   * Undo the `Content-Encoding` of a response. This client sends no `Accept-Encoding`,
+   * which per RFC 9110 §12.5.3 means "any content coding is acceptable", so a server
+   * compressing anyway is within its rights — and a gzipped body reported only as
+   * unparseable JSON left the user with nothing to go on. Decoded with node:zlib, so
+   * no dependency is added.
+   *
+   * `maxResponseBytes` caps the decompressed size too; the transport can only see the
+   * bytes on the wire, which a compression bomb makes small on purpose.
+   */
+  private decompress(url: string, body: Buffer, headers: IncomingHttpHeaders): Buffer {
+    const raw = headers["content-encoding"];
+    const value = (Array.isArray(raw) ? raw.join(",") : raw ?? "").trim().toLowerCase();
+    if (value === "" || value === "identity") return body;
+    let out = body;
+    // Codings are listed in the order they were applied, so undo them right to left.
+    for (const coding of value.split(",").map((part) => part.trim()).reverse()) {
+      if (coding === "" || coding === "identity") continue;
+      out = this.inflate(url, out, coding);
+    }
+    return out;
+  }
+
+  private inflate(url: string, body: Buffer, coding: string): Buffer {
+    const limit = this.maxResponseBytes > 0 ? { maxOutputLength: this.maxResponseBytes } : {};
+    try {
+      if (coding === "gzip" || coding === "x-gzip") return zlib.gunzipSync(body, limit);
+      if (coding === "br") return zlib.brotliDecompressSync(body, limit);
+      if (coding === "deflate") {
+        // Some servers send a raw deflate stream without the zlib wrapper RFC 9110 asks for.
+        try {
+          return zlib.inflateSync(body, limit);
+        } catch {
+          return zlib.inflateRawSync(body, limit);
+        }
+      }
+    } catch (cause) {
+      if ((cause as { code?: string } | null)?.code === "ERR_BUFFER_TOO_LARGE") {
+        throw new OparlNetworkError(
+          `The ${coding} response from ${url} exceeded maxResponseBytes (${this.maxResponseBytes}) when decompressed`,
+        );
+      }
+      throw new OparlParseError(`The ${coding}-compressed response from ${url} could not be decompressed.`, { cause });
+    }
+    throw new OparlParseError(
+      `The response from ${url} uses the content encoding "${sanitizeServerText(coding, 40)}", which this client ` +
+        "cannot decode (gzip, deflate and br are supported).",
+    );
+  }
+
+  private toApiError(url: string, status: number, body: Buffer, headers: IncomingHttpHeaders): OparlApiError {
+    let decoded = body;
+    try {
+      decoded = this.decompress(url, body, headers);
+    } catch {
+      // A body this client cannot decompress is still an error body; report the status
+      // rather than replacing it with a decoding complaint.
+      decoded = body;
+    }
+    const text = decoded.toString("utf8");
     let detail: string | undefined;
     try {
       // SD.NET answers { error, code }, others { message } / { detail }.
@@ -343,8 +527,8 @@ export class RequestEngine {
       if (snippet.length > 0 && !snippet.startsWith("<")) detail = snippet;
     }
     if (detail !== undefined) {
-      detail = sanitizeServerText(detail.replace(/\s+/g, " ").trim());
-      if (detail.length > 200) detail = `${detail.slice(0, 200)}…`;
+      // sanitizeServerText collapses the whitespace and caps the length.
+      detail = sanitizeServerText(detail);
       if (detail === "") detail = undefined;
     }
     if (status >= 300 && status < 400) {

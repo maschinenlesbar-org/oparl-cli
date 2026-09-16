@@ -1,8 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RequestEngine, resolveLink, withQuery } from "../src/client/engine.js";
-import { OparlApiError, OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
-import { jsonResponse, makeMockTransport, queryOf, rawResponse, redirect } from "./helpers.js";
+import zlib from "node:zlib";
+import { RequestEngine, resolveLink, sanitizeServerText, withQuery } from "../src/client/engine.js";
+import {
+  OparlApiError,
+  OparlLinkError,
+  OparlNetworkError,
+  OparlParseError,
+  OparlValidationError,
+} from "../src/client/errors.js";
+import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, redirect } from "./helpers.js";
 
 const URL_1 = "https://ris.example.de/oparl/system";
 
@@ -15,14 +22,16 @@ test("getJson decodes JSON and sends Accept and User-Agent", async () => {
   assert.equal(mt.last().timeoutMs, 120_000);
 });
 
-test("getJson appends query parameters and keeps those the URL already has", async () => {
+test("getJson keeps the parameters the URL already has and replaces the ones it sets", async () => {
   const mt = makeMockTransport(() => jsonResponse({ data: [] }));
   const e = new RequestEngine({ transport: mt.transport });
-  await e.getJson(`${URL_1}?page=2`, { modified_since: "2026-09-01T00:00:00+00:00", limit: undefined });
+  // limit=5 is the server's own; the caller's 50 replaces it instead of being appended
+  // (which sent limit twice and let the server pick).
+  await e.getJson(`${URL_1}?page=2&limit=5`, { modified_since: "2026-09-01T00:00:00+00:00", limit: 50 });
   const q = queryOf(mt.last());
   assert.equal(q.get("page"), "2");
   assert.equal(q.get("modified_since"), "2026-09-01T00:00:00+00:00");
-  assert.equal(q.has("limit"), false);
+  assert.deepEqual(q.getAll("limit"), ["50"]);
 });
 
 test("credentials in a URL are never sent nor echoed in errors", async () => {
@@ -85,6 +94,25 @@ test("an http-to-https redirect on the same host is followed", async () => {
   assert.equal(mt.last().url, "https://ris.example.de/oparl");
 });
 
+test("a filtered request keeps its filters when a redirect drops the query", async () => {
+  const mt = makeMockTransport((req) =>
+    req.url.startsWith("https://ris.example.de/meetings?") ? redirect("/meetings/") : jsonResponse({ data: [] }),
+  );
+  const e = new RequestEngine({ transport: mt.transport });
+  await e.getJson("https://ris.example.de/meetings", { modified_since: "2026-09-01T00:00:00+00:00" });
+  // The redirect target used to be requested without the filter, and the unfiltered
+  // list came back presented as the filtered one.
+  assert.equal(mt.last().url, "https://ris.example.de/meetings/?modified_since=2026-09-01T00%3A00%3A00%2B00%3A00");
+});
+
+test("fetchJson reports the URL a request ended on, so relative links resolve against it", async () => {
+  const mt = makeMockTransport((req) => (req.url === URL_1 ? redirect("/oparl/v2/system", 302) : jsonResponse({ body: "bodies" })));
+  const e = new RequestEngine({ transport: mt.transport });
+  const response = await e.fetchJson<{ body: string }>(URL_1);
+  assert.equal(response.url, "https://ris.example.de/oparl/v2/system");
+  assert.equal(resolveLink(response.url, response.value.body), "https://ris.example.de/oparl/v2/bodies");
+});
+
 test("a redirect to another host is refused with OparlLinkError", async () => {
   const mt = makeMockTransport(() => redirect("https://evil.example.com/oparl"));
   const e = new RequestEngine({ transport: mt.transport });
@@ -120,6 +148,108 @@ test("non-JSON bodies surface as OparlParseError with a pointed message", async 
     const e = new RequestEngine({ transport: mt.transport });
     await assert.rejects(() => e.getJson(URL_1), (err) => err instanceof OparlParseError && message.test(err.message));
   }
+});
+
+test("a non-JSON answer says what the server actually sent", async () => {
+  // All of these were reported as "Failed to parse JSON response": Aachen's error page
+  // starts with an HTML comment and Apache's with an XML declaration, so the prefix test
+  // missed them, and a file URL answers with the file.
+  const cases: Array<[string | Buffer, string, RegExp]> = [
+    ["<!-- ERROR REFERENCE -->\n<!doctype html><html>oops</html>", "text/html; charset=utf-8", /an HTML page \(content-type: text\/html\)/],
+    ['<?xml version="1.0"?>\n<html><body>Bad Gateway!</body></html>', "text/html", /an HTML page/],
+    ['<?xml version="1.0"?><error>no</error>', "application/xml", /an XML document/],
+    [Buffer.from("%PDF-1.4\ntrailer\n"), "application/pdf", /a PDF file .*does not download files/],
+    ["Not found", "text/plain", /Failed to parse JSON response .* \(content-type: text\/plain\)/],
+  ];
+  for (const [body, type, message] of cases) {
+    const mt = makeMockTransport(() => rawResponse(body, type));
+    const e = new RequestEngine({ transport: mt.transport });
+    await assert.rejects(
+      () => e.getJson(URL_1),
+      (err) => err instanceof OparlParseError && message.test(err.message),
+      `${type}: ${message}`,
+    );
+  }
+  // A server serving good OParl JSON under an HTML content type is still accepted.
+  const html = makeMockTransport(() => rawResponse('{"id":"x"}', "text/html"));
+  assert.deepEqual(await new RequestEngine({ transport: html.transport }).getJson(URL_1), { id: "x" });
+});
+
+test("a compressed response is decoded, whatever the coding", async () => {
+  const served = { id: URL_1, name: "Ratsinformationssystem" };
+  const body = Buffer.from(JSON.stringify(served), "utf8");
+  const cases: Array<[string, Buffer]> = [
+    ["gzip", zlib.gzipSync(body)],
+    ["x-gzip", zlib.gzipSync(body)],
+    ["deflate", zlib.deflateSync(body)],
+    ["deflate", zlib.deflateRawSync(body)], // servers that skip the zlib wrapper
+    ["br", zlib.brotliCompressSync(body)],
+    ["identity", body],
+    ["gzip, br", zlib.brotliCompressSync(zlib.gzipSync(body))],
+  ];
+  for (const [coding, compressed] of cases) {
+    const mt = makeMockTransport(() => rawResponse(compressed, "application/json", 200, { "content-encoding": coding }));
+    const e = new RequestEngine({ transport: mt.transport });
+    assert.deepEqual(await e.getJson(URL_1), served, coding);
+  }
+});
+
+test("an undecodable or oversized compressed response says so", async () => {
+  const unknown = makeMockTransport(() => rawResponse("xx", "application/json", 200, { "content-encoding": "exotic" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: unknown.transport }).getJson(URL_1),
+    (err) => err instanceof OparlParseError && /content encoding "exotic"/.test(err.message),
+  );
+
+  const broken = makeMockTransport(() => rawResponse("not gzip at all", "application/json", 200, { "content-encoding": "gzip" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: broken.transport }).getJson(URL_1),
+    (err) => err instanceof OparlParseError && /gzip-compressed response .* could not be decompressed/.test(err.message),
+  );
+
+  // maxResponseBytes has to hold for the decompressed size too: the transport only ever
+  // sees the bytes on the wire, which a compression bomb keeps small on purpose.
+  const bomb = zlib.gzipSync(Buffer.alloc(200_000, 0x20));
+  const big = makeMockTransport(() => rawResponse(bomb, "application/json", 200, { "content-encoding": "gzip" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: big.transport, maxResponseBytes: 1000 }).getJson(URL_1),
+    (err) => err instanceof OparlNetworkError && /maxResponseBytes \(1000\)/.test(err.message),
+  );
+});
+
+test("a compressed error body is decoded before its detail is taken", async () => {
+  const body = zlib.gzipSync(Buffer.from(JSON.stringify({ error: "Ressource nicht gefunden" }), "utf8"));
+  const mt = makeMockTransport(() => rawResponse(body, "application/json", 404, { "content-encoding": "gzip" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: mt.transport }).getJson(URL_1),
+    (err) => err instanceof OparlApiError && err.detail === "Ressource nicht gefunden",
+  );
+});
+
+test("a header value Node would refuse is a validation error, not an internal fault", async () => {
+  // A --user-agent with an emoji or an en dash used to reach Node's HTTP layer and die
+  // as "Unexpected error" (exit 1) instead of a usage error.
+  for (const userAgent of ["bot \u{1f680}", "oparl-cli/a–b", `bad${String.fromCharCode(0x0d)}${String.fromCharCode(0x0a)}X: y`]) {
+    assert.throws(() => new RequestEngine({ userAgent }), OparlValidationError, userAgent);
+  }
+  assert.throws(() => new RequestEngine({ defaultHeaders: { "X Bad Name": "v" } }), OparlValidationError);
+  // Latin-1 is deprecated in the grammar but Node sends it and servers read it.
+  const mt = makeMockTransport(() => jsonResponse({ ok: true }));
+  const e = new RequestEngine({ transport: mt.transport, userAgent: "oparl-cli/Köln" });
+  assert.deepEqual(await e.getJson(URL_1), { ok: true });
+  assert.equal(mt.last().headers?.["User-Agent"], "oparl-cli/Köln");
+});
+
+test("sanitizeServerText leaves one capped line, whatever the server sent", () => {
+  const clean = sanitizeServerText(hostileText());
+  assert.ok(!hasControlChar(clean), clean);
+  assert.equal(clean.includes("\n"), false);
+  assert.ok(clean.length <= 201, `${clean.length} characters`);
+  assert.ok(clean.endsWith("…"));
+  // Unicode line and paragraph separators count as whitespace, too.
+  assert.equal(sanitizeServerText("a b  \tc"), "a b c");
+  assert.equal(sanitizeServerText("", 10), "");
+  assert.equal(sanitizeServerText("kurz und gut"), "kurz und gut");
 });
 
 test("a UTF-8 byte order mark is tolerated", async () => {

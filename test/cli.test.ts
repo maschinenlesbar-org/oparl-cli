@@ -7,7 +7,7 @@ import { OparlNetworkError } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
 import type { HttpRequest, HttpResponse } from "../src/client/http.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
-import { jsonResponse, makeMockTransport, queryOf, rawResponse, routes } from "./helpers.js";
+import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, routes } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
 const site = {
@@ -345,6 +345,43 @@ test("DEL and C1 control characters in server data are escaped in the JSON outpu
     assert.match(text, /Rat\\u007f\\u0085\\u009b2J/);
     assert.deepEqual(cli.json(), served);
   }
+});
+
+test("no server string reaches stdout or stderr as a terminal escape", async () => {
+  // Whatever the server puts in a field, neither stream may carry an escape byte: the
+  // JSON output escapes them, messages are sanitised.
+  const hostile = hostileText("/NotASystem");
+  const served = { id: fx.SYSTEM_URL, type: hostile, name: hostile, body: hostile };
+  for (const argv of [
+    ["system", fx.SYSTEM_URL],
+    ["get", fx.SYSTEM_URL],
+    ["list", "meeting", fx.SYSTEM_URL],
+    ["bodies", fx.SYSTEM_URL],
+  ]) {
+    const cli = makeCli(() => jsonResponse(served));
+    await run(argv, cli.deps);
+    for (const [stream, lines] of [["stdout", cli.out], ["stderr", cli.err]] as const) {
+      const text = lines.join("\n");
+      assert.ok(!hasControlChar(text.replace(/\n/g, "")), `${stream} of ${argv.join(" ")}: ${JSON.stringify(text)}`);
+    }
+    // And no message runs over more than the line the CLI printed it on.
+    assert.ok(cli.err.every((line) => !line.includes("\n")), cli.err.join("|"));
+  }
+});
+
+test("a --user-agent outside Latin-1 is a usage error (exit 2)", async () => {
+  // Node refuses these header values; the throw came out of the transport as
+  // "Unexpected error" with exit 1, the code for an internal fault.
+  for (const userAgent of ["bot \u{1f680}", "oparl-cli/a–b"]) {
+    const cli = makeCli();
+    assert.equal(await run(["--user-agent", userAgent, "system", fx.SYSTEM_URL], cli.deps), 2, userAgent);
+    assert.match(cli.err.join("\n"), /cannot be sent in an HTTP header/);
+    assert.doesNotMatch(cli.err.join("\n"), /Unexpected error/);
+    assert.equal(cli.mt.calls.length, 0);
+  }
+  const ok = makeCli();
+  assert.equal(await run(["--user-agent", "oparl-cli/Köln (kontakt@example.de)", "system", fx.SYSTEM_URL], ok.deps), 0);
+  assert.equal(ok.mt.last().headers?.["User-Agent"], "oparl-cli/Köln (kontakt@example.de)");
 });
 
 test("--output writes to a file and keeps stdout clean", async () => {

