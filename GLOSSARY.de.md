@@ -25,7 +25,8 @@ OParl-Server, die im Verzeichnis fehlen, und eine Live-Prüfung jedes Verzeichni
 `oparl endpoints` listet beides (`source`: `registry` oder `curated`). `checked` ist der Tag
 der letzten Prüfung, `working` ihr Ergebnis, `problem` der Grund für einen Fehlschlag und
 `replacedBy` die neue URL eines umgezogenen Servers. Die Maintainer aktualisieren die Liste
-mit `npm run check-endpoints`.
+mit `npm run check-endpoints`. Ist das Verzeichnis nicht erreichbar, listet `endpoints` nur
+die gepflegten Einträge und weist auf stderr darauf hin.
 
 **Objekttyp-URI (`type`).** Jedes OParl-Objekt hat einen `type`, z. B.
 `https://schema.oparl.org/1.1/Meeting`; an der Version im Pfad erkennen Sie 1.0 oder 1.1.
