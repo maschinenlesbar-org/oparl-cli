@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { run } from "../src/cli/run.js";
 import { OparlClient } from "../src/client/client.js";
+import { CURATED_ENDPOINTS } from "../src/client/endpoints-list.js";
 import { OparlNetworkError } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
 import type { HttpRequest, HttpResponse } from "../src/client/http.js";
@@ -80,6 +81,20 @@ test("endpoints --oparl-version takes the short form or a version URI, and rejec
     assert.equal(await run(["endpoints", "--oparl-version", bad], cli.deps), 2, bad);
     assert.match(cli.err.join("\n"), /Expected an OParl version/, bad);
     assert.equal(cli.mt.calls.length, 0, bad);
+  }
+});
+
+test("the curated servers the README advertises are found by their place name", async () => {
+  // "Bremische Bürgerschaft" was in the list and working, but no `--search bremen`
+  // could match it: the place name was in the note, which the search does not read.
+  const found = async (search: string) => {
+    const cli = makeCli(undefined, { curatedEndpoints: [...CURATED_ENDPOINTS] });
+    assert.equal(await run(["endpoints", "--source", "curated", "--search", search], cli.deps), 0);
+    return (cli.json() as Array<{ title: string }>).map((e) => e.title);
+  };
+  assert.deepEqual(await found("bremen"), ["Bremische Bürgerschaft (Bremen)"]);
+  for (const place of ["essen", "karlsruhe", "köln", "berlin"]) {
+    assert.ok((await found(place)).length > 0, place);
   }
 });
 

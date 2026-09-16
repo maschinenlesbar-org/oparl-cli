@@ -32,7 +32,7 @@ export const CURATED_ENDPOINTS: readonly CuratedEndpoint[] = frozen([
     "note": null
   },
   {
-    "title": "Bremische Bürgerschaft",
+    "title": "Bremische Bürgerschaft (Bremen)",
     "url": "https://sd.bremische-buergerschaft.de/webservice/oparl/v1.1/system",
     "working": true,
     "checked": "2026-09-15",
