@@ -1,6 +1,6 @@
 {
   "name": "oparl",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "German municipal council information (OParl) skills powered by the oparl-cli — find a council's endpoint, then follow its meetings, papers and committees.",
   "author": {
     "name": "Sebastian Schürmann",
