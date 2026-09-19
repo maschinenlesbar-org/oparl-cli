@@ -9,8 +9,10 @@ description: >
   of the city council", "find papers about the Theatergebäude", or wants a digest of a
   council's recent activity. Walks OParl lists page by page with date filters, checks
   whether the server honoured them, and cites paper references.
-version: 1.0.0
-userInvocable: true
+compatibility: >
+  Requires the `oparl` CLI (npm package @maschinenlesbar.org/oparl-cli) on PATH,
+  installed by the user; the skill never installs it. Uses jq for JSON
+  filtering. Network access to the municipal OParl servers being queried.
 ---
 
 # OParl Council Activity
@@ -21,6 +23,8 @@ if the user names a place instead, run the `oparl-endpoint-finder` skill first.
 ## Tooling
 
 This skill drives the `oparl` command. **Before anything else, validate it is available** — run `command -v oparl` (or `oparl --version`). If it is not on your PATH, STOP and inform the user that the `oparl` CLI (`@maschinenlesbar.org/oparl-cli`) is not installed — installing it is their responsibility; never install it yourself, and do not fall back to `npx` or a local `node dist/...` build.
+
+This skill also filters JSON with `jq`. **Validate it too** — run `command -v jq`. If it is missing, inform the user that `jq` is not installed — installing it is their responsibility; never install it yourself — and carry on without it: filter the CLI output with `node -e` instead (Node is already on your PATH, since the CLI runs on it).
 
 OParl is read-only and needs **no key/account/config**. Pass `--compact` when piping to `jq`. Data licenses differ per server — see Traps.
 
