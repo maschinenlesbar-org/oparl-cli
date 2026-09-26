@@ -127,8 +127,10 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
 - **A `note` on stderr says the walk stopped early.** `looped: true` with "stopped after
   page N" means the server kept serving pages that added nothing (the same page, or an
   empty one, under new page links) or pointed back at a page already fetched. Every
-  distinct object is in `data`; `next` (also in the output) is where to continue, so say
-  how far you got instead of calling the list complete. A note naming a refused link
+  distinct object is in `data`. After pages that added nothing, `next` (also in the
+  output) is where to continue; after a link back ("points back to a page already
+  fetched") `next` is `null`, as that link only loops. Either way, say how far you got
+  instead of calling the list complete. A note naming a refused link
   ("Refusing to follow … another host") means the same: the data so far is good.
 - **A later page failing still prints the pages before it.** Then a `note` ("stopped
   after page N because page N+1 failed"), the JSON with `next` at the failing page, and an

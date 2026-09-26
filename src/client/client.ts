@@ -351,8 +351,10 @@ export class OparlClient {
    * The walk gives up early — `looped: true` plus a `note` saying why — when the
    * server's `next` points back at a page already fetched, or when MAX_UNPRODUCTIVE_PAGES
    * pages in a row add no object that wasn't already listed (some servers serve the same
-   * page, or an empty one, under ever-new `?page=n` links). The `next` of the last page
-   * fetched is still returned in that case, so the walk can be resumed by hand. A `next`
+   * page, or an empty one, under ever-new `?page=n` links). After unproductive pages the
+   * `next` of the last page fetched is still returned, so the walk can be resumed by hand;
+   * after a `next` leading back to a fetched page it is null, as following it would only
+   * go round the loop again. A `next`
    * this client refuses to follow (another host, not http), or a redirect it refuses on
    * a later page, also ends the walk with a `note`, keeping the pages already fetched.
    *

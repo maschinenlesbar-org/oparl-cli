@@ -108,9 +108,10 @@ repeated `id`, a tombstone on a later page wins over the live copy on an earlier
 
 **Paging loop (`looped`).** A server whose `next` link leads back to a page already fetched,
 or that keeps serving pages which add nothing — the same page, or an empty one, under
-ever-new `?page=n` links. The walk gives up after three such pages in a row, lists each
-object once, sets `looped: true`, and keeps the server's `next` so the list can be
-continued by hand. Why three: a page that repeats objects is also what an insertion into
+ever-new `?page=n` links. The walk gives up after three such pages in a row (or at once on
+a link back), lists each object once and sets `looped: true`. After pages that added
+nothing it keeps the server's `next`, so the list can be continued by hand; after a link
+back to a fetched page `next` is `null`, since that link only goes round again. Why three: a page that repeats objects is also what an insertion into
 the list during the walk looks like.
 
 **Walk note (`note`).** One sentence in a `list`/`bodies` result, also printed on stderr,

@@ -126,7 +126,9 @@ the same page, or an empty one, under ever-new `?page=n` links. Two such pages a
 because an insertion into the list during a walk looks exactly like a repeat. `maxPages: 0`
 fetches at most `MAX_PAGES_HARD_LIMIT` (10,000) pages, in case a server's `next` links never
 end; a walk that stops there adds a `note` (not `looped`). `next` is
-whatever the last page fetched offered, so a walk that gave up can be resumed by hand; a
+whatever the last page fetched offered, so a walk that gave up on unproductive pages can be
+resumed by hand — except after a `next` leading back to a page already fetched, where it is
+`null` (following it would only go round the loop again); a
 `next` the same-host rule refuses — or a redirect it refuses on page 2 or later — ends the
 walk with a `note` and keeps the pages already fetched. Any other failure after the first
 page (an HTTP error, a timeout, a page that is not a list) is thrown as it is, but carries

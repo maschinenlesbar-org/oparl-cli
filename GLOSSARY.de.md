@@ -114,8 +114,10 @@ der lebenden Kopie auf einer früheren.
 **Seitenschleife (`looped`).** Ein Server, dessen `next`-Link auf eine bereits abgerufene
 Seite zurückführt oder der immer weitere Seiten liefert, die nichts hinzufügen – dieselbe
 Seite oder eine leere unter immer neuen `?page=n`-Links. Das Durchlaufen endet nach drei
-solchen Seiten in Folge, listet jedes Objekt einmal, setzt `looped: true` und behält das
-`next` des Servers, damit die Liste von Hand weitergeführt werden kann. Warum drei: Eine
+solchen Seiten in Folge (bei einem Link zurück sofort), listet jedes Objekt einmal und setzt
+`looped: true`. Nach Seiten, die nichts hinzufügten, behält es das `next` des Servers, damit
+die Liste von Hand weitergeführt werden kann; nach einem Link zurück auf eine abgerufene Seite
+ist `next` `null`, denn dieser Link führt nur erneut im Kreis. Warum drei: Eine
 Seite, die Objekte wiederholt, sieht genauso aus wie ein Eintrag, der während des
 Durchlaufens in die Liste eingefügt wurde.
 

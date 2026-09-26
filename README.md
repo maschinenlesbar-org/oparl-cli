@@ -22,8 +22,8 @@ their meetings, papers or persons as clean JSON you can pipe straight into
   paging through `links.next` for you, or `get` any object by URL.
 - **Careful with the network** — links and redirects are only followed on the server
   they came from, your filters survive a redirect, pagination loops are detected (also
-  servers that serve the same page, or an empty one, over and over) and leave you a link
-  to resume from, compressed answers are decoded, and slow servers get a 2-minute timeout.
+  servers that serve the same page, or an empty one, over and over — those leave you a
+  link to resume from), compressed answers are decoded, and slow servers get a 2-minute timeout.
 - **Clean JSON output** — pretty by default, `--compact` for scripting, `-o <file>` to
   write to disk.
 
@@ -179,8 +179,10 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
 - **A note "stopped after page N"** — the walk gave up: either the server's `next` led
   back to a page already fetched, or three pages in a row added nothing new (servers that
   serve the same page, or an empty one, under ever-new `?page=n` links — seen on the
-  OWL-IT server). The output holds every distinct object, `looped: true` and, where the
-  server offered one, a `next` to continue from with `oparl get`.
+  OWL-IT server). The output holds every distinct object and `looped: true`. After pages
+  that added nothing, `next` is the link to continue from with `oparl get`; after a `next`
+  that led back to a page already fetched, `next` is `null`, since following it would only
+  go round again.
 - **Exit `4` "not found" after adding a date filter** — SD.NET RIM servers (most of the
   working endpoints, e.g. Bremen) answer a date window with no objects in it with HTTP 404
   (`Die angeforderte Ressource wurde nicht gefunden.`) instead of an empty list, and a few

@@ -121,7 +121,8 @@ Body has only `licenseValidSince` (a date, no license). A `licenseValidSince` wi
 - **A note "stopped after page N"** from `oparl bodies` means the walk gave up because the
   server kept serving pages that added nothing (the same page under new page links, as
   OWL-IT does) or pointed back at a page already fetched; the output still has every
-  distinct body (`looped: true`), and `next` says where a manual `oparl get` could go on.
+  distinct body (`looped: true`). After repeated pages `next` says where a manual `oparl
+  get` could go on; after a link back it is `null`.
 - **Vendor URLs carry versions** (`https://www.somacos.de?oparl=v1.6.1`); name the product,
   not the query string.
 - **Links stay on one host.** "Refusing to follow … another host" means the server pointed

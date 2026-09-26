@@ -53,7 +53,7 @@ export interface ListResult<T extends JsonObject = OparlObject> {
    * Present (and true) when the walk gave up before the list ended: the server's `next`
    * link pointed back at a page already fetched, or several pages in a row added no
    * object that wasn't already listed. `data` then holds every distinct object seen, and
-   * `next` the link to continue from where the walk stopped, when there is one.
+   * `next` the link to continue from after unproductive pages (null after a loop back).
    */
   looped?: true;
   /**
