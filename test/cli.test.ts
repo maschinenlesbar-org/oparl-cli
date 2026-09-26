@@ -489,3 +489,21 @@ test("a bare invocation prints help and exits 0", async () => {
   assert.equal(await run([], cli.deps), 0);
   assert.match(cli.out.join("\n"), /Usage: oparl/);
 });
+
+test("control characters in a URL argument never reach stderr", async () => {
+  // `oparl system "$(jq -r .data[0].id)"`: jq -r decodes a hostile id's \u001b, and the
+  // "is not an OParl System/Body" errors quote the argument as typed.
+  const esc = String.fromCharCode(0x1b);
+  const hostile = `?x=${esc}]0;pwned${String.fromCharCode(0x07)}${esc}[31mRED${String.fromCharCode(0x9b)}2J`;
+  for (const argv of [
+    ["system", `${fx.BODY_URL}${hostile}`],
+    ["list", "meeting", `${fx.SYSTEM_URL}${hostile}`],
+  ]) {
+    const cli = makeCli();
+    assert.equal(await run(argv, cli.deps), 1, argv.join(" "));
+    const stderr = cli.err.join("\n");
+    assert.match(stderr, /is not an OParl (System|Body)/);
+    assert.ok(!hasControlChar(stderr.replaceAll("\n", " ")), JSON.stringify(stderr));
+    assert.match(stderr, /\]0;pwned\[31mRED2J/);
+  }
+});

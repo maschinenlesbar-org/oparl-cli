@@ -187,8 +187,12 @@ man-in-the-middled endpoint would otherwise drive ANSI/OSC escape sequences into
 terminal, print an `Error:` line of its own next to the CLI's, or bury the diagnostic
 under kilobytes of its own text. It applies to every server-derived string, the object
 `type` of the type checks and a response's `Content-Type` included; the JSON output
-escapes the same characters instead (`escapeControlChars`). JSON deeper than 256 levels
-is rejected before it can blow the stack.
+escapes the same characters instead (`escapeControlChars`). Messages also quote the
+user's own arguments as typed (`<url> is not an OParl System`), and the documented
+workflows feed server data into those (`oparl get "$(jq -r .data[0].id)"`), so the CLI
+additionally drops terminal control characters from everything it writes to stderr
+(`stripTerminalControls` in `run.ts`, next to the userinfo redaction). JSON deeper than 256
+levels is rejected before it can blow the stack.
 
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
 characters *and* by `Content-Type`, since Aachen's error page starts with an HTML comment

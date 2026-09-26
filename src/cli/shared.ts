@@ -80,6 +80,24 @@ export function redactCredentials(text: string): string {
   return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1<redacted>@");
 }
 
+/**
+ * Drop the characters a terminal may act on from text bound for stderr: C0 controls
+ * other than tab and newline (ESC, BEL, CR, …), DEL and C1 (U+009B is the 8-bit CSI).
+ * Server text is sanitised where it enters a message, but messages also quote the
+ * user's own arguments — and the documented workflows feed server data into those
+ * (`oparl get "$(jq -r .data[0].id)"`, where `jq -r` decodes `\u001b`). Checked by char
+ * code so the source stays free of control bytes.
+ */
+export function stripTerminalControls(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if ((c < 0x20 && c !== 0x09 && c !== 0x0a) || (c >= 0x7f && c <= 0x9f)) continue;
+    out += text[i];
+  }
+  return out;
+}
+
 /** commander value-parser for an OParl timestamp filter (YYYY-MM-DD or an ISO 8601 date-time with offset). */
 export function parseTimestamp(value: string): string {
   try {
