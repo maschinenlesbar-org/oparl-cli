@@ -102,7 +102,7 @@ const one = await client.get(papers.data[0]!.id);
 | `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms) |
 | `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) |
 | `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
-| `maxRedirects` | `3` | Same-host redirects followed per request |
+| `maxRedirects` | `3` | Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
 | `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too |
 | `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1, else an `OparlValidationError` |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock) |
@@ -176,7 +176,7 @@ dependency is `commander`.
 | Error | Raised when | CLI exit |
 | --- | --- | --- |
 | `OparlValidationError` | bad URL, timestamp, header value or option before any request | 2 |
-| `OparlApiError` | non-2xx status, or a redirect not followed | 4 for 404, else 1 |
+| `OparlApiError` | non-2xx status, or a redirect not followed (`location` names its target) | 4 for 404, else 1 |
 | `OparlNetworkError` | DNS, connection, timeout, size cap, a request that ends without a response | 6 |
 | `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), wrong object type, `{ error }` object | 1 |
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |

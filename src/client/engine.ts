@@ -33,7 +33,11 @@ export interface EngineOptions {
   maxRetries?: number;
   /** Base backoff between retries in milliseconds (grows linearly). */
   retryDelayMs?: number;
-  /** Redirects followed per request (same host only). Defaults to 3; 0 disables. */
+  /**
+   * Redirects (301/302/303/307/308) followed per request, same host only. Defaults to 3;
+   * 0 disables. Any other 3xx, one without a Location, and one past this limit surface
+   * as an OparlApiError naming the target.
+   */
   maxRedirects?: number;
   /**
    * Hard cap on response body size in bytes (defends against memory exhaustion
@@ -45,6 +49,12 @@ export interface EngineOptions {
 }
 
 const DEFAULT_MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
+/**
+ * The redirect statuses the engine follows. 300 (a choice for the user), 304 (a cache
+ * answer to a conditional request this client never sends) and 305/306 (deprecated) are
+ * not redirects to follow; they surface as an OparlApiError.
+ */
+const FOLLOWED_REDIRECTS = new Set([301, 302, 303, 307, 308]);
 /** Longest wait honoured from a Retry-After header, so a hostile 429 can't stall us. */
 const MAX_RETRY_AFTER_MS = 30_000;
 /** Deepest JSON nesting accepted; OParl objects are a handful of levels deep. */
@@ -443,13 +453,20 @@ export class RequestEngine {
       }
 
       if (status >= 300 && status < 400) {
-        const location = response.headers["location"];
-        if (typeof location === "string" && location !== "" && redirects < this.maxRedirects) {
+        const header = response.headers["location"];
+        const location = typeof header === "string" && header.trim() !== "" ? header : undefined;
+        if (location !== undefined && FOLLOWED_REDIRECTS.has(status)) {
+          if (redirects >= this.maxRedirects) {
+            // A loop or a long chain: say how far it got. (With maxRedirects 0 nothing
+            // was followed, and the plain text says enough.)
+            throw this.toApiError(current, status, response.body, response.headers, location, redirects || undefined);
+          }
           redirects += 1;
           current = encodeTimestampPlus(carryQuery(resolveLink(current, location), query));
           continue;
         }
-        throw this.toApiError(current, status, response.body, response.headers);
+        // Any other 3xx, or one without a Location: nothing to follow.
+        throw this.toApiError(current, status, response.body, response.headers, location);
       }
 
       if (status < 200 || status >= 300) {
@@ -550,7 +567,14 @@ export class RequestEngine {
     );
   }
 
-  private toApiError(url: string, status: number, body: Buffer, headers: IncomingHttpHeaders): OparlApiError {
+  private toApiError(
+    url: string,
+    status: number,
+    body: Buffer,
+    headers: IncomingHttpHeaders,
+    location?: string,
+    redirectsFollowed?: number,
+  ): OparlApiError {
     let decoded = body;
     try {
       decoded = this.decompress(url, body, headers);
@@ -579,9 +603,34 @@ export class RequestEngine {
       detail = sanitizeServerText(detail);
       if (detail === "") detail = undefined;
     }
-    if (status >= 300 && status < 400) {
-      detail = detail ?? "redirect not followed";
-    }
-    return new OparlApiError({ status, url, method: "GET", body: text, ...(detail ? { detail } : {}) });
+    const target = status >= 300 && status < 400 && location !== undefined ? redirectTarget(url, location) : undefined;
+    return new OparlApiError({
+      status,
+      url,
+      method: "GET",
+      body: text,
+      ...(detail ? { detail } : {}),
+      ...(target !== undefined ? { location: target } : {}),
+      ...(redirectsFollowed !== undefined ? { redirectsFollowed } : {}),
+    });
   }
+}
+
+/**
+ * The absolute, printable form of a `Location` header: resolved against the request
+ * URL, userinfo removed, control characters stripped (it is server text bound for
+ * stderr). An unparseable value is shown sanitised as it came.
+ */
+function redirectTarget(requestUrl: string, location: string): string | undefined {
+  let shown = location;
+  try {
+    const resolved = new URL(location, requestUrl);
+    resolved.username = "";
+    resolved.password = "";
+    shown = resolved.href;
+  } catch {
+    // shown as it came, sanitised below
+  }
+  const clean = sanitizeServerText(shown);
+  return clean === "" ? undefined : clean;
 }

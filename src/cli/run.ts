@@ -29,6 +29,9 @@ const EXIT = {
   OTHER: 1,
 } as const;
 
+/** The redirect statuses the engine follows, up to --max-redirects. */
+const FOLLOWED_REDIRECTS: readonly number[] = [301, 302, 303, 307, 308];
+
 /**
  * Whether the failing request carried a date filter or `limit` — only `list` sends
  * those, so the "retry without the filters" hint is pointless for `get`, `system`,
@@ -94,10 +97,12 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
     if (err instanceof OparlApiError) {
       deps.io.err(`Error: ${err.message}`);
       if (err.status === 404) return EXIT.NOT_FOUND;
-      if (err.status >= 300 && err.status < 400) {
+      if (err.location !== undefined && FOLLOWED_REDIRECTS.includes(err.status)) {
+        // A followable redirect is only left unfollowed when --max-redirects ran out
+        // (another host is refused with an OparlLinkError before it gets here).
         deps.io.err(
-          "Hint: the server redirected and the redirect was not followed (too many, or to " +
-            "another host). Use the final URL directly, or raise --max-redirects.",
+          "Hint: the server redirected more often than --max-redirects allows (default 3). " +
+            "Use the final URL directly, or raise --max-redirects.",
         );
       } else if (err.status >= 500) {
         deps.io.err(

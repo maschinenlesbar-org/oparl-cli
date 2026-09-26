@@ -507,3 +507,15 @@ test("control characters in a URL argument never reach stderr", async () => {
     assert.match(stderr, /\]0;pwned\[31mRED2J/);
   }
 });
+
+test("the --max-redirects hint only follows a redirect the limit stopped", async () => {
+  const noLocation = makeCli(() => ({ status: 301, headers: {}, body: Buffer.alloc(0) }));
+  assert.equal(await run(["get", fx.SYSTEM_URL], noLocation.deps), 1);
+  assert.deepEqual(noLocation.err, [`Error: HTTP 301 for GET ${fx.SYSTEM_URL}: redirect not followed (no Location header)`]);
+
+  let n = 0;
+  const loop = makeCli(() => ({ status: 302, headers: { location: `/hop/${(n += 1)}` }, body: Buffer.alloc(0) }));
+  assert.equal(await run(["get", fx.SYSTEM_URL], loop.deps), 1);
+  assert.match(loop.err[0] ?? "", /: redirect to https:\/\/ris\.example\.de\/hop\/4 not followed \(stopped after 3 redirects\)$/);
+  assert.match(loop.err[1] ?? "", /^Hint: the server redirected more often than --max-redirects allows/);
+});

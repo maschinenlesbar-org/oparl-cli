@@ -21,7 +21,10 @@ export class OparlError extends Error {
 /**
  * The server responded with a non-2xx HTTP status (or a redirect this client does
  * not follow). `detail` holds a short, sanitised snippet of the response body when
- * a useful textual one is present.
+ * a useful textual one is present. For a 3xx that was not followed (not a followable
+ * status, no Location, or past `maxRedirects`), `location` holds the redirect target
+ * (absolute, sanitised, without userinfo) and the message names it; after the redirect
+ * limit it also says how many redirects were followed, so a loop reads as one.
  */
 export class OparlApiError extends OparlError {
   readonly status: number;
@@ -29,15 +32,37 @@ export class OparlApiError extends OparlError {
   readonly url: string;
   readonly method: string;
   readonly body: string;
+  readonly location: string | undefined;
 
-  constructor(args: { status: number; url: string; method: string; body: string; detail?: string }) {
-    const detailPart = args.detail ? `: ${args.detail}` : "";
+  constructor(args: {
+    status: number;
+    url: string;
+    method: string;
+    body: string;
+    detail?: string;
+    location?: string;
+    /** Set when the redirect limit stopped the request: the redirects followed. */
+    redirectsFollowed?: number;
+  }) {
+    const parts: string[] = [];
+    if (args.detail) parts.push(args.detail);
+    if (args.status >= 300 && args.status < 400) {
+      const limit =
+        args.redirectsFollowed !== undefined
+          ? ` (stopped after ${args.redirectsFollowed} redirect${args.redirectsFollowed === 1 ? "" : "s"})`
+          : "";
+      parts.push(
+        args.location ? `redirect to ${args.location} not followed${limit}` : "redirect not followed (no Location header)",
+      );
+    }
+    const detailPart = parts.length > 0 ? `: ${parts.join("; ")}` : "";
     super(`HTTP ${args.status} for ${args.method} ${args.url}${detailPart}`);
     this.status = args.status;
     this.url = args.url;
     this.method = args.method;
     this.body = args.body;
     this.detail = args.detail;
+    this.location = args.location;
   }
 
   /** True for HTTP statuses treated as transient and retry-able. */

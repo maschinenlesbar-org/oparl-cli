@@ -124,8 +124,36 @@ test("redirects stop after maxRedirects with a 3xx OparlApiError", async () => {
   let n = 0;
   const mt = makeMockTransport(() => redirect(`/hop/${(n += 1)}`));
   const e = new RequestEngine({ transport: mt.transport, maxRedirects: 2 });
-  await assert.rejects(() => e.getJson(URL_1), (err) => err instanceof OparlApiError && err.status === 301);
+  await assert.rejects(
+    () => e.getJson(URL_1),
+    (err) =>
+      err instanceof OparlApiError &&
+      err.status === 301 &&
+      err.location === "https://ris.example.de/hop/3" &&
+      err.message.endsWith(": redirect to https://ris.example.de/hop/3 not followed (stopped after 2 redirects)"),
+  );
   assert.equal(mt.calls.length, 3);
+});
+
+test("only real redirects with a Location are followed, and the error names what happened", async () => {
+  const cases: Array<[number, Record<string, string>, string]> = [
+    [301, {}, ": redirect not followed (no Location header)"],
+    [302, { location: "  " }, ": redirect not followed (no Location header)"],
+    [304, {}, ": redirect not followed (no Location header)"],
+    // 304 answers a conditional request this client never sends; 300 is a choice.
+    [304, { location: "/system" }, ": redirect to https://ris.example.de/system not followed"],
+    [300, { location: "/system" }, ": redirect to https://ris.example.de/system not followed"],
+  ];
+  for (const [status, headers, tail] of cases) {
+    const mt = makeMockTransport(() => ({ status, headers, body: Buffer.alloc(0) }));
+    const e = new RequestEngine({ transport: mt.transport });
+    await assert.rejects(
+      () => e.getJson(URL_1),
+      (err) => err instanceof OparlApiError && err.status === status && err.message === `HTTP ${status} for GET ${URL_1}${tail}`,
+      `${status} ${JSON.stringify(headers)}`,
+    );
+    assert.equal(mt.calls.length, 1);
+  }
 });
 
 test("a 404 carries the server's error text as detail", async () => {
