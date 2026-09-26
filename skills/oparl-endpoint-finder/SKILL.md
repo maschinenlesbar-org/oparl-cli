@@ -97,9 +97,12 @@ oparl system "<System URL>" --compact | jq '{name, oparlVersion, vendor, product
 ```bash
 oparl bodies "<System URL>" --compact | jq -r '.data[] | [.name, .ags // "", .id] | @tsv'
 oparl get "<Body id>" --compact \
-  | jq -r 'to_entries[] | select(.value | type == "string" and test("^https?://")) | .key'
+  | jq -r 'to_entries[] | select(.key | test("^(organization|person|meeting|paper|agendaItem|consultation|consultations|file|files|membership|locationList|legislativeTermList)$")) | .key'
 ```
 
+Match the list names, not "any value that looks like a URL": a Body's `id`, `type`,
+`system` and `web` are URLs too, but not lists it offers. Some servers use the plural
+`consultations`/`files`, which `oparl list consultation`/`file` follows.
 Report the Body `id` — the next skill (`oparl-council-activity`) and `oparl list` need it.
 OParl **1.0** bodies only link `organization`, `person`, `meeting`, `paper`.
 
