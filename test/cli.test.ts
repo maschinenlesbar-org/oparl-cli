@@ -283,6 +283,22 @@ test("list accepts ISO 8601 timestamps with fractional seconds", async () => {
   assert.equal(queryOf(cli.mt.calls[1]!).get("created_since"), "2026-09-01T10:00:00+00:00");
 });
 
+test("list prints the pages fetched when a later page fails, and still exits with the error", async () => {
+  const cli = makeCli((req) => {
+    if (req.url === fx.BODY_URL) return jsonResponse(fx.body);
+    if (req.url === fx.MEETINGS_URL) return jsonResponse(fx.meetingPages[1]);
+    return jsonResponse({ error: "boom" }, 500);
+  });
+  assert.equal(await run(["--compact", "list", "meeting", fx.BODY_URL, "--max-pages", "0"], cli.deps), 1);
+  const result = cli.json() as { data: Array<{ id: string }>; pages: number; next: string; note: string };
+  assert.deepEqual(
+    { ids: result.data.map((m) => m.id), pages: result.pages, next: result.next },
+    { ids: fx.meetingPages[1].data.map((m) => m.id), pages: 1, next: `${fx.MEETINGS_URL}?page=2` },
+  );
+  assert.match(cli.err[0] ?? "", /^Note: stopped after page 1 because page 2 failed/);
+  assert.match(cli.err[1] ?? "", /^Error: HTTP 500 for GET .*\?page=2: boom$/);
+});
+
 test("list --max-pages 0 walks every page", async () => {
   const cli = makeCli();
   await run(["list", "meeting", fx.BODY_URL, "--max-pages", "0"], cli.deps);

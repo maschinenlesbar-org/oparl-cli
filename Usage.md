@@ -175,7 +175,9 @@ Each object appears once per `id`, and where a page repeated it (a list that cha
 it is being walked does that), the delta holds the **last** copy the server sent, so an
 object edited or deleted mid-walk is not kept stale. On large servers `--max-pages 0` can
 take a long time; raise `--timeout` rather than lowering it. An empty window can come back
-as exit `4` on SD.NET servers — see recipe 6.
+as exit `4` on SD.NET servers — see recipe 6. If a page after the first fails, the file
+still holds the pages fetched before it, with `next` at the page that failed and a `note`,
+but the command exits non-zero: treat such a file as incomplete.
 
 ## Global options
 

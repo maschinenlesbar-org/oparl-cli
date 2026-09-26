@@ -29,6 +29,7 @@ import {
   parseTimestamp,
   parseUrl,
   renderJson,
+  type GlobalOptions,
 } from "../shared.js";
 
 const MAX_PAGES_OPTION = "pages to fetch, following links.next (0 = all)";
@@ -126,6 +127,30 @@ function noteWalk(deps: CliDeps, result: ListResult<JsonObject>): void {
   if (result.note !== undefined) deps.io.err(`Note: ${result.note}`);
 }
 
+/**
+ * Print a walk's result. When the walk failed after its first page, the pages it did
+ * fetch are printed all the same (with `next` at the page that failed and a note), and
+ * then the error is rethrown, so the exit code still reports the failure.
+ */
+async function renderWalk(
+  deps: CliDeps,
+  global: GlobalOptions,
+  walk: () => Promise<ListResult<JsonObject>>,
+): Promise<void> {
+  let result: ListResult<JsonObject>;
+  try {
+    result = await walk();
+  } catch (err) {
+    if (err instanceof OparlError && err.partial !== undefined) {
+      noteWalk(deps, err.partial);
+      renderJson(deps, global, err.partial);
+    }
+    throw err;
+  }
+  noteWalk(deps, result);
+  renderJson(deps, global, result);
+}
+
 export function registerCommands(program: Command, deps: CliDeps): void {
   program
     .command("endpoints")
@@ -182,9 +207,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
     .option("--max-pages <n>", MAX_PAGES_OPTION, parseIntArg, 0)
     .action(
       action(deps, async ({ client, global, opts }, [url]) => {
-        const result = await client.bodies(url as string, { maxPages: opts["maxPages"] as number });
-        noteWalk(deps, result);
-        renderJson(deps, global, result);
+        await renderWalk(deps, global, () => client.bodies(url as string, { maxPages: opts["maxPages"] as number }));
       }),
     );
 
@@ -212,9 +235,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
         if (opts["createdUntil"] !== undefined) options.createdUntil = opts["createdUntil"] as string;
         if (opts["limit"] !== undefined) options.limit = opts["limit"] as number;
         if (opts["omitInternal"]) options.omitInternal = true;
-        const result = await client.list(bodyUrl as string, type as ListType, options);
-        noteWalk(deps, result);
-        renderJson(deps, global, result);
+        await renderWalk(deps, global, () => client.list(bodyUrl as string, type as ListType, options));
       }),
     );
 

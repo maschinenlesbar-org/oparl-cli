@@ -121,8 +121,11 @@ Durchlaufens in die Liste eingefügt wurde.
 
 **Durchlauf-Hinweis (`note`).** Ein Satz im Ergebnis von `list`/`bodies`, ebenfalls auf
 stderr ausgegeben: Er nennt den Grund, aus dem das Durchlaufen vor dem Ende der Liste endete
-(eine Seitenschleife oder ein `next`-Link, dem die CLI nicht folgt), oder welcher Filter
-nicht angewendet werden konnte.
+(eine Seitenschleife, ein `next`-Link oder eine Weiterleitung, der die CLI nicht folgt, oder
+eine spätere Seite, deren Abruf scheiterte), oder welcher Filter nicht angewendet werden
+konnte. Scheitert eine Seite nach der ersten, werden die zuvor abgerufenen Seiten mit einem
+solchen Hinweis und `next` auf der gescheiterten Seite ausgegeben, danach endet der Befehl
+mit dem Fehler.
 
 ## Dieses Tool
 

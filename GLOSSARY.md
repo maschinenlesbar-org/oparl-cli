@@ -114,8 +114,10 @@ continued by hand. Why three: a page that repeats objects is also what an insert
 the list during the walk looks like.
 
 **Walk note (`note`).** One sentence in a `list`/`bodies` result, also printed on stderr,
-saying why the walk stopped before the end of the list (a paging loop, or a `next` link
-the CLI refuses to follow) or which filter it could not apply.
+saying why the walk stopped before the end of the list (a paging loop, a `next` link or
+redirect the CLI refuses to follow, or a later page that failed) or which filter it could
+not apply. When a page after the first fails, the pages fetched before it are printed with
+such a note and `next` at the failing page, and the command then exits with the error.
 
 ## This tool
 

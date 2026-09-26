@@ -112,7 +112,9 @@ following page, or `null` at the end: continue with `oparl get <next>` or a high
 `--max-pages`. Each object appears once, by `id`; where a page repeated an object, the
 last copy the server sent is kept — the newer one, including a `deleted: true`
 tombstone. A walk that gives up early adds `"looped": true` and a `"note"` saying why
-(also printed on stderr).
+(also printed on stderr). If a page after the first fails (a server error, a timeout),
+the pages already fetched are still printed, with `next` set to the page that failed and a
+`note`, and the command then reports the error and exits with its code (`1`, `4` or `6`).
 
 ## Output & scripting
 

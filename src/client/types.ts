@@ -45,7 +45,8 @@ export interface ListResult<T extends JsonObject = OparlObject> {
   /**
    * The `next` link of the last page fetched, or null when the list is exhausted, when
    * the walk stopped at a `next` leading back to a page already fetched, or when the
-   * link is one this client refuses to follow (see `note`).
+   * link is one this client refuses to follow (see `note`). In the `partial` result of
+   * an error thrown after the first page, the URL of the page that failed.
    */
   next: string | null;
   /**

@@ -1,8 +1,17 @@
 // Error types raised by the client. Kept free of any I/O so they are trivial to
 // construct in tests and to `instanceof`-check by consumers.
 
+import type { JsonObject, ListResult } from "./types.js";
+
 /** Base class for every error originating from this client. */
 export class OparlError extends Error {
+  /**
+   * Set when a list walk failed on page 2 or later: the walk up to that point — the
+   * objects of the pages fetched before the failure, `next` set to the URL of the page
+   * that failed, and a `note` saying so. The CLI prints it before the error.
+   */
+  partial?: ListResult<JsonObject>;
+
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
     this.name = new.target.name;

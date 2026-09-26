@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OparlClient, endpointKey, normalizeTimestamp } from "../src/client/client.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
-import { OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
+import { OparlApiError, OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
-import { hasControlChar, hostileText, jsonResponse, queryOf, redirect, routes } from "./helpers.js";
+import { hasControlChar, hostileText, jsonResponse, queryOf, rawResponse, redirect, routes } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
 const pages = {
@@ -303,6 +303,62 @@ test("a next link this client won't follow ends the walk but keeps the pages fet
       assert.match(result.note ?? "", /stopped after page 1: (Refusing to follow|The server returned an invalid link)/);
     }
   }
+});
+
+test("a redirect to another host on a later page ends the walk but keeps the pages fetched", async () => {
+  // DEVELOPING promises that a refused link never costs the pages already fetched; a
+  // redirect Location is such a link, just like a `next` link on another host.
+  const { c, mt } = client({
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1)], links: { next: `${fx.MEETINGS_URL}?page=2` } }),
+    [`${fx.MEETINGS_URL}?page=2`]: redirect("https://tracker.example.com/page2", 302),
+  });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(
+    { ids: result.data.map((m) => m["id"]), pages: result.pages, next: result.next, looped: result.looped },
+    { ids: [fx.meeting(1).id], pages: 1, next: null, looped: undefined },
+  );
+  assert.match(result.note ?? "", /^stopped after page 1: Refusing to follow https:\/\/tracker\.example\.com\/page2 /);
+  assert.equal(mt.calls.length, 3);
+});
+
+test("a failure on a later page is thrown with the pages fetched and the failing page as next", async () => {
+  const failures = [
+    { name: "HTTP 500", response: jsonResponse({ error: "boom" }, 500), type: OparlApiError },
+    { name: "an HTML page", response: rawResponse("<html>down</html>", "text/html"), type: OparlParseError },
+  ];
+  for (const { name, response, type } of failures) {
+    const page2 = `${fx.MEETINGS_URL}?page=2&modified_since=2026-01-01T00%3A00%3A00%2B00%3A00`;
+    const { c } = client({
+      [fx.BODY_URL]: jsonResponse(fx.body),
+      [fx.MEETINGS_URL]: (req) =>
+        new URL(req.url).searchParams.has("page")
+          ? response
+          : jsonResponse({ data: [fx.meeting(1), fx.meeting(2)], links: { next: `${fx.MEETINGS_URL}?page=2` } }),
+    });
+    const err = await c.list(fx.BODY_URL, "meeting", { maxPages: 0, modifiedSince: "2026-01-01" }).then(
+      () => assert.fail(`${name}: expected a rejection`),
+      (e: unknown) => e,
+    );
+    assert.ok(err instanceof type, `${name}: ${String(err)}`);
+    const partial = (err as OparlError).partial;
+    assert.deepEqual(
+      { ids: partial?.data.map((m) => m["id"]), pages: partial?.pages, next: partial?.next },
+      { ids: [fx.meeting(1).id, fx.meeting(2).id], pages: 1, next: page2 },
+      name,
+    );
+    assert.match(partial?.note ?? "", /^stopped after page 1 because page 2 failed; .*next is the page that failed/, name);
+  }
+});
+
+test("a failure on the first page is thrown without a partial result", async () => {
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse({ error: "boom" }, 500) });
+  const err = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 }).then(
+    () => assert.fail("expected a rejection"),
+    (e: unknown) => e,
+  );
+  assert.ok(err instanceof OparlApiError);
+  assert.equal(err.partial, undefined);
 });
 
 test("relative links are resolved against the URL a redirect led to", async () => {

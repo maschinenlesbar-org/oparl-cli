@@ -23,7 +23,7 @@ import {
   type JsonResponse,
 } from "./engine.js";
 import type { QueryParams } from "./query.js";
-import { OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
+import { OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 import type {
   CuratedEndpoint,
@@ -348,8 +348,13 @@ export class OparlClient {
    * pages in a row add no object that wasn't already listed (some servers serve the same
    * page, or an empty one, under ever-new `?page=n` links). The `next` of the last page
    * fetched is still returned in that case, so the walk can be resumed by hand. A `next`
-   * this client refuses to follow (another host, not http) also ends the walk with a
-   * `note`, keeping the pages already fetched.
+   * this client refuses to follow (another host, not http), or a redirect it refuses on
+   * a later page, also ends the walk with a `note`, keeping the pages already fetched.
+   *
+   * Any other failure on page 2 or later (an HTTP error, a timeout, a page that is not a
+   * list) is thrown as it is, but carries the walk so far in `err.partial`: the objects
+   * of the pages fetched before it, and `next` set to the page that failed, so the walk
+   * can be resumed there.
    */
   async walk<T extends JsonObject = OparlObject>(url: string, query?: QueryParams, maxPages = 1): Promise<ListResult<T>> {
     if (!Number.isInteger(maxPages) || maxPages < 0) {
@@ -367,7 +372,31 @@ export class OparlClient {
     let unproductive = 0;
     while (current !== null && pages < limit) {
       const pageQuery = pages === 0 ? query : undefined;
-      const { page, url: pageUrl } = await this.pageFrom<T>(current, pageQuery);
+      let fetched: { page: OparlListPage<T>; url: string };
+      try {
+        fetched = await this.pageFrom<T>(current, pageQuery);
+      } catch (err) {
+        // The first page failing is the whole request failing. A later one must not
+        // cost the pages already fetched: a redirect this client refuses ends the walk
+        // like a refused `next` link, and any other failure is rethrown with the result
+        // so far attached, `next` pointing at the page that failed.
+        if (pages === 0 || !(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
+        if (err instanceof OparlLinkError) {
+          next = null;
+          note = `stopped after page ${pages}: ${err.message}`;
+          break;
+        }
+        err.partial = {
+          data,
+          pages,
+          next: current,
+          note:
+            `stopped after page ${pages} because page ${pages + 1} failed; data holds the objects of the pages ` +
+            "fetched before it, and next is the page that failed — retry it with `oparl get`, or run the walk again.",
+        };
+        throw err;
+      }
+      const { page, url: pageUrl } = fetched;
       // The URL the request actually went to, filters included, and the one a redirect
       // took it to, so that a `next` link leading back to either is recognised.
       seenPages.add(carryQuery(parseHttpUrl(current).href, pageQuery));

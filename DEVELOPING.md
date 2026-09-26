@@ -125,8 +125,12 @@ when `MAX_UNPRODUCTIVE_PAGES` (3) pages in a row add no object that wasn't alrea
 the same page, or an empty one, under ever-new `?page=n` links. Two such pages are tolerated,
 because an insertion into the list during a walk looks exactly like a repeat. `next` is
 whatever the last page fetched offered, so a walk that gave up can be resumed by hand; a
-`next` the same-host rule refuses ends the walk with a `note` and keeps the pages already
-fetched. Objects are listed once per `id` across pages, keeping the **last** copy sent, since
+`next` the same-host rule refuses — or a redirect it refuses on page 2 or later — ends the
+walk with a `note` and keeps the pages already fetched. Any other failure after the first
+page (an HTTP error, a timeout, a page that is not a list) is thrown as it is, but carries
+the walk so far in `err.partial` (`OparlError.partial`: the objects of the pages fetched,
+`next` = the page that failed, and a `note`); the CLI prints that result and then reports
+the error with its usual exit code. Objects are listed once per `id` across pages, keeping the **last** copy sent, since
 that is the newer one (an object edited mid-walk, or the spec's `deleted: true` tombstone).
 `normalizeTimestamp` writes every accepted input in
 the form the spec uses, `YYYY-MM-DDThh:mm:ss±hh:mm`: `YYYY-MM-DD` becomes midnight UTC, `Z`
