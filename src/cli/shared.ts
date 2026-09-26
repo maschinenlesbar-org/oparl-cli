@@ -175,7 +175,8 @@ export function escapeControlChars(json: string): string {
  */
 export function renderJson(deps: CliDeps, global: GlobalOptions, value: unknown): void {
   const text = escapeControlChars(global.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2));
-  if (global.output) {
+  // `-o -` means stdout, as for curl and wget, not a file named "-".
+  if (global.output !== undefined && global.output !== "-") {
     const data = Buffer.from(text + "\n", "utf8");
     try {
       deps.io.writeFile(global.output, data);

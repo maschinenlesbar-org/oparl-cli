@@ -223,7 +223,7 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `-V, --version` | Print the version number |
 | `-h, --help` | Show help for the program or a command |
 | `--compact` | Print JSON on a single line instead of pretty-printed |
-| `-o, --output <file>` | Write output to this file instead of stdout |
+| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout) |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
 | `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji, an en dash or a blank value is rejected with exit `2`) |
 | `--max-retries <n>` | Retries for transient `429`/`503` responses (0..10, default `2`) |

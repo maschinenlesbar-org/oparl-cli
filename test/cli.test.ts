@@ -552,3 +552,11 @@ test("a blank --user-agent is a usage error, not silently replaced", async () =>
     assert.match(cli.err.join("\n"), /Expected a non-empty value\./);
   }
 });
+
+test("-o - prints to stdout instead of writing a file named -", async () => {
+  const cli = makeCli();
+  assert.equal(await run(["--compact", "-o", "-", "system", fx.SYSTEM_URL], cli.deps), 0);
+  assert.deepEqual(Object.keys(cli.files), []);
+  assert.equal((cli.json() as { id: string }).id, fx.system.id);
+  assert.ok(!cli.err.some((line) => line.startsWith("Wrote")), cli.err.join("\n"));
+});

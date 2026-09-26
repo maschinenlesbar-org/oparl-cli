@@ -62,7 +62,7 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
       parseIntArg,
     )
     .option("--compact", "print JSON on a single line instead of pretty-printed")
-    .option("-o, --output <file>", "write output to this file instead of stdout", parseNonEmpty)
+    .option("-o, --output <file>", "write output to this file instead of stdout (- = stdout)", parseNonEmpty)
     .showHelpAfterError();
 
   registerCommands(program, deps);
