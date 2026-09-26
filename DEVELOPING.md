@@ -35,7 +35,8 @@ against that, as RFC 3986 §5.1.3 requires. A server that redirects `/oparl` to
 server that redirects a filtered list URL to a path without the query cannot answer the
 unfiltered list unnoticed. One rule for all of it: `carryQuery` **sets** the caller's
 parameters, replacing whatever copy the URL carried — the requested URL, a redirect
-target and a `next` link alike (`withQuery`, which appends, is no longer used for
+target and a `next` link alike — and leaves the server's other parameters exactly as it
+wrote them (no `%20` → `+`, no `flag` → `flag=`) (`withQuery`, which appends, is no longer used for
 requests; sending `limit` twice with different values let the server choose).
 
 What we found probing real servers (September 2026) and designed around:

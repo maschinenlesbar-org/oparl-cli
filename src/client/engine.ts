@@ -263,14 +263,28 @@ export function withQuery(url: string, query?: QueryParams): string {
  */
 export function carryQuery(url: string, query?: QueryParams): string {
   if (!query) return url;
-  const wanted = new URLSearchParams(buildQueryString(query));
-  if ([...wanted.keys()].length === 0) return url;
+  const wanted = buildQueryString(query);
+  if (wanted === "") return url;
+  const own = new Set(new URLSearchParams(wanted).keys());
   const parsed = new URL(url);
-  for (const key of new Set(wanted.keys())) {
-    parsed.searchParams.delete(key);
-    for (const value of wanted.getAll(key)) parsed.searchParams.append(key, value);
-  }
+  // Only the client's own parameters are rewritten. The server's are kept byte for byte:
+  // re-serialising them turned `%20` into `+` and a bare `flag` into `flag=`, which a
+  // server that doesn't form-decode, or tells the two apart, reads differently.
+  const kept = parsed.search
+    .slice(1)
+    .split("&")
+    .filter((part) => part !== "" && !own.has(formDecode(part.split("=", 1)[0] ?? "")));
+  parsed.search = [...kept, wanted].join("&");
   return parsed.href;
+}
+
+/** A query-string key as a server reads it: `+` is a space, then percent-decoding. */
+function formDecode(text: string): string {
+  try {
+    return decodeURIComponent(text.replaceAll("+", " "));
+  } catch {
+    return text;
+  }
 }
 
 /** The OParl list parameters that hold a timestamp (`2026-09-20T00:00:00+00:00`). */

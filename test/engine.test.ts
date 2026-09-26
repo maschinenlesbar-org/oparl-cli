@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
-import { RequestEngine, encodeTimestampPlus, resolveLink, sanitizeServerText, withQuery } from "../src/client/engine.js";
+import { RequestEngine, carryQuery, encodeTimestampPlus, resolveLink, sanitizeServerText, withQuery } from "../src/client/engine.js";
 import {
   OparlApiError,
   OparlLinkError,
@@ -366,4 +366,22 @@ test("a URL with an unencoded + in a timestamp filter is requested with %2B", as
   });
   await engine.getJson("https://ris.example.de/papers?page=3&modified_since=2026-09-20T00:00:00+00:00&limit=5");
   assert.deepEqual(requested, ["https://ris.example.de/papers?page=3&modified_since=2026-09-20T00:00:00%2B00:00&limit=5"]);
+});
+
+test("carryQuery sets the client's parameters and leaves the server's byte for byte", () => {
+  // The server's own `next`: a %20, a bare flag and a + that is not a space for every server.
+  assert.equal(
+    carryQuery("https://a.de/w?page=2&q=a%20b&flag&x=1+2", { limit: 5 }),
+    "https://a.de/w?page=2&q=a%20b&flag&x=1+2&limit=5",
+  );
+  // A parameter the client sets replaces the server's copy, however the server spelled it.
+  assert.equal(
+    carryQuery("https://a.de/papers.asp?body=1&limit=100&modified_since=2026-01-01T00:00:00+00:00", {
+      limit: 5,
+      modified_since: "2026-09-01T00:00:00+00:00",
+    }),
+    "https://a.de/papers.asp?body=1&limit=5&modified_since=2026-09-01T00%3A00%3A00%2B00%3A00",
+  );
+  assert.equal(carryQuery("https://a.de/x?page=2", { limit: undefined }), "https://a.de/x?page=2");
+  assert.equal(carryQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");
 });
