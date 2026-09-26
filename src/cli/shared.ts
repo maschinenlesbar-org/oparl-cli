@@ -109,11 +109,13 @@ export function parseTimestamp(value: string): string {
 
 /**
  * commander value-parser for a value that ends up in an HTTP header (User-Agent).
- * Rejects control characters — a CR/LF (or other C0/DEL byte) would otherwise reach
- * Node's HTTP layer and throw an opaque `ERR_INVALID_CHAR`. Tab (0x09) is allowed;
- * checked by char code so the source stays free of control bytes.
+ * Rejects a blank value (it used to be replaced by the default without a word) and
+ * control characters — a CR/LF (or other C0/DEL byte) would otherwise reach Node's
+ * HTTP layer and throw an opaque `ERR_INVALID_CHAR`. Tab (0x09) is allowed; checked by
+ * char code so the source stays free of control bytes.
  */
 export function parseHeaderValue(value: string): string {
+  parseNonEmpty(value);
   for (let i = 0; i < value.length; i++) {
     const c = value.charCodeAt(i);
     if ((c < 0x20 && c !== 0x09) || c === 0x7f) {

@@ -543,3 +543,12 @@ test("list rejects an inverted date window as a usage error", async () => {
   assert.equal(cli.mt.calls.length, 0);
   assert.match(cli.err[0] ?? "", /^Error: The modified window is empty: modified_since \(2026-09-10T00:00:00\+00:00\) is after/);
 });
+
+test("a blank --user-agent is a usage error, not silently replaced", async () => {
+  for (const ua of ["", "   "]) {
+    const cli = makeCli();
+    assert.equal(await run(["--user-agent", ua, "get", fx.SYSTEM_URL], cli.deps), 2, JSON.stringify(ua));
+    assert.equal(cli.mt.calls.length, 0);
+    assert.match(cli.err.join("\n"), /Expected a non-empty value\./);
+  }
+});

@@ -225,7 +225,7 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `--compact` | Print JSON on a single line instead of pretty-printed |
 | `-o, --output <file>` | Write output to this file instead of stdout |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
-| `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji or an en dash is rejected with exit `2`) |
+| `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji, an en dash or a blank value is rejected with exit `2`) |
 | `--max-retries <n>` | Retries for transient `429`/`503` responses (0..10, default `2`) |
 | `--max-redirects <n>` | Redirects to follow on the same host (0..10, default `3`) |
 | `--max-response-bytes <n>` | Cap response body size in bytes, decompressed size included (`0` = unlimited; default 100 MiB) |
