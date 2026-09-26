@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
-import { RequestEngine, resolveLink, sanitizeServerText, withQuery } from "../src/client/engine.js";
+import { RequestEngine, encodeTimestampPlus, resolveLink, sanitizeServerText, withQuery } from "../src/client/engine.js";
 import {
   OparlApiError,
   OparlLinkError,
@@ -336,4 +336,34 @@ test("http:// URLs on the host of an https response are printed as https://", as
 test("withQuery leaves the URL alone when no parameter survives", () => {
   assert.equal(withQuery("https://a.de/x?page=1", { limit: undefined }), "https://a.de/x?page=1");
   assert.equal(withQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");
+});
+
+test("encodeTimestampPlus sends a literal + in the OParl timestamp parameters as %2B, and nothing else", () => {
+  // Köln's raw links.next, as `oparl get` prints it: the + reached the server as a space.
+  const somacos = "https://ris.example.de/papers?page=4&modified_since=2026-09-20T00:00:00+00:00&limit=5";
+  assert.equal(encodeTimestampPlus(somacos), "https://ris.example.de/papers?page=4&modified_since=2026-09-20T00:00:00%2B00:00&limit=5");
+  assert.equal(
+    encodeTimestampPlus("https://a.de/x?created_since=2026-01-01T00:00:00+01:00&created_until=2026-02-01T00:00:00+01:00&modified_until=2026-03-01T00:00:00+01:00#f+g"),
+    "https://a.de/x?created_since=2026-01-01T00:00:00%2B01:00&created_until=2026-02-01T00:00:00%2B01:00&modified_until=2026-03-01T00:00:00%2B01:00#f+g",
+  );
+  // Other parameters, already encoded values and URLs without a query are left as they are.
+  for (const url of [
+    "https://a.de/x?q=a+b&flag&modified_since=2026-09-20T00:00:00%2B00:00",
+    "https://a.de/x?modified_since=2026-09-20T00:00:00Z",
+    "https://a.de/x",
+  ]) {
+    assert.equal(encodeTimestampPlus(url), url);
+  }
+});
+
+test("a URL with an unencoded + in a timestamp filter is requested with %2B", async () => {
+  const requested: string[] = [];
+  const engine = new RequestEngine({
+    transport: async (req) => {
+      requested.push(req.url);
+      return { status: 200, headers: { "content-type": "application/json" }, body: Buffer.from('{"data":[]}') };
+    },
+  });
+  await engine.getJson("https://ris.example.de/papers?page=3&modified_since=2026-09-20T00:00:00+00:00&limit=5");
+  assert.deepEqual(requested, ["https://ris.example.de/papers?page=3&modified_since=2026-09-20T00:00:00%2B00:00&limit=5"]);
 });

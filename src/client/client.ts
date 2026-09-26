@@ -16,6 +16,7 @@
 import {
   RequestEngine,
   carryQuery,
+  encodeTimestampPlus,
   parseHttpUrl,
   resolveLink,
   sanitizeServerText,
@@ -438,7 +439,7 @@ export class OparlClient {
       try {
         // Relative links belong to the document that carried them, so they are resolved
         // against the URL the page was read from, not the one the request started at.
-        next = carryQuery(resolveLink(pageUrl, link), query);
+        next = encodeTimestampPlus(carryQuery(resolveLink(pageUrl, link), query));
       } catch (err) {
         if (!(err instanceof OparlLinkError)) throw err;
         next = null; // keep the pages already fetched and say why the walk stopped

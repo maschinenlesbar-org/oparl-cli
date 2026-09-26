@@ -133,6 +133,9 @@ oparl get "$next" | jq -r '.data[] | .name'
 `next` is `null` on the last page. It is also the way on when a walk gave up early: with
 `looped: true` and a `note` on stderr ("stopped after page N …"), `next` still points at
 the page after the last one fetched, so `oparl get "$next"` continues from there.
+`oparl get` returns the raw page; its own continuation is `.links.next`, which can be
+passed to `oparl get` again as it is — a literal `+` in a date filter (Somacos servers
+echo `modified_since=…+00:00` unencoded) is sent as `%2B`, so the filter holds.
 
 ### 9. Committees and groups
 

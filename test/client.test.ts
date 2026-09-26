@@ -154,6 +154,23 @@ test("list re-applies filters to next links that echo them unencoded or drop the
   assert.equal(next.searchParams.getAll("modified_since").join("|"), since);
 });
 
+test("an unencoded + in a next link's timestamp is sent, and handed back, as %2B", async () => {
+  // Without a filter of the caller's own, the server's next link is used as it came:
+  // Somacos echoes modified_since with a raw +, which the server itself reads as a space.
+  const raw = `${fx.MEETINGS_URL}?page=2&modified_since=2026-09-20T00:00:00+00:00`;
+  const encoded = `${fx.MEETINGS_URL}?page=2&modified_since=2026-09-20T00:00:00%2B00:00`;
+  const { c, mt } = client({
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.MEETINGS_URL]: (req) =>
+      new URL(req.url).searchParams.has("page")
+        ? jsonResponse({ data: [fx.meeting(2)], links: { next: `${raw.replace("page=2", "page=3")}` } })
+        : jsonResponse({ data: [fx.meeting(1)], links: { next: raw } }),
+  });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 2 });
+  assert.equal(mt.calls[2]?.url, encoded);
+  assert.equal(result.next, encoded.replace("page=2", "page=3"));
+});
+
 test("list on a 1.0 body without that list names what the body links", async () => {
   const { c, mt } = client({ [fx.body10.id]: jsonResponse(fx.body10) });
   await assert.rejects(

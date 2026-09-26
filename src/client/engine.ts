@@ -273,6 +273,35 @@ export function carryQuery(url: string, query?: QueryParams): string {
   return parsed.href;
 }
 
+/** The OParl list parameters that hold a timestamp (`2026-09-20T00:00:00+00:00`). */
+const TIMESTAMP_PARAMS = new Set(["created_since", "created_until", "modified_since", "modified_until"]);
+
+/**
+ * Re-encode a literal `+` in the OParl timestamp parameters of a URL as `%2B`. Somacos
+ * servers hand out `next` links with `modified_since=2026-09-20T00:00:00+00:00`
+ * unencoded; sent as is, the server reads the `+` as a space, answers a different page,
+ * and the `next` link of that page has lost the filter altogether. A timestamp never
+ * holds a space, so in these four parameters a `+` can only mean a plus sign. Every
+ * other part of the URL is left exactly as it was.
+ */
+export function encodeTimestampPlus(url: string): string {
+  const start = url.indexOf("?");
+  if (start === -1) return url;
+  const hash = url.indexOf("#", start);
+  const end = hash === -1 ? url.length : hash;
+  let changed = false;
+  const parts = url
+    .slice(start + 1, end)
+    .split("&")
+    .map((part) => {
+      const eq = part.indexOf("=");
+      if (eq === -1 || !TIMESTAMP_PARAMS.has(part.slice(0, eq)) || !part.includes("+", eq)) return part;
+      changed = true;
+      return `${part.slice(0, eq)}=${part.slice(eq + 1).replaceAll("+", "%2B")}`;
+    });
+  return changed ? `${url.slice(0, start + 1)}${parts.join("&")}${url.slice(end)}` : url;
+}
+
 function jsonDepth(value: unknown): number {
   let max = 0;
   const stack: Array<[unknown, number]> = [[value, 1]];
@@ -369,10 +398,11 @@ export class RequestEngine {
    *
    * `query` is set on the requested URL and again on every redirect target: a server
    * that redirects a filtered list URL to a path without the query would otherwise
-   * answer the unfiltered list, and nothing in the result would say so.
+   * answer the unfiltered list, and nothing in the result would say so. A literal `+`
+   * in an OParl timestamp parameter is sent as `%2B` (see encodeTimestampPlus).
    */
   async fetchJson<T = unknown>(url: string, query?: QueryParams): Promise<JsonResponse<T>> {
-    const requested = carryQuery(parseHttpUrl(url).href, query);
+    const requested = encodeTimestampPlus(carryQuery(parseHttpUrl(url).href, query));
     const headers: Record<string, string> = {
       ...this.defaultHeaders,
       Accept: "application/json",
@@ -402,7 +432,7 @@ export class RequestEngine {
         const location = response.headers["location"];
         if (typeof location === "string" && location !== "" && redirects < this.maxRedirects) {
           redirects += 1;
-          current = carryQuery(resolveLink(current, location), query);
+          current = encodeTimestampPlus(carryQuery(resolveLink(current, location), query));
           continue;
         }
         throw this.toApiError(current, status, response.body, response.headers);

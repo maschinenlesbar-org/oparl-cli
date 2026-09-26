@@ -15,6 +15,7 @@ export { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 export {
   RequestEngine,
   carryQuery,
+  encodeTimestampPlus,
   parseHttpUrl,
   resolveLink,
   sanitizeServerText,

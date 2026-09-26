@@ -43,7 +43,7 @@ What we found probing real servers (September 2026) and designed around:
 | Server (product) | Behaviour |
 | --- | --- |
 | Solingen (SD.NET RIM, 1.1) | 38 s for one page of meetings; `modified_since` answered with an HTML 503, `limit` with a 400; 404s as `{ error, code }` JSON; `http` → `https` 301 |
-| Köln (Somacos Session, 1.1) | fast; filters and `limit` honoured; no totals in `pagination`; 404 as `text/plain` |
+| Köln (Somacos Session, 1.1) | fast; filters and `limit` honoured; no totals in `pagination`; 404 as `text/plain`; `links.next` echoes `modified_since=…+00:00` unencoded, and the server reads that `+` as a space (a different page, whose own `next` drops the filter) — so the engine sends a literal `+` in the four timestamp parameters as `%2B` (`encodeTimestampPlus`), which keeps `oparl get <.links.next>` filtered |
 | Düsseldorf (Somacos Session, 1.1, `ris-oparl.itk-rheinland.de`) | the Body links `consultations` and `files` instead of the spec's `consultation` and `file`; `list` falls back to those two names |
 | Freiburg (more! rubin, 1.0) | `limit` ignored; `created`/`modified` stamped with the current date on every object, so date filters match everything; paths like `/page/2`; unknown paths answer 200 with the System object; only four Body lists |
 | Leipzig (ALLRIS) | System answered HTTP 500 on the day |

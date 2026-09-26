@@ -111,7 +111,9 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
   aren't sorted by date (Düsseldorf orders by internal id); sort by `start` yourself and
   don't call page 1 "the latest". For **upcoming** meetings, a page limit can cut some
   off (Düsseldorf's page 2 still held meetings in December 2026). Keep fetching with
-  `oparl get <next>` (a raw page; its continuation is `.links.next`) while a page still
+  `oparl get <next>` (a raw page; its continuation is `.links.next`, which `oparl get`
+  takes as it is — the CLI re-encodes the `+` Somacos servers leave raw in the date
+  filter) while a page still
   has meetings from today on, and stop after the first page with none. Say how many
   pages you checked.
 - **`--limit` can cut the whole list.** ALLRIS 1.0 servers (the Berlin BVVs) answer

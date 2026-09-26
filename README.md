@@ -105,7 +105,10 @@ Each filter is sent **once per request, with your value**: where the server's li
 its `next` link already carries that parameter, yours replaces it — on the first page, on
 every following one, and again if the server redirects. Without that, a list URL such as
 ALLRIS's `papers.asp?body=1&limit=100` would be asked for two page sizes at once, and a
-redirect that drops the query would quietly answer the unfiltered list.
+redirect that drops the query would quietly answer the unfiltered list. Every request
+also sends a literal `+` in the four date parameters as `%2B`: Somacos servers put
+`modified_since=…+00:00` unencoded into their `next` links, and would read the `+` as a
+space, so a raw page's `.links.next` can be passed to `oparl get` as it is.
 
 `list` returns `{ "data": [...], "pages": n, "next": "…" }`. `next` is the link to the
 following page, or `null` at the end: continue with `oparl get <next>` or a higher
