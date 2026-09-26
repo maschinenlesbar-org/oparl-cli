@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { run } from "../src/cli/run.js";
 import { OparlClient } from "../src/client/client.js";
-import { CURATED_ENDPOINTS } from "../src/client/endpoints-list.js";
+import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
 import { OparlNetworkError } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
 import type { HttpRequest, HttpResponse } from "../src/client/http.js";
@@ -518,4 +518,18 @@ test("the --max-redirects hint only follows a redirect the limit stopped", async
   assert.equal(await run(["get", fx.SYSTEM_URL], loop.deps), 1);
   assert.match(loop.err[0] ?? "", /: redirect to https:\/\/ris\.example\.de\/hop\/4 not followed \(stopped after 3 redirects\)$/);
   assert.match(loop.err[1] ?? "", /^Hint: the server redirected more often than --max-redirects allows/);
+});
+
+test("endpoints --search finds the municipalities the shipped note names on a shared server", async () => {
+  // ris-oparl.itk-rheinland.de hosts five bodies under the title "Landeshauptstadt
+  // Dusseldorf"; the search sees title, URL and note only, so the note names the others.
+  const url = "https://ris-oparl.itk-rheinland.de/Oparl/system";
+  const check = REGISTRY_CHECKS.find((c) => c.url === url);
+  assert.ok(check, "the shipped checks hold the ITK Rheinland server");
+  const registry = { data: [{ title: "Landeshauptstadt Dusseldorf", url }], meta: {} };
+  for (const term of ["Mönchengladbach", "moenchengladbach", "Neuss", "Grevenbroich", "Rheinkreis", "Rhein-Kreis"]) {
+    const cli = makeCli(() => jsonResponse(registry), { registryChecks: [check] });
+    assert.equal(await run(["--compact", "endpoints", "--search", term, "--registry-url", fx.REGISTRY_URL], cli.deps), 0);
+    assert.deepEqual((cli.json() as Array<{ url: string }>).map((e) => e.url), [url], term);
+  }
 });

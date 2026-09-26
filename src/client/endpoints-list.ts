@@ -1377,7 +1377,7 @@ export const REGISTRY_CHECKS: readonly RegistryCheck[] = frozen([
     "vendor": "https://www.somacos.de?oparl=v1.6.0",
     "bodyCount": 5,
     "replacedBy": null,
-    "note": null
+    "note": "Shared server of ITK Rheinland: besides Düsseldorf it hosts the bodies Stadt Neuss, Stadt Mönchengladbach, Stadt Grevenbroich and Rheinkreis Neuss (Rhein-Kreis Neuss)."
   },
   {
     "url": "https://ris.freiburg.de/oparl",

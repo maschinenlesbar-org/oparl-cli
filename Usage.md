@@ -42,6 +42,18 @@ ordinary word like `Aue` keeps its own meaning. When dev.oparl.org cannot be rea
 `endpoints` notes that on stderr and lists the curated servers alone, as of their last
 check — `--source curated` does the same without trying the network.
 
+The search does not cover the names of the bodies on a **shared server**: one System can
+host several municipalities (a data centre, a Verbandsgemeinde and its members), and the
+list records only how many (`bodyCount`), under the title of one of them. Where a note
+names them, the search finds them (Neuss and Mönchengladbach on the Düsseldorf server);
+otherwise a place without a hit may still be on one of those servers. Look through their
+bodies live — this sends a request to each shared server, so keep it to the region you need:
+
+```bash
+oparl endpoints --working --compact | jq -r '.[] | select((.bodyCount // 0) > 1) | "\(.bodyCount)\t\(.title)\t\(.url)"'
+oparl bodies "<one of those URLs>" --compact | jq -r '.data[].name'
+```
+
 ### 2. All working endpoints on OParl 1.1
 
 ```bash

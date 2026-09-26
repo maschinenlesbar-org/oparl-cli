@@ -52,9 +52,13 @@ the registry's own last fetch (`fetched`).
 - **`note` set** → read it: it flags aggregators, archives and servers with known problems.
 - **A note on stderr that the registry could not be read** → only the curated servers are
   listed, as of their `checked` date. Say so before concluding that a place has no server.
-- No hit does **not** mean the municipality has no OParl API — both lists are incomplete.
-  Say so, and suggest checking the municipality's council portal for an OParl link; any
-  System URL found there works with `oparl system`.
+- No hit does **not** mean the municipality has no OParl API — both lists are incomplete,
+  and the search does not see the names of the bodies a **shared server** hosts (it
+  matches title, URL and note only; Mönchengladbach is served from the Düsseldorf entry).
+  Try the county, the Verbandsgemeinde or the regional data centre, or look through the
+  bodies of the shared servers nearby (`select((.bodyCount // 0) > 1)`, then `oparl
+  bodies <url>` for a few of them). Say so, and suggest checking the municipality's
+  council portal for an OParl link; any System URL found there works with `oparl system`.
 - `oparl endpoints --working --oparl-version 1.1` answers "which councils publish OParl?".
   `--oparl-version` takes `1.0`/`1.1` or the whole version URI (`https://schema.oparl.org/1.1/`).
 

@@ -66,7 +66,7 @@ oparl list meeting https://buergerinfo.stadt-koeln.de/oparl/bodies/stadtverwaltu
 
 | Command | What it does |
 | --- | --- |
-| `endpoints` | Known OParl servers: the dev.oparl.org registry plus a curated list, with their last live check (`--search <text>`, `--oparl-version <v>`, `--working`, `--source <source>`) |
+| `endpoints` | Known OParl servers: the dev.oparl.org registry plus a curated list, with their last live check (`--search <text>` over title, URL and note — not the names of the bodies a shared server hosts; `--oparl-version <v>`, `--working`, `--source <source>`) |
 | `system <url>` | An endpoint's System object: OParl version, vendor, the URL of its bodies |
 | `bodies <systemUrl>` | The bodies (*Körperschaften*) on a server, usually one per municipality |
 | `list <type> <bodyUrl>` | One of a body's object lists, paged — see types below |
