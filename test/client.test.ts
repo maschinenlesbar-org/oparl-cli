@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OparlClient, endpointKey, normalizeTimestamp } from "../src/client/client.js";
+import { MAX_PAGES_HARD_LIMIT, OparlClient, endpointKey, normalizeTimestamp } from "../src/client/client.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
 import { OparlApiError, OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
@@ -435,6 +435,25 @@ test("an endless run of empty pages ends the walk instead of paging to the hard 
     { n: 0, pages: 3, next: `${fx.MEETINGS_URL}?page=4`, looped: true },
   );
   assert.equal(mt.calls.length, 4);
+});
+
+test("a walk stopped by the page limit of maxPages 0 says so", async () => {
+  // Every page adds a new object and links the next: only the hard limit ends the walk,
+  // and a non-null next alone was the only sign that the list had not ended.
+  const endless = (req: { url: string }) => {
+    const n = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    return jsonResponse({ data: [fx.meeting(n)], links: { next: `${fx.MEETINGS_URL}?page=${n + 1}` } });
+  };
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: endless });
+  const all = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
+  assert.deepEqual(
+    { n: all.data.length, pages: all.pages, next: all.next, looped: all.looped },
+    { n: MAX_PAGES_HARD_LIMIT, pages: MAX_PAGES_HARD_LIMIT, next: `${fx.MEETINGS_URL}?page=${MAX_PAGES_HARD_LIMIT + 1}`, looped: undefined },
+  );
+  assert.match(all.note ?? "", /^stopped after page 10000: maxPages 0 \(--max-pages 0\) fetches at most 10000 pages/);
+  // An explicit page count that is reached is what the caller asked for: no note.
+  const three = await c.list(fx.BODY_URL, "meeting", { maxPages: 3 });
+  assert.deepEqual({ pages: three.pages, note: three.note }, { pages: 3, note: undefined });
 });
 
 test("a page that repeats objects because the list shifted does not truncate the walk", async () => {

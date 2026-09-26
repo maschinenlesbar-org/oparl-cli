@@ -88,7 +88,7 @@ locally).
 
 | Option | Meaning |
 | --- | --- |
-| `--max-pages <n>` | Pages to fetch along `links.next` (default `1`; `0` = all) |
+| `--max-pages <n>` | Pages to fetch along `links.next` (default `1`; `0` = all, up to 10,000 pages — a `note` says when that limit ended the walk, and a larger number goes further) |
 | `--modified-since <time>` / `--modified-until <time>` | Only objects modified in that window |
 | `--created-since <time>` / `--created-until <time>` | Only objects created in that window |
 | `--limit <n>` | Page size hint (1..1000) |

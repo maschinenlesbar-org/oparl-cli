@@ -4,6 +4,7 @@ export {
   OparlClient,
   DEFAULT_REGISTRY_URL,
   LIST_TYPES,
+  MAX_PAGES_HARD_LIMIT,
   endpointKey,
   listQuery,
   normalizeTimestamp,

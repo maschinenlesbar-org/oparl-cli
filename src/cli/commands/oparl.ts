@@ -13,6 +13,7 @@ import type { CliDeps } from "../io.js";
 import {
   DEFAULT_REGISTRY_URL,
   LIST_TYPES,
+  MAX_PAGES_HARD_LIMIT,
   shortOparlVersion,
   type EndpointSource,
   type ListOptions,
@@ -32,7 +33,7 @@ import {
   type GlobalOptions,
 } from "../shared.js";
 
-const MAX_PAGES_OPTION = "pages to fetch, following links.next (0 = all)";
+const MAX_PAGES_OPTION = `pages to fetch, following links.next (0 = all, up to ${MAX_PAGES_HARD_LIMIT})`;
 
 /**
  * Fold text for the endpoints search: case, Unicode normalisation form and accents

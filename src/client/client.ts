@@ -78,8 +78,12 @@ function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
   return fallback !== undefined && typeof body[fallback] === "string" ? body[fallback] : url;
 }
 
-/** Guard against a server whose `next` links never end. */
-const MAX_PAGES_HARD_LIMIT = 10_000;
+/**
+ * The most pages `maxPages: 0` ("all") fetches in one walk: a guard against a server
+ * whose `next` links never end. A walk stopped by it says so in its `note`; a larger
+ * explicit `maxPages` goes further.
+ */
+export const MAX_PAGES_HARD_LIMIT = 10_000;
 const MAX_REGISTRY_PAGES = 50;
 /**
  * Consecutive pages that may add nothing new before a walk gives up: a server that
@@ -446,6 +450,11 @@ export class OparlClient {
         break;
       }
       current = next;
+    }
+    if (maxPages === 0 && pages >= limit && next !== null && note === undefined) {
+      note =
+        `stopped after page ${pages}: maxPages 0 (--max-pages 0) fetches at most ${MAX_PAGES_HARD_LIMIT} pages, ` +
+        "in case a server's next links never end. The list goes on at next; pass a higher maxPages to fetch more.";
     }
     return {
       data,

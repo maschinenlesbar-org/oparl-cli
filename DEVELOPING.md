@@ -123,7 +123,9 @@ end of the list, and an optional `note` (one sentence for the user, which the CL
 stderr) saying why. It gives up when a `next` link leads back to a page already fetched, or
 when `MAX_UNPRODUCTIVE_PAGES` (3) pages in a row add no object that wasn't already listed —
 the same page, or an empty one, under ever-new `?page=n` links. Two such pages are tolerated,
-because an insertion into the list during a walk looks exactly like a repeat. `next` is
+because an insertion into the list during a walk looks exactly like a repeat. `maxPages: 0`
+fetches at most `MAX_PAGES_HARD_LIMIT` (10,000) pages, in case a server's `next` links never
+end; a walk that stops there adds a `note` (not `looped`). `next` is
 whatever the last page fetched offered, so a walk that gave up can be resumed by hand; a
 `next` the same-host rule refuses — or a redirect it refuses on page 2 or later — ends the
 walk with a `note` and keeps the pages already fetched. Any other failure after the first
