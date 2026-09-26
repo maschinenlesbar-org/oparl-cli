@@ -564,6 +564,23 @@ test("objects repeated across pages are listed once, and the walk goes on", asyn
   assert.deepEqual(result, { data: result.data, pages: 3, next: null });
 });
 
+test("an inverted date window is rejected before any request", async () => {
+  const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body), ...pages });
+  for (const [field, options] of [
+    ["modified", { modifiedSince: "2026-09-10", modifiedUntil: "2026-09-01" }],
+    ["created", { createdSince: "2026-09-01T12:00:00+02:00", createdUntil: "2026-09-01T11:00:00+02:00" }],
+  ] as const) {
+    await assert.rejects(
+      () => c.list(fx.BODY_URL, "paper", options),
+      (err) => err instanceof OparlValidationError && err.message.startsWith(`The ${field} window is empty: ${field}_since (`),
+    );
+  }
+  assert.equal(mt.calls.length, 0);
+  // The same instant, however written, is a window of one moment, not an empty one.
+  const one = await c.list(fx.BODY_URL, "meeting", { modifiedSince: "2026-09-01T02:00:00+02:00", modifiedUntil: "2026-09-01" });
+  assert.equal(one.pages, 1);
+});
+
 test("an invalid timestamp filter is rejected before any request", async () => {
   const { c, mt } = client({ [fx.BODY_URL]: jsonResponse(fx.body) });
   await assert.rejects(() => c.list(fx.BODY_URL, "meeting", { createdSince: "yesterday" }), OparlValidationError);

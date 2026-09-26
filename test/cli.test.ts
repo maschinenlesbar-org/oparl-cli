@@ -533,3 +533,13 @@ test("endpoints --search finds the municipalities the shipped note names on a sh
     assert.deepEqual((cli.json() as Array<{ url: string }>).map((e) => e.url), [url], term);
   }
 });
+
+test("list rejects an inverted date window as a usage error", async () => {
+  const cli = makeCli();
+  assert.equal(
+    await run(["list", "paper", fx.BODY_URL, "--modified-since", "2026-09-10", "--modified-until", "2026-09-01"], cli.deps),
+    2,
+  );
+  assert.equal(cli.mt.calls.length, 0);
+  assert.match(cli.err[0] ?? "", /^Error: The modified window is empty: modified_since \(2026-09-10T00:00:00\+00:00\) is after/);
+});

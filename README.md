@@ -96,7 +96,8 @@ locally).
 
 Times are `YYYY-MM-DD` (midnight UTC) or an ISO 8601 date-time with a time zone offset
 (`2026-09-01T12:30:00+02:00`, `2026-09-01T10:30:00.123Z`, `…T12:30+0200`); they are sent in
-the spec's `YYYY-MM-DDThh:mm:ss±hh:mm` form, fractional seconds dropped. The filters are
+the spec's `YYYY-MM-DDThh:mm:ss±hh:mm` form, fractional seconds dropped. A window whose
+`--…-since` is after its `--…-until` is rejected (exit `2`), since nothing can match it. The filters are
 sent to the server as the OParl `modified_since`, `limit`, … parameters. **Servers don't
 all honour them**: some ignore them silently, a few fail with a 400 or 500 — check the
 `modified`/`created` fields when it matters.

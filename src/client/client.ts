@@ -234,9 +234,13 @@ export function normalizeTimestamp(value: string): string {
   return `${y}-${m}-${d}T${hh}:${mm}:${ss}${offset}`;
 }
 
-/** The OParl filter query for a list request. */
+/**
+ * The OParl filter query for a list request. A window whose start is after its end is
+ * rejected: nothing can match it, and SD.NET servers answer an empty window with HTTP 404,
+ * which reads as "not found".
+ */
 export function listQuery(options: ListOptions): QueryParams {
-  return {
+  const query = {
     created_since: options.createdSince !== undefined ? normalizeTimestamp(options.createdSince) : undefined,
     created_until: options.createdUntil !== undefined ? normalizeTimestamp(options.createdUntil) : undefined,
     modified_since: options.modifiedSince !== undefined ? normalizeTimestamp(options.modifiedSince) : undefined,
@@ -244,6 +248,17 @@ export function listQuery(options: ListOptions): QueryParams {
     limit: options.limit,
     omit_internal: options.omitInternal ? true : undefined,
   };
+  for (const field of ["created", "modified"] as const) {
+    const since = query[`${field}_since`];
+    const until = query[`${field}_until`];
+    if (since !== undefined && until !== undefined && Date.parse(since) > Date.parse(until)) {
+      throw new OparlValidationError(
+        `The ${field} window is empty: ${field}_since (${since}) is after ${field}_until (${until}), so no object ` +
+          "can match. Swap the two.",
+      );
+    }
+  }
+  return query;
 }
 
 export class OparlClient {
