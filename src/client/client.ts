@@ -424,6 +424,15 @@ export class OparlClient {
       const link = page.links?.next;
       if (typeof link !== "string" || link === "") {
         next = null; // the last page
+        const pageSize = query?.["limit"];
+        if (typeof pageSize === "number" && page.data.length === pageSize) {
+          // ALLRIS 1.0 (BVV Mitte) answers `limit=n` with n objects and no `next` link:
+          // the list looks complete although most of it was never sent.
+          note =
+            `the last page held exactly ${pageSize} objects, the page size asked for (limit, --limit), but no ` +
+            "next link. Some servers (ALLRIS 1.0) leave out the next link when a limit is set, so the list may go " +
+            "on: run it again without the limit to be sure.";
+        }
         break;
       }
       try {

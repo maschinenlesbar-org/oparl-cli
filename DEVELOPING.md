@@ -50,7 +50,7 @@ What we found probing real servers (September 2026) and designed around:
 | Essen (SD.NET RIM, 1.1) | serves a bare `[]` for its `legislativeterm` list instead of a list page, which `page()` reads as one page |
 | Bremen / Essen (SD.NET RIM, 1.1) | a date window with no objects in it answers HTTP **404** (`{ error, code }`), so the CLI exits 4 although the list exists. Documented in the README, Usage, the glossaries and the council-activity skill; never translated into an empty result in code, since a 404 also means a wrong URL |
 | OWL-IT (SessionNet, 1.1) | serves all 27 bodies under every `?page=n`, with an ever-new `next`: the walk's unproductive-page counter ends it after four requests |
-| Berlin BVV Mitte (ALLRIS, 1.0) | embedded legislative terms without the mandatory `created`/`modified`, so a local date filter can only keep them and say so; list URLs carry a query (`papers.asp?body=1`), which is why filters replace rather than append |
+| Berlin BVV Mitte (ALLRIS, 1.0) | embedded legislative terms without the mandatory `created`/`modified`, so a local date filter can only keep them and say so; list URLs carry a query (`papers.asp?body=1`), which is why filters replace rather than append; `limit=n` returns `n` objects and **no `next` link** (checked 2026-09-26: 3 of 17 papers), so the walk adds a `note` when a last page holds exactly `limit` objects |
 | Aachen (`ratsinfo.aachen.de`) | answers some list URLs with HTTP **200** `text/html` and an error page that begins with an HTML comment — hence the body *and* `Content-Type` sniffing in `decode` |
 
 Hence: a 120 s default timeout, filters passed through with a clear caveat, type checks on

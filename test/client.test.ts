@@ -456,6 +456,25 @@ test("a walk stopped by the page limit of maxPages 0 says so", async () => {
   assert.deepEqual({ pages: three.pages, note: three.note }, { pages: 3, note: undefined });
 });
 
+test("a last page as long as the limit, without a next link, gets a note", async () => {
+  // ALLRIS 1.0 answers limit=3 with three objects and only a `first` link, so the whole
+  // list looked like three objects.
+  const allris = (req: { url: string }) => {
+    const limit = Number(new URL(req.url).searchParams.get("limit") ?? "5");
+    const all = [1, 2, 3, 4, 5].map((n) => fx.meeting(n));
+    return jsonResponse({ data: all.slice(0, limit), links: { first: fx.MEETINGS_URL } });
+  };
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: allris });
+  const cut = await c.list(fx.BODY_URL, "meeting", { limit: 3, maxPages: 2 });
+  assert.deepEqual({ n: cut.data.length, pages: cut.pages, next: cut.next }, { n: 3, pages: 1, next: null });
+  assert.match(cut.note ?? "", /^the last page held exactly 3 objects, .* run it again without the limit/);
+  // Fewer objects than the limit, or no limit at all: a plain end of the list.
+  for (const options of [{ limit: 10 }, {}]) {
+    const result = await c.list(fx.BODY_URL, "meeting", options);
+    assert.deepEqual({ n: result.data.length, note: result.note }, { n: 5, note: undefined }, JSON.stringify(options));
+  }
+});
+
 test("a page that repeats objects because the list shifted does not truncate the walk", async () => {
   // Two objects are inserted at the head of the list between page 1 and page 2, so page 2
   // repeats page 1 — indistinguishable from a repeating server until the next page.

@@ -225,7 +225,7 @@ export function registerCommands(program: Command, deps: CliDeps): void {
     .option("--modified-until <time>", "only objects modified until (YYYY-MM-DD or ISO 8601)", parseTimestamp)
     .option("--created-since <time>", "only objects created since (YYYY-MM-DD or ISO 8601)", parseTimestamp)
     .option("--created-until <time>", "only objects created until (YYYY-MM-DD or ISO 8601)", parseTimestamp)
-    .option("--limit <n>", "page size hint (1..1000); some servers ignore or reject it", parseBoundedInt(1, 1000))
+    .option("--limit <n>", "page size hint (1..1000); some servers ignore or reject it, ALLRIS 1.0 cuts the list to it", parseBoundedInt(1, 1000))
     .option("--omit-internal", "ask the server to leave out embedded objects")
     .action(
       action(deps, async ({ client, global, opts }, [type, bodyUrl]) => {

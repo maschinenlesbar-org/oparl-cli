@@ -91,7 +91,7 @@ locally).
 | `--max-pages <n>` | Pages to fetch along `links.next` (default `1`; `0` = all, up to 10,000 pages — a `note` says when that limit ended the walk, and a larger number goes further) |
 | `--modified-since <time>` / `--modified-until <time>` | Only objects modified in that window |
 | `--created-since <time>` / `--created-until <time>` | Only objects created in that window |
-| `--limit <n>` | Page size hint (1..1000) |
+| `--limit <n>` | Page size hint (1..1000). On ALLRIS 1.0 servers it cuts the whole list to `n` objects with no `next` link; a `note` warns when the last page holds exactly `n` objects |
 | `--omit-internal` | Ask the server to leave out embedded objects |
 
 Times are `YYYY-MM-DD` (midnight UTC) or an ISO 8601 date-time with a time zone offset

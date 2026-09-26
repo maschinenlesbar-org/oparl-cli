@@ -114,6 +114,10 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
   `oparl get <next>` (a raw page; its continuation is `.links.next`) while a page still
   has meetings from today on, and stop after the first page with none. Say how many
   pages you checked.
+- **`--limit` can cut the whole list.** ALLRIS 1.0 servers (the Berlin BVVs) answer
+  `--limit n` with `n` objects and no `next` link, so the list looks complete. A `note`
+  ("the last page held exactly n objects …") flags it; leave `--limit` out on those
+  servers, or re-run without it before reporting a count.
 - **No full-text search in OParl.** Title search is client-side over the pages fetched —
   state how many pages you searched.
 - **`next` is the way on.** For more than a few pages use `--max-pages n` or `oparl get
