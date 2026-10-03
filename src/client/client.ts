@@ -148,6 +148,13 @@ const isObject = (value: unknown): value is JsonObject =>
 
 const str = (value: JsonValue | undefined): string | null => (typeof value === "string" ? value : null);
 
+/**
+ * A caller's URL as the client uses it, for the request and in every message: checked
+ * (an absolute http/https URL, else an OparlValidationError) and without any
+ * `user:password@`, so credentials in a URL are never sent nor echoed.
+ */
+const callerUrl = (url: string): string => parseHttpUrl(url).href;
+
 /** Whether a URL is one this client could fetch: a valid absolute http/https URL. */
 function isFetchableUrl(url: string): boolean {
   try {
@@ -308,7 +315,7 @@ export class OparlClient {
    * (`{ "type": ".../Error", "message": "…" }`, `{ "error": "…" }`) with an OparlParseError.
    */
   async get<T extends JsonObject = OparlObject>(url: string): Promise<T> {
-    return (await this.getFrom<T>(url)).object;
+    return (await this.getFrom<T>(callerUrl(url))).object;
   }
 
   /**
@@ -329,7 +336,7 @@ export class OparlClient {
 
   /** Fetch a System, the entry point of an OParl server. */
   async system(url: string): Promise<OparlSystem> {
-    return (await this.systemFrom(url)).system;
+    return (await this.systemFrom(callerUrl(url))).system;
   }
 
   /** As `system`, plus the URL it was finally read from (the base for a relative `body`). */
@@ -357,7 +364,7 @@ export class OparlClient {
    * SD.NET RIM build in Essen) is read as a single page holding those objects.
    */
   async page<T extends JsonObject = OparlObject>(url: string, query?: QueryParams): Promise<OparlListPage<T>> {
-    return (await this.pageFrom<T>(url, query)).page;
+    return (await this.pageFrom<T>(callerUrl(url), query)).page;
   }
 
   /** As `page`, plus the URL it was finally read from (the base for a relative `next`). */
@@ -409,6 +416,7 @@ export class OparlClient {
    */
   async walk<T extends JsonObject = OparlObject>(url: string, query?: QueryParams, maxPages = 1): Promise<ListResult<T>> {
     assertValid("maxPages", maxPages, maxPagesProblem);
+    url = callerUrl(url);
     const limit = maxPages === 0 ? MAX_PAGES_HARD_LIMIT : maxPages;
     const data: T[] = [];
     const seenPages = new Set<string>();
@@ -522,7 +530,7 @@ export class OparlClient {
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
   async bodies(systemUrl: string, options: { maxPages?: number } = {}): Promise<ListResult<OparlBody>> {
     const maxPages = assertValid("maxPages", options.maxPages ?? 0, maxPagesProblem);
-    const { system, url } = await this.systemFrom(systemUrl);
+    const { system, url } = await this.systemFrom(callerUrl(systemUrl));
     return this.walk<OparlBody>(resolveLink(url, system.body), undefined, maxPages);
   }
 
@@ -544,6 +552,7 @@ export class OparlClient {
     }
     const maxPages = assertValid("maxPages", options.maxPages ?? 1, maxPagesProblem);
     const query = listQuery(options);
+    bodyUrl = callerUrl(bodyUrl);
     const { object: body, url: from } = await this.getFrom<JsonObject>(bodyUrl);
     const bodyType = str(body["type"]) ?? "";
     if (!/\/Body$/.test(bodyType)) {

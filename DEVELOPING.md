@@ -25,6 +25,9 @@ refused URL is never handed back as a continuation link. List walks also stop wh
 `next` link repeats a page already fetched (compared as the URL actually requested,
 filters included). OParl is anonymous, so any `user:password@`
 in a URL — typed or handed out — is dropped: never sent as Basic auth, never echoed.
+`OparlClient` does this itself for every URL a caller hands it (`get`, `system`, `bodies`,
+`list`, `page`, `walk`, `registryUrl`): it works with `parseHttpUrl(url).href` from then on,
+in the request and in its own messages, so a library caller gets the same messages as the CLI.
 
 "The URL it came from" is the URL the request **ended** on: `RequestEngine.fetchJson`
 returns the last redirect target alongside the decoded body (`getJson` is the same call

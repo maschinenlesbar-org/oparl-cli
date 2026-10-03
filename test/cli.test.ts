@@ -504,7 +504,8 @@ test("control characters in a URL argument never reach stderr", async () => {
     const stderr = cli.err.join("\n");
     assert.match(stderr, /is not an OParl (System|Body)/);
     assert.ok(!hasControlChar(stderr.replaceAll("\n", " ")), JSON.stringify(stderr));
-    assert.match(stderr, /\]0;pwned\[31mRED2J/);
+    // The message quotes the URL as the client used it, so the controls are percent-encoded.
+    assert.match(stderr, /%1B\]0;pwned%07%1B\[31mRED%C2%9B2J/);
   }
 });
 

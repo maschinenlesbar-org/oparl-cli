@@ -220,3 +220,50 @@ test("parity: a bad registry URL is rejected even when the registry is not asked
     assert.equal(cli.requests.length + lib.requests.length, 0, JSON.stringify(registryUrl));
   }
 });
+
+// Finding #5 (PAT-16): the library drops user:password@ from caller URLs, in the request
+// and in every message it builds itself.
+test("parity: a URL's credentials never reach the library's error messages", async () => {
+  const secret = "https://alice:pw123@x.example/oparl/v1/system";
+  const clean = "https://x.example/oparl/v1/system";
+  const answers: Record<string, unknown> = {
+    body: fx.body,
+    system: fx.system,
+    array: [1, 2],
+    errorObject: { error: "nope" },
+  };
+  const cases: Array<[string[], string, (t: Transport) => Promise<unknown>]> = [
+    [["system", secret], "body", (t) => libClient(t).system(secret)],
+    [["bodies", secret], "body", (t) => libClient(t).bodies(secret)],
+    [["get", secret], "array", (t) => libClient(t).get(secret)],
+    [["get", secret], "errorObject", (t) => libClient(t).get(secret)],
+    [["list", "meeting", secret], "system", (t) => libClient(t).list(secret, "meeting")],
+    [["endpoints", "--source", "registry", "--registry-url", secret], "body", (t) =>
+      libClient(t, { registryUrl: secret }).endpoints({ source: "registry" })],
+  ];
+  for (const [argv, answer, call] of cases) {
+    const label = `${argv[0]} answered with ${answer}`;
+    const { cli, lib } = await parity(argv, call, () => jsonResponse(answers[answer]), noLists);
+    assert.equal(cli.code, 1, label);
+    assert.equal(lib.ok, false, label);
+    const message = (lib.error as Error).message;
+    assert.doesNotMatch(message, /alice|pw123/, label);
+    assert.ok(message.includes(clean), `${label}: ${message}`);
+    assert.equal(cli.err, `Error: ${message}`, label);
+    assert.deepEqual(cli.requests.map((r) => r.url), lib.requests.map((r) => r.url), label);
+    assert.ok(lib.requests.every((r) => !r.url.includes("pw123") && r.headers?.["Authorization"] === undefined), label);
+  }
+});
+
+test("page() and walk() keep a URL's credentials out of their messages too", async () => {
+  const secret = "https://alice:pw123@x.example/oparl/v1/list";
+  for (const call of [(c: OparlClient) => c.page(secret), (c: OparlClient) => c.walk(secret)]) {
+    const mt = routes({ "https://x.example/oparl/v1/list": jsonResponse(fx.body) });
+    await assert.rejects(call(libClient(mt.transport)), (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.doesNotMatch(err.message, /alice|pw123/);
+      assert.match(err.message, /https:\/\/x\.example\/oparl\/v1\/list is not an OParl object list/);
+      return true;
+    });
+  }
+});
