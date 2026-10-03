@@ -38,3 +38,14 @@ export function listLimitProblem(value: number): string | undefined {
 export function maxPagesProblem(value: number): string | undefined {
   return Number.isSafeInteger(value) && value >= 0 ? undefined : "Expected a non-negative integer.";
 }
+
+/**
+ * A rule for an integer option from `min` to `max`. NaN, Infinity, fractions and
+ * negative numbers would otherwise silently defeat the comparisons that use the value
+ * (a timeout never armed, a retry or redirect loop without end, no size cap).
+ */
+export function intRangeProblem(min: number, max: number = Number.MAX_SAFE_INTEGER): Problem<number> {
+  const expected =
+    min === 0 && max === Number.MAX_SAFE_INTEGER ? "Expected a non-negative integer." : `Expected an integer from ${min} to ${max}.`;
+  return (value) => (Number.isSafeInteger(value) && value >= min && value <= max ? undefined : expected);
+}

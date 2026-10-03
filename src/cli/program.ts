@@ -9,6 +9,7 @@ import type { CliDeps } from "./io.js";
 import { defaultIO } from "./io.js";
 import { OparlClient } from "../client/client.js";
 import { MAX_TIMEOUT_MS } from "../client/http.js";
+import { MAX_REDIRECTS, MAX_RETRIES } from "../client/engine.js";
 import { parseBoundedInt, parseHeaderValue, parseIntArg, parseNonEmpty } from "./shared.js";
 import { registerCommands } from "./commands/oparl.js";
 
@@ -54,8 +55,16 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
       parseBoundedInt(0, MAX_TIMEOUT_MS),
     )
     .option("--user-agent <ua>", "User-Agent header value", parseHeaderValue)
-    .option("--max-retries <n>", "retries for transient 429/503 responses (0..10)", parseBoundedInt(0, 10))
-    .option("--max-redirects <n>", "redirects to follow on the same host (0..10, default 3)", parseBoundedInt(0, 10))
+    .option(
+      "--max-retries <n>",
+      `retries for transient 429/503 responses (0..${MAX_RETRIES})`,
+      parseBoundedInt(0, MAX_RETRIES),
+    )
+    .option(
+      "--max-redirects <n>",
+      `redirects to follow on the same host (0..${MAX_REDIRECTS}, default 3)`,
+      parseBoundedInt(0, MAX_REDIRECTS),
+    )
     .option(
       "--max-response-bytes <n>",
       "cap response body size in bytes (0 = unlimited; default 100 MiB)",

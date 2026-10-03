@@ -13,8 +13,14 @@ import type { IncomingHttpHeaders } from "node:http";
 import { nodeHttpTransport, type Transport } from "./http.js";
 import { buildQueryString, type QueryParams } from "./query.js";
 import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError } from "./errors.js";
+import { assertValid, intRangeProblem } from "./validate.js";
 
 const DEFAULT_USER_AGENT = "oparl-cli";
+
+/** The most retries `maxRetries` may ask for (and `--max-retries` takes). */
+export const MAX_RETRIES = 10;
+/** The most redirects `maxRedirects` may ask for (and `--max-redirects` takes). */
+export const MAX_REDIRECTS = 10;
 
 export interface EngineOptions {
   /** Swappable transport. Defaults to the built-in node http/https transport. */
@@ -26,22 +32,24 @@ export interface EngineOptions {
   /**
    * Time limit per request in milliseconds, covering the whole response body, not
    * only idle gaps (0 disables). Defaults to 120 s: some
-   * council systems take well over 30 s to render a single list page.
+   * council systems take well over 30 s to render a single list page. A non-negative
+   * integer; the transport caps it at MAX_TIMEOUT_MS.
    */
   timeoutMs?: number;
-  /** Number of automatic retries for transient (429/503) responses. */
+  /** Number of automatic retries for transient (429/503) responses: 0 to MAX_RETRIES. */
   maxRetries?: number;
-  /** Base backoff between retries in milliseconds (grows linearly). */
+  /** Base backoff between retries in milliseconds (grows linearly); a non-negative integer. */
   retryDelayMs?: number;
   /**
    * Redirects (301/302/303/307/308) followed per request, same host only. Defaults to 3;
-   * 0 disables. Any other 3xx, one without a Location, and one past this limit surface
-   * as an OparlApiError naming the target.
+   * 0 disables; at most MAX_REDIRECTS. Any other 3xx, one without a Location, and one
+   * past this limit surface as an OparlApiError naming the target.
    */
   maxRedirects?: number;
   /**
    * Hard cap on response body size in bytes (defends against memory exhaustion
-   * from a hostile/buggy endpoint). Defaults to 100 MiB; set to 0 for no limit.
+   * from a hostile/buggy endpoint). Defaults to 100 MiB; set to 0 for no limit. A
+   * non-negative integer.
    */
   maxResponseBytes?: number;
   /** Injectable sleep, primarily for deterministic tests. */
@@ -399,11 +407,14 @@ export class RequestEngine {
     this.defaultHeaders = options.defaultHeaders ?? {};
     checkHeader("User-Agent", this.userAgent);
     for (const [name, value] of Object.entries(this.defaultHeaders)) checkHeader(name, value);
-    this.timeoutMs = options.timeoutMs ?? 120_000;
-    this.maxRetries = options.maxRetries ?? 2;
-    this.retryDelayMs = options.retryDelayMs ?? 500;
-    this.maxRedirects = options.maxRedirects ?? 3;
-    this.maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+    // Every numeric option is checked: NaN, Infinity, a fraction or a negative number
+    // would silently defeat the comparisons below (no timeout, no cap, no end).
+    const nonNegative = intRangeProblem(0);
+    this.timeoutMs = assertValid("timeoutMs", options.timeoutMs ?? 120_000, nonNegative);
+    this.maxRetries = assertValid("maxRetries", options.maxRetries ?? 2, intRangeProblem(0, MAX_RETRIES));
+    this.retryDelayMs = assertValid("retryDelayMs", options.retryDelayMs ?? 500, nonNegative);
+    this.maxRedirects = assertValid("maxRedirects", options.maxRedirects ?? 3, intRangeProblem(0, MAX_REDIRECTS));
+    this.maxResponseBytes = assertValid("maxResponseBytes", options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES, nonNegative);
     this.sleep = options.sleep ?? realSleep;
   }
 

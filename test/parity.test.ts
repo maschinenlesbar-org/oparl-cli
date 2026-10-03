@@ -159,3 +159,47 @@ test("parity: bodies and list reject a bad maxPages before any request", async (
     }
   }
 });
+
+// Finding #4 (PAT-8): the engine's numeric options are range-checked by the library.
+test("parity: a bad timeout, retry, redirect or size option is rejected before any request", async () => {
+  const cases: Array<[string, keyof OparlClientOptions, Array<[string, number]>]> = [
+    ["--timeout", "timeoutMs", [["-1", -1], ["1.5", 1.5], ["NaN", Number.NaN], ["Infinity", Number.POSITIVE_INFINITY]]],
+    ["--max-retries", "maxRetries", [["-1", -1], ["1.5", 1.5], ["NaN", Number.NaN], ["Infinity", Number.POSITIVE_INFINITY], ["11", 11]]],
+    ["--max-redirects", "maxRedirects", [["-1", -1], ["1.5", 1.5], ["NaN", Number.NaN], ["Infinity", Number.POSITIVE_INFINITY], ["11", 11]]],
+    ["--max-response-bytes", "maxResponseBytes", [["-1", -1], ["1.5", 1.5], ["NaN", Number.NaN], ["Infinity", Number.POSITIVE_INFINITY]]],
+  ];
+  for (const [flag, option, values] of cases) {
+    for (const [text, value] of values) {
+      const label = `${flag} ${text}`;
+      const { cli, lib } = await parity(
+        [`${flag}=${text}`, "get", fx.SYSTEM_URL],
+        (transport) => libClient(transport, { [option]: value }).get(fx.SYSTEM_URL),
+        () => jsonResponse(fx.system),
+      );
+      assert.equal(cli.code, 2, label);
+      assert.equal(cli.requests.length, 0, label);
+      assert.equal(lib.ok, false, label);
+      assert.ok(lib.error instanceof OparlValidationError, label);
+      assert.match((lib.error as Error).message, new RegExp(`^Invalid ${option}: `), label);
+      assert.equal(lib.requests.length, 0, label);
+    }
+  }
+});
+
+test("parity: in-range engine options reach the transport alike", async () => {
+  for (const [flag, option, value] of [
+    ["--timeout", "timeoutMs", 0],
+    ["--max-retries", "maxRetries", 10],
+    ["--max-redirects", "maxRedirects", 10],
+    ["--max-response-bytes", "maxResponseBytes", 0],
+  ] as const) {
+    const { cli, lib } = await parity(
+      ["--compact", `${flag}=${value}`, "get", fx.SYSTEM_URL],
+      (transport) => libClient(transport, { [option]: value }).get(fx.SYSTEM_URL),
+      () => jsonResponse(fx.system),
+    );
+    assert.equal(cli.code, 0, flag);
+    assert.equal(lib.ok, true, flag);
+    assert.deepEqual(cli.requests, lib.requests, flag);
+  }
+});

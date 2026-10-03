@@ -99,13 +99,20 @@ const one = await client.get(papers.data[0]!.id);
 | `registryUrl` | `https://dev.oparl.org/api/endpoints` | Endpoint registry used by `endpoints()` |
 | `curatedEndpoints` | `CURATED_ENDPOINTS` | Endpoints the registry lacks, appended by `endpoints()` |
 | `registryChecks` | `REGISTRY_CHECKS` | Live checks applied to registry entries by `endpoints()` |
-| `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms) |
-| `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) |
+| `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms, where `--timeout` rejects a larger value) |
+| `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s); 0 to `MAX_RETRIES` (10) |
 | `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
-| `maxRedirects` | `3` | Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
+| `maxRedirects` | `3` | 0 to `MAX_REDIRECTS` (10). Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
 | `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too |
 | `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1, else an `OparlValidationError` |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock) |
+
+The numeric options must be integers in their range — `timeoutMs`, `retryDelayMs` and
+`maxResponseBytes` non-negative, `maxRetries` and `maxRedirects` from 0 to 10. Anything
+else (NaN, Infinity, a fraction, a negative number) is an `OparlValidationError` from the
+constructor, such as `Invalid maxRetries: Expected an integer from 0 to 10.`; it would
+otherwise silently remove the timeout, the size cap or the end of the retry and redirect
+loops. The CLI's flags take the same ranges.
 
 ### Methods
 

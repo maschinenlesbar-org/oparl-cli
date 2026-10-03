@@ -25,6 +25,8 @@ export {
 export type { EndpointFilters } from "./endpoints-search.js";
 export { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 export {
+  MAX_REDIRECTS,
+  MAX_RETRIES,
   RequestEngine,
   carryQuery,
   encodeTimestampPlus,
@@ -38,7 +40,7 @@ export type { EngineOptions, JsonResponse } from "./engine.js";
 export { MAX_TIMEOUT_MS, nodeHttpTransport } from "./http.js";
 export type { Transport, HttpRequest, HttpResponse } from "./http.js";
 export { buildQueryString } from "./query.js";
-export { MAX_LIST_LIMIT, assertValid, listLimitProblem, maxPagesProblem } from "./validate.js";
+export { MAX_LIST_LIMIT, assertValid, intRangeProblem, listLimitProblem, maxPagesProblem } from "./validate.js";
 export type { Problem } from "./validate.js";
 export type { QueryParams, QueryPrimitive, QueryValue } from "./query.js";
 export {

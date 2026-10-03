@@ -1,7 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
-import { RequestEngine, carryQuery, encodeTimestampPlus, resolveLink, sanitizeServerText, withQuery } from "../src/client/engine.js";
+import {
+  MAX_REDIRECTS,
+  MAX_RETRIES,
+  RequestEngine,
+  carryQuery,
+  encodeTimestampPlus,
+  resolveLink,
+  sanitizeServerText,
+  withQuery,
+  type EngineOptions,
+} from "../src/client/engine.js";
 import {
   OparlApiError,
   OparlLinkError,
@@ -412,4 +422,29 @@ test("carryQuery sets the client's parameters and leaves the server's byte for b
   );
   assert.equal(carryQuery("https://a.de/x?page=2", { limit: undefined }), "https://a.de/x?page=2");
   assert.equal(carryQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");
+});
+
+test("the constructor rejects a numeric option that is not a non-negative integer in range", () => {
+  const bad: Array<[keyof EngineOptions, number]> = [];
+  for (const option of ["timeoutMs", "maxRetries", "retryDelayMs", "maxRedirects", "maxResponseBytes"] as const) {
+    for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) bad.push([option, value]);
+  }
+  bad.push(["maxRetries", MAX_RETRIES + 1], ["maxRedirects", MAX_REDIRECTS + 1]);
+  for (const [option, value] of bad) {
+    assert.throws(
+      () => new RequestEngine({ [option]: value }),
+      (err: unknown) => err instanceof OparlValidationError && err.message.startsWith(`Invalid ${option}: `),
+      `${option} ${value}`,
+    );
+  }
+  assert.equal(MAX_RETRIES, 10);
+  assert.equal(MAX_REDIRECTS, 10);
+  // In range: 0, the bounds, and a timeout beyond Node's timer range (the transport caps it).
+  for (const options of [
+    { timeoutMs: 0, maxRetries: 0, retryDelayMs: 0, maxRedirects: 0, maxResponseBytes: 0 },
+    { maxRetries: MAX_RETRIES, maxRedirects: MAX_REDIRECTS },
+    { timeoutMs: 3_000_000_000 },
+  ]) {
+    assert.doesNotThrow(() => new RequestEngine(options));
+  }
 });
