@@ -109,40 +109,61 @@ export function sanitizeServerText(text: string, maxLength: number = MAX_SERVER_
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 
 /**
- * Check a header this client is about to send. Node throws an opaque, synchronous
- * `ERR_INVALID_CHAR` / `ERR_INVALID_HTTP_TOKEN` from inside `request()` for a value
- * outside `\t`, 0x20–0x7e and obs-text (0x80–0xff) or a name that is not a token —
- * a `--user-agent` holding an emoji or an en dash surfaced as "Unexpected error".
- * Rejecting it here makes it an OparlValidationError, which the CLI reports as the
- * usage error it is (exit 2) and library callers can catch. Latin-1 is left through:
- * the grammar deprecates it but Node sends it and servers read it.
+ * Why a value cannot be sent in the `name` header, or undefined when it can. Node throws
+ * an opaque, synchronous `ERR_INVALID_CHAR` from inside `request()` for a value outside
+ * `\t`, 0x20–0x7e and obs-text (0x80–0xff) — a `--user-agent` holding an emoji or an en
+ * dash surfaced as "Unexpected error". Latin-1 is left through: the grammar deprecates
+ * it but Node sends it and servers read it. Checked by code point so the source stays
+ * free of control bytes.
+ */
+export function headerValueProblem(name: string, value: string): string | undefined {
+  for (const ch of value) {
+    const n = ch.codePointAt(0) ?? 0;
+    if (n === 0x09) continue;
+    if (n <= 0x1f || n === 0x7f) return `The ${name} header value contains control characters.`;
+    if (n > 0xff) {
+      return (
+        `The ${name} header value contains U+${n.toString(16).toUpperCase().padStart(4, "0")}, which cannot be sent ` +
+        "in an HTTP header: header values are limited to ASCII and Latin-1 characters."
+      );
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Return `value` when it can be sent in the `name` header, else throw an
+ * OparlValidationError with the reason from headerValueProblem. The CLI's
+ * `--user-agent` parser calls this too, so both reject the same values alike.
+ */
+export function assertHeaderValue(name: string, value: string): string {
+  const reason = headerValueProblem(name, value);
+  if (reason !== undefined) throw new OparlValidationError(reason);
+  return value;
+}
+
+/**
+ * Check a header this client is about to send: a name that is not a token
+ * (`ERR_INVALID_HTTP_TOKEN` in Node) or a value assertHeaderValue refuses becomes an
+ * OparlValidationError, which the CLI reports as the usage error it is (exit 2) and
+ * library callers can catch.
  */
 function checkHeader(name: string, value: string): void {
   if (!HEADER_NAME.test(name)) {
     throw new OparlValidationError(`"${sanitizeServerText(name, 40)}" is not a valid HTTP header name.`);
   }
-  for (const ch of value) {
-    const n = ch.codePointAt(0) ?? 0;
-    if (n === 0x09) continue;
-    if (n <= 0x1f || n === 0x7f) {
-      throw new OparlValidationError(`The ${name} header value contains control characters.`);
-    }
-    if (n > 0xff) {
-      throw new OparlValidationError(
-        `The ${name} header value contains U+${n.toString(16).toUpperCase().padStart(4, "0")}, which cannot be sent ` +
-          "in an HTTP header: header values are limited to ASCII and Latin-1 characters.",
-      );
-    }
-  }
+  assertHeaderValue(name, value);
 }
 
 /**
- * Parse a user-supplied URL, accepting only http: and https:. Any `user:password@`
+ * Parse a user-supplied URL, accepting only http: and https: (a blank or malformed
+ * value, or another scheme, is an OparlValidationError). Any `user:password@`
  * part is removed: OParl access is anonymous, and credentials in a URL would
  * otherwise be sent as Basic auth to whatever server the URL names and be echoed in
  * error messages.
  */
 export function parseHttpUrl(value: string): URL {
+  if (typeof value === "string" && value.trim() === "") throw new OparlValidationError("Expected a non-empty URL.");
   let url: URL;
   try {
     url = new URL(value);

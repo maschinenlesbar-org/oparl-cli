@@ -6,7 +6,8 @@ import { InvalidArgumentError } from "commander";
 import type { CliDeps } from "./io.js";
 import type { OparlClientOptions } from "../client/client.js";
 import { normalizeTimestamp } from "../client/client.js";
-import { OparlError } from "../client/errors.js";
+import { OparlError, OparlValidationError } from "../client/errors.js";
+import { assertHeaderValue, parseHttpUrl } from "../client/engine.js";
 import type { Problem } from "../client/validate.js";
 
 /**
@@ -59,30 +60,26 @@ export function parseNonEmpty(value: string): string {
 }
 
 /**
- * commander value-parser for URL arguments (System, Body, object URLs, the registry).
- * Only `http:`/`https:` are accepted, so a typo fails at parse time (exit 2) with a
- * clear message instead of deep in the transport.
+ * Turn a library check into a commander value-parser: an OparlValidationError it throws
+ * becomes the usage error (exit 2), with the library's own words.
  */
-export function parseUrl(value: string): string {
-  if (value.trim() === "") throw new InvalidArgumentError("Expected a non-empty URL.");
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new InvalidArgumentError("Expected a valid URL.");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new InvalidArgumentError("Only http: and https: URLs are supported.");
-  }
-  // OParl access is anonymous: drop any user:password@ so it is never sent (as Basic
-  // auth) nor echoed in error messages.
-  if (url.username !== "" || url.password !== "") {
-    url.username = "";
-    url.password = "";
-    return url.href;
-  }
-  return value;
+export function fromLibrary<T>(check: (value: string) => T): (value: string) => T {
+  return (value: string) => {
+    try {
+      return check(value);
+    } catch (err) {
+      if (err instanceof OparlValidationError) throw new InvalidArgumentError(err.message);
+      throw err;
+    }
+  };
 }
+
+/**
+ * commander value-parser for URL arguments (System, Body, object URLs, the registry):
+ * the library's parseHttpUrl, so a typo fails at parse time (exit 2) with the message a
+ * library caller gets, and any `user:password@` is dropped (never sent nor echoed).
+ */
+export const parseUrl: (value: string) => string = fromLibrary((value) => parseHttpUrl(value).href);
 
 /**
  * Replace the userinfo of any URL in a text with `<redacted>`. `parseUrl` strips
@@ -122,21 +119,13 @@ export function parseTimestamp(value: string): string {
 }
 
 /**
- * commander value-parser for a value that ends up in an HTTP header (User-Agent).
- * Rejects a blank value (it used to be replaced by the default without a word) and
- * control characters — a CR/LF (or other C0/DEL byte) would otherwise reach Node's
- * HTTP layer and throw an opaque `ERR_INVALID_CHAR`. Tab (0x09) is allowed; checked by
- * char code so the source stays free of control bytes.
+ * commander value-parser for the User-Agent header: a blank value is rejected (it used
+ * to be replaced by the default without a word), then the library's header rule
+ * (assertHeaderValue: no control characters, nothing above U+00FF).
  */
 export function parseHeaderValue(value: string): string {
   parseNonEmpty(value);
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if ((c < 0x20 && c !== 0x09) || c === 0x7f) {
-      throw new InvalidArgumentError("Value contains control characters.");
-    }
-  }
-  return value;
+  return fromLibrary((v) => assertHeaderValue("User-Agent", v))(value);
 }
 
 export interface GlobalOptions {

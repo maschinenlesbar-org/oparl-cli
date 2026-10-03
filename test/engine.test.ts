@@ -5,8 +5,11 @@ import {
   MAX_REDIRECTS,
   MAX_RETRIES,
   RequestEngine,
+  assertHeaderValue,
   carryQuery,
   encodeTimestampPlus,
+  headerValueProblem,
+  parseHttpUrl,
   resolveLink,
   sanitizeServerText,
   withQuery,
@@ -447,4 +450,23 @@ test("the constructor rejects a numeric option that is not a non-negative intege
   ]) {
     assert.doesNotThrow(() => new RequestEngine(options));
   }
+});
+
+test("headerValueProblem and assertHeaderValue hold the header-value rule", () => {
+  assert.equal(headerValueProblem("User-Agent", "oparl-cli/Köln\t(1)"), undefined);
+  assert.equal(
+    headerValueProblem("User-Agent", `a${String.fromCharCode(0x0d)}b`),
+    "The User-Agent header value contains control characters.",
+  );
+  assert.equal(headerValueProblem("X-Test", String.fromCharCode(0x7f)), "The X-Test header value contains control characters.");
+  assert.match(headerValueProblem("User-Agent", "€") ?? "", /^The User-Agent header value contains U\+20AC, which cannot be sent/);
+  assert.equal(assertHeaderValue("User-Agent", "ok"), "ok");
+  assert.throws(() => assertHeaderValue("User-Agent", "€"), OparlValidationError);
+});
+
+test("parseHttpUrl rejects a blank URL as such", () => {
+  for (const blank of ["", "   "]) {
+    assert.throws(() => parseHttpUrl(blank), (err: unknown) => err instanceof OparlValidationError && err.message === "Expected a non-empty URL.");
+  }
+  assert.throws(() => parseHttpUrl("not a url"), (err: unknown) => err instanceof OparlValidationError && err.message === "Not a valid URL.");
 });

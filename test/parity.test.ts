@@ -336,3 +336,30 @@ test("endpointsReport reports no registryError when the registry answers, and th
     OparlValidationError,
   );
 });
+
+// Finding #10 (PAT-23): the CLI's URL and header parsers use the library's rules and words.
+test("parity: a bad URL argument or User-Agent is rejected with the library's own message", async () => {
+  const ctrl = `a${String.fromCharCode(0x01)}b`;
+  const cases: Array<[string, string[], (t: Transport) => unknown]> = [
+    ["system 'not a url'", ["system", "not a url"], (t) => libClient(t).system("not a url")],
+    ["system ftp", ["system", "ftp://h.example/x"], (t) => libClient(t).system("ftp://h.example/x")],
+    ["system ''", ["system", ""], (t) => libClient(t).system("")],
+    ["get ftp", ["get", "ftp://h.example/x"], (t) => libClient(t).get("ftp://h.example/x")],
+    ["list blank body", ["list", "meeting", "  "], (t) => libClient(t).list("  ", "meeting")],
+    ["bodies ftp", ["bodies", "ftp://h.example/x"], (t) => libClient(t).bodies("ftp://h.example/x")],
+    ["registry ftp", ["endpoints", "--registry-url", "ftp://h.example/x"], (t) => libClient(t, { registryUrl: "ftp://h.example/x" })],
+    ["UA control", ["--user-agent", ctrl, "system", fx.SYSTEM_URL], (t) => libClient(t, { userAgent: ctrl }).system(fx.SYSTEM_URL)],
+    ["UA euro", ["--user-agent", "€", "system", fx.SYSTEM_URL], (t) => libClient(t, { userAgent: "€" }).system(fx.SYSTEM_URL)],
+  ];
+  for (const [label, argv, call] of cases) {
+    const { cli, lib } = await parity(argv, call, () => jsonResponse(fx.system));
+    assert.equal(cli.code, 2, label);
+    assert.equal(lib.ok, false, label);
+    assert.ok(lib.error instanceof OparlValidationError, label);
+    const reason = (lib.error as Error).message.replace(/^Invalid registryUrl: /, "");
+    // commander's own usage error, which carries the library's reason.
+    assert.match(cli.err, /^error: .* is invalid/, label);
+    assert.ok(cli.err.includes(reason), `${label}: ${cli.err} / ${reason}`);
+    assert.equal(cli.requests.length + lib.requests.length, 0, label);
+  }
+});

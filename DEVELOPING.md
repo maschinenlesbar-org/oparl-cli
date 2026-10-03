@@ -232,7 +232,10 @@ pending: with `timeoutMs` 0 nothing else would ever settle it, and the CLI exite
 no output at all. Header values Node refuses (a `--user-agent` outside ASCII/Latin-1, a
 control character, a name that is not a token) are rejected by the engine as an
 `OparlValidationError`, and the transport's synchronous `request()` throw is wrapped as
-well, so neither reaches the caller as an internal fault.
+well, so neither reaches the caller as an internal fault. The rules are exported —
+`headerValueProblem`/`assertHeaderValue` for header values, `parseHttpUrl` for URLs (blank,
+malformed, not http(s)) — and the CLI's `--user-agent` and URL parsers call them, so the CLI
+rejects the same values with the library's words, at parse time.
 
 ## The endpoint list
 
