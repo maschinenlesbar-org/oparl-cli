@@ -21,9 +21,8 @@ import {
 } from "../../client/client.js";
 import { MAX_LIST_LIMIT } from "../../client/validate.js";
 import { normalizeOparlVersion, oparlVersionProblem, searchTextProblem } from "../../client/endpoints-search.js";
-import type { OparlClient } from "../../client/client.js";
-import { OparlError, OparlValidationError } from "../../client/errors.js";
-import type { JsonObject, ListResult, RegistryEntry } from "../../client/types.js";
+import { OparlError } from "../../client/errors.js";
+import type { JsonObject, ListResult } from "../../client/types.js";
 import {
   action,
   fromProblem,
@@ -40,32 +39,6 @@ const MAX_PAGES_OPTION = `pages to fetch, following links.next (0 = all, up to $
 /** commander value-parser for `--oparl-version`: the library's rule and short form. */
 function parseOparlVersion(value: string): string {
   return normalizeOparlVersion(fromProblem(oparlVersionProblem)(value));
-}
-
-/**
- * The known endpoints, falling back to the curated list alone when the registry cannot
- * be read. That list ships with the package and needs no network, so one unreachable
- * third-party host should not take down the documented entry point of every workflow —
- * but the user is told on stderr, since the answer is then only as fresh as this
- * release. `--source registry` keeps failing: there would be nothing left to show.
- */
-async function endpointsOrCuratedOnly(
-  deps: CliDeps,
-  client: OparlClient,
-  options: EndpointsOptions,
-  registryUrl: string,
-): Promise<RegistryEntry[]> {
-  try {
-    return await client.endpoints(options);
-  } catch (err) {
-    if (options.source !== "all" || !(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
-    deps.io.err(
-      `Note: the endpoint registry at ${registryUrl} could not be read (${err.message}) — ` +
-        "listing only the curated endpoints that ship with this tool, as of their last check (`checked`). " +
-        "Use --source curated to skip the registry, or --source registry to see the error.",
-    );
-    return client.endpoints({ ...options, source: "curated" });
-  }
 }
 
 /**
@@ -124,7 +97,17 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           if (opts["search"] !== undefined) options.search = opts["search"] as string;
           if (opts["oparlVersion"] !== undefined) options.oparlVersion = opts["oparlVersion"] as string;
           if (opts["working"]) options.working = true;
-          renderJson(deps, global, await endpointsOrCuratedOnly(deps, client, options, opts["registryUrl"] as string));
+          // With --source all, a registry that cannot be read leaves the curated list
+          // alone; the user is told, since the answer is then only as fresh as this release.
+          const { entries, registryError } = await client.endpointsReport(options);
+          if (registryError !== undefined) {
+            deps.io.err(
+              `Note: the endpoint registry at ${opts["registryUrl"] as string} could not be read (${registryError.message}) — ` +
+                "listing only the curated endpoints that ship with this tool, as of their last check (`checked`). " +
+                "Use --source curated to skip the registry, or --source registry to see the error.",
+            );
+          }
+          renderJson(deps, global, entries);
         },
         (opts) => ({ registryUrl: opts["registryUrl"] as string }),
       ),

@@ -137,6 +137,14 @@ export interface OparlClientOptions extends EngineOptions {
 /** Which endpoints `endpoints()` returns. */
 export type EndpointSource = "all" | "registry" | "curated";
 
+/** What `endpointsReport()` returns. */
+export interface EndpointsReport {
+  /** The endpoints; the curated ones alone when the registry could not be read. */
+  entries: RegistryEntry[];
+  /** Why the registry could not be read, when `entries` holds only the curated list. */
+  registryError?: OparlError;
+}
+
 /** The options of `endpoints()`: the source, and the filters applied to its entries. */
 export interface EndpointsOptions extends EndpointFilters {
   /** "all" (default): the registry followed by the curated list; or either one alone. */
@@ -613,23 +621,52 @@ export class OparlClient {
    * `search`, `oparlVersion` and `working` filter the merged list (see EndpointFilters
    * and filterEndpoints). A blank `search` or an unusable `oparlVersion` is rejected
    * with an OparlValidationError before any request.
+   *
+   * A registry that cannot be read is an error here; `endpointsReport` answers from the
+   * curated list instead and says why.
    */
   async endpoints(options: EndpointsOptions = {}): Promise<RegistryEntry[]> {
+    const report = await this.endpointsReport(options);
+    if (report.registryError !== undefined) throw report.registryError;
+    return report.entries;
+  }
+
+  /**
+   * As `endpoints`, but with `source` "all" a registry that cannot be read (an HTTP
+   * error, a page that is not the registry, a network failure — any OparlError but an
+   * OparlValidationError) does not fail the call: `entries` then holds the curated list
+   * alone (filtered alike) and `registryError` the error. The curated list ships with the
+   * package and needs no request, so one unreachable third-party host does not take down
+   * the entry point of every workflow — but the answer is only as fresh as the release,
+   * which is why the error is handed back (the CLI prints it as a note). With `source`
+   * "registry" the error is thrown, since there would be nothing left to return.
+   */
+  async endpointsReport(options: EndpointsOptions = {}): Promise<EndpointsReport> {
     const source = options.source ?? "all";
     if (source !== "all" && source !== "registry" && source !== "curated") {
       throw new OparlValidationError(`Unknown endpoint source "${String(source)}". Use all, registry or curated.`);
     }
     const filters = checkEndpointFilters(options);
+    let fetched: RegistryEntry[] = [];
+    let registryError: OparlError | undefined;
+    if (source !== "curated") {
+      try {
+        fetched = await this.registry();
+      } catch (err) {
+        if (source !== "all" || !(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
+        registryError = err;
+      }
+    }
     const checks = new Map(this.registryChecks.map((check) => [endpointKey(check.url), check]));
     const listed = new Map<string, number>();
     const registry: RegistryEntry[] = [];
-    for (const entry of source === "curated" ? [] : await this.registry()) {
+    for (const entry of fetched) {
       const key = endpointKey(entry.url);
       if (listed.has(key)) continue; // the registry lists a few Systems twice
       listed.set(key, registry.length);
       registry.push(applyCheck(entry, checks));
     }
-    if (source === "registry") return filterEndpoints(registry, filters);
+    if (source === "registry") return { entries: filterEndpoints(registry, filters) };
     const curated: RegistryEntry[] = [];
     for (const entry of this.curatedEndpoints) {
       const listedAt = listed.get(endpointKey(entry.url));
@@ -637,7 +674,8 @@ export class OparlClient {
       if (listedAt === undefined) curated.push(projected);
       else registry[listedAt] = preferFresherCheck(registry[listedAt]!, projected);
     }
-    return filterEndpoints([...registry, ...curated], filters);
+    const entries = filterEndpoints([...registry, ...curated], filters);
+    return registryError === undefined ? { entries } : { entries, registryError };
   }
 
   /**

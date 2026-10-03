@@ -10,7 +10,7 @@ export {
   normalizeTimestamp,
   shortOparlVersion,
 } from "./client.js";
-export type { EndpointSource, EndpointsOptions, ListOptions, ListType, OparlClientOptions } from "./client.js";
+export type { EndpointSource, EndpointsOptions, EndpointsReport, ListOptions, ListType, OparlClientOptions } from "./client.js";
 export {
   MIN_UMLAUT_PASS_LENGTH,
   checkEndpointFilters,

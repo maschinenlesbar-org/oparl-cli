@@ -5,10 +5,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OparlClient, type OparlClientOptions } from "../src/client/client.js";
-import { OparlValidationError } from "../src/client/errors.js";
+import { OparlApiError, OparlError, OparlNetworkError, OparlValidationError } from "../src/client/errors.js";
 import type { Transport } from "../src/client/http.js";
 import type { RegistryEntry } from "../src/client/types.js";
-import { jsonResponse, parity, routes } from "./helpers.js";
+import { jsonResponse, makeMockTransport, parity, routes } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
 /** No shipped lists, so the results hold only what the fixtures serve. */
@@ -266,4 +266,73 @@ test("page() and walk() keep a URL's credentials out of their messages too", asy
       return true;
     });
   }
+});
+
+// Finding #2 (PAT-21): the curated-only fallback when the registry fails is a library method.
+test("parity: endpointsReport falls back to the curated list as the CLI does, endpoints() stays strict", async () => {
+  const curated = {
+    curatedEndpoints: [
+      { title: "Stadt Neu", url: "https://ris.neu.example/oparl/system", working: true, checked: "2026-09-16", problem: null, oparlVersion: "1.1", systemName: null, vendor: null, bodyCount: 1, note: null },
+      { title: "Stadt Alt", url: "https://ris.alt.example/oparl/system", working: false, checked: "2026-09-16", problem: "HTTP 500", oparlVersion: "1.0", systemName: null, vendor: null, bodyCount: null, note: null },
+    ],
+    registryChecks: [],
+  };
+  const failures: Array<[string, () => ReturnType<typeof jsonResponse>]> = [
+    ["HTTP 500", () => jsonResponse({ message: "down" }, 500)],
+    ["no data array", () => jsonResponse({ meta: {} })],
+    ["network", () => {
+      throw new OparlNetworkError("connect ECONNREFUSED 203.0.113.1:443");
+    }],
+  ];
+  for (const [label, responder] of failures) {
+    for (const [flags, filters] of [
+      [[], {}],
+      [["--search", "neu"], { search: "neu" }],
+      [["--working"], { working: true }],
+    ] as Array<[string[], { search?: string; working?: boolean }]>) {
+      const { cli, lib } = await parity(
+        ["--compact", "--max-retries", "0", "endpoints", "--registry-url", fx.REGISTRY_URL, ...flags],
+        (transport) => libClient(transport, { ...curated, registryUrl: fx.REGISTRY_URL, maxRetries: 0 }).endpointsReport(filters),
+        responder,
+        curated,
+      );
+      const report = lib.value as { entries: RegistryEntry[]; registryError?: Error };
+      assert.equal(cli.code, 0, label);
+      assert.equal(lib.ok, true, label);
+      assert.deepEqual(JSON.parse(cli.out), report.entries, label);
+      assert.ok(report.registryError instanceof OparlError, label);
+      assert.ok(cli.err.includes(`could not be read (${report.registryError.message})`), `${label}: ${cli.err}`);
+      assert.deepEqual(cli.requests.map((r) => r.url), lib.requests.map((r) => r.url), label);
+    }
+    const strict = await parity(
+      ["--max-retries", "0", "endpoints", "--registry-url", fx.REGISTRY_URL, "--source", "registry"],
+      (transport) => libClient(transport, { ...curated, registryUrl: fx.REGISTRY_URL, maxRetries: 0 }).endpoints(),
+      responder,
+      curated,
+    );
+    assert.notEqual(strict.cli.code, 0, label);
+    assert.equal(strict.lib.ok, false, label);
+    assert.ok(strict.lib.error instanceof OparlError, label);
+  }
+});
+
+test("endpointsReport reports no registryError when the registry answers, and throws for source registry", async () => {
+  const site = routes({
+    [`${fx.REGISTRY_URL}?page=1&limit=100`]: jsonResponse(fx.registryPage1),
+    [`${fx.REGISTRY_URL}?page=2&limit=100`]: jsonResponse(fx.registryPage2),
+  });
+  const ok = await libClient(site.transport, { registryUrl: fx.REGISTRY_URL }).endpointsReport();
+  assert.deepEqual(Object.keys(ok), ["entries"]);
+  assert.equal(ok.entries.length, 3);
+
+  const down = makeMockTransport(() => jsonResponse({}, 500));
+  await assert.rejects(
+    libClient(down.transport, { registryUrl: fx.REGISTRY_URL, maxRetries: 0 }).endpointsReport({ source: "registry" }),
+    OparlApiError,
+  );
+  // A validation error is never turned into a fallback.
+  await assert.rejects(
+    libClient(down.transport, { registryUrl: fx.REGISTRY_URL }).endpointsReport({ search: " " }),
+    OparlValidationError,
+  );
 });
