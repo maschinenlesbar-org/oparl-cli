@@ -7,6 +7,7 @@ import type { CliDeps } from "./io.js";
 import type { OparlClientOptions } from "../client/client.js";
 import { normalizeTimestamp } from "../client/client.js";
 import { OparlError } from "../client/errors.js";
+import type { Problem } from "../client/validate.js";
 
 /**
  * commander value-parser: a plain base-10 non-negative integer.
@@ -33,6 +34,19 @@ export function parseBoundedInt(min: number, max: number): (value: string) => nu
     if (n < min) throw new InvalidArgumentError(`Must be >= ${min}.`);
     if (n > max) throw new InvalidArgumentError(`Must be <= ${max}.`);
     return n;
+  };
+}
+
+/**
+ * Build a commander value-parser from a library rule (a `…Problem` function): the
+ * rule's reason becomes the usage error, so the CLI and the library reject the same
+ * values with the same words.
+ */
+export function fromProblem(problem: Problem<string>): (value: string) => string {
+  return (value: string) => {
+    const reason = problem(value);
+    if (reason !== undefined) throw new InvalidArgumentError(reason);
+    return value;
   };
 }
 

@@ -26,6 +26,7 @@ import {
 import type { QueryParams } from "./query.js";
 import { OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
+import { checkEndpointFilters, filterEndpoints, shortOparlVersion, type EndpointFilters } from "./endpoints-search.js";
 import type {
   CuratedEndpoint,
   JsonObject,
@@ -38,6 +39,8 @@ import type {
   RegistryCheck,
   RegistryEntry,
 } from "./types.js";
+
+export { shortOparlVersion };
 
 export const DEFAULT_REGISTRY_URL = "https://dev.oparl.org/api/endpoints";
 
@@ -126,6 +129,12 @@ export interface OparlClientOptions extends EngineOptions {
 
 /** Which endpoints `endpoints()` returns. */
 export type EndpointSource = "all" | "registry" | "curated";
+
+/** The options of `endpoints()`: the source, and the filters applied to its entries. */
+export interface EndpointsOptions extends EndpointFilters {
+  /** "all" (default): the registry followed by the curated list; or either one alone. */
+  source?: EndpointSource;
+}
 
 const isObject = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -571,12 +580,17 @@ export class OparlClient {
    * data). Curated entries follow the registry's. A System listed twice appears once —
    * under the registry's entry where both lists hold it, reporting whichever of the two
    * live checks is newer. `source` "curated" makes no request.
+   *
+   * `search`, `oparlVersion` and `working` filter the merged list (see EndpointFilters
+   * and filterEndpoints). A blank `search` or an unusable `oparlVersion` is rejected
+   * with an OparlValidationError before any request.
    */
-  async endpoints(options: { source?: EndpointSource } = {}): Promise<RegistryEntry[]> {
+  async endpoints(options: EndpointsOptions = {}): Promise<RegistryEntry[]> {
     const source = options.source ?? "all";
     if (source !== "all" && source !== "registry" && source !== "curated") {
       throw new OparlValidationError(`Unknown endpoint source "${String(source)}". Use all, registry or curated.`);
     }
+    const filters = checkEndpointFilters(options);
     const checks = new Map(this.registryChecks.map((check) => [endpointKey(check.url), check]));
     const listed = new Map<string, number>();
     const registry: RegistryEntry[] = [];
@@ -586,7 +600,7 @@ export class OparlClient {
       listed.set(key, registry.length);
       registry.push(applyCheck(entry, checks));
     }
-    if (source === "registry") return registry;
+    if (source === "registry") return filterEndpoints(registry, filters);
     const curated: RegistryEntry[] = [];
     for (const entry of this.curatedEndpoints) {
       const listedAt = listed.get(endpointKey(entry.url));
@@ -594,7 +608,7 @@ export class OparlClient {
       if (listedAt === undefined) curated.push(projected);
       else registry[listedAt] = preferFresherCheck(registry[listedAt]!, projected);
     }
-    return [...registry, ...curated];
+    return filterEndpoints([...registry, ...curated], filters);
   }
 
   /**
@@ -682,11 +696,6 @@ function projectEntry(raw: JsonObject): RegistryEntry {
     replacedBy: null,
     note: null,
   };
-}
-
-/** "https://schema.oparl.org/1.1/" → "1.1"; anything else unchanged. */
-export function shortOparlVersion(version: string): string {
-  return /\/(\d+\.\d+)\/?$/.exec(version)?.[1] ?? version;
 }
 
 /**

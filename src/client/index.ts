@@ -10,7 +10,19 @@ export {
   normalizeTimestamp,
   shortOparlVersion,
 } from "./client.js";
-export type { EndpointSource, ListOptions, ListType, OparlClientOptions } from "./client.js";
+export type { EndpointSource, EndpointsOptions, ListOptions, ListType, OparlClientOptions } from "./client.js";
+export {
+  MIN_UMLAUT_PASS_LENGTH,
+  checkEndpointFilters,
+  contractUmlautSpellings,
+  filterEndpoints,
+  foldSearchText,
+  normalizeOparlVersion,
+  oparlVersionProblem,
+  searchMatches,
+  searchTextProblem,
+} from "./endpoints-search.js";
+export type { EndpointFilters } from "./endpoints-search.js";
 export { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 export {
   RequestEngine,

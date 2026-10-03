@@ -77,7 +77,7 @@ import { OparlClient, OparlApiError, OparlLinkError } from "@maschinenlesbar.org
 
 const client = new OparlClient();
 
-const [cologne] = (await client.endpoints()).filter((e) => e.title === "Stadt Köln");
+const [cologne] = await client.endpoints({ search: "koeln", working: true });
 const system = await client.system(cologne!.url);
 const { data: bodies } = await client.bodies(system.id);
 
@@ -111,7 +111,7 @@ const one = await client.get(papers.data[0]!.id);
 
 | Method | Returns |
 | --- | --- |
-| `endpoints({ source })` | `RegistryEntry[]` — the registry (all pages, projected, with the live checks applied) followed by the curated list; `source` `"registry"` or `"curated"` for one of them |
+| `endpoints({ source, search, oparlVersion, working })` | `RegistryEntry[]` — the registry (all pages, projected, with the live checks applied) followed by the curated list; `source` `"registry"` or `"curated"` for one of them. The filters are the CLI's `--search`, `--oparl-version` and `--working` (`filterEndpoints` in `endpoints-search.ts`): `search` matches title, URL and note ignoring case and accents, with the umlaut spellings (`koeln` → `Köln`) as a fallback; `oparlVersion` takes `1.1` or a version URI. A blank `search` or another version string is an `OparlValidationError`, before any request |
 | `system(url)` | `OparlSystem` — checks `type` and `body` |
 | `bodies(systemUrl, { maxPages })` | `ListResult<OparlBody>` — all pages by default |
 | `list(bodyUrl, type, options)` | `ListResult` — one page by default; `LIST_TYPES` maps CLI names to Body fields |
@@ -157,6 +157,7 @@ src/
                  # OparlValidationError / OparlLinkError
     validate.ts  # Problem rules + assertValid (input checks before any request)
     client.ts    # OparlClient — endpoints, System, bodies, lists, get
+    endpoints-search.ts  # endpoints() filters: accent/umlaut search, OParl version, working
     endpoints-list.ts  # the curated endpoint list (generated, see below)
     index.ts
   cli/
