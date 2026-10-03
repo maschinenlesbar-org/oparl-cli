@@ -107,7 +107,7 @@ const one = await client.get(papers.data[0]!.id);
 | `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
 | `maxRedirects` | `3` | 0 to `MAX_REDIRECTS` (10). Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
 | `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too |
-| `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1, else an `OparlValidationError` |
+| `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1 and not blank, else an `OparlValidationError` (`Invalid userAgent: …`). Only an absent `userAgent` selects the default; `""` or whitespace is rejected, as `--user-agent` rejects it |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock) |
 
 The numeric options must be integers in their range — `timeoutMs`, `retryDelayMs` and
@@ -233,9 +233,10 @@ no output at all. Header values Node refuses (a `--user-agent` outside ASCII/Lat
 control character, a name that is not a token) are rejected by the engine as an
 `OparlValidationError`, and the transport's synchronous `request()` throw is wrapped as
 well, so neither reaches the caller as an internal fault. The rules are exported —
-`headerValueProblem`/`assertHeaderValue` for header values, `parseHttpUrl` for URLs (blank,
-malformed, not http(s)) — and the CLI's `--user-agent` and URL parsers call them, so the CLI
-rejects the same values with the library's words, at parse time.
+`headerValueProblem`/`assertHeaderValue` for header values, `userAgentProblem` for the
+User-Agent (that rule plus no blank value), `parseHttpUrl` for URLs (blank, malformed, not
+http(s)) — and the CLI's `--user-agent` and URL parsers call them, so the CLI rejects the
+same values with the library's words, at parse time.
 
 ## The endpoint list
 

@@ -356,10 +356,38 @@ test("parity: a bad URL argument or User-Agent is rejected with the library's ow
     assert.equal(cli.code, 2, label);
     assert.equal(lib.ok, false, label);
     assert.ok(lib.error instanceof OparlValidationError, label);
-    const reason = (lib.error as Error).message.replace(/^Invalid registryUrl: /, "");
+    const reason = (lib.error as Error).message.replace(/^Invalid (registryUrl|userAgent): /, "");
     // commander's own usage error, which carries the library's reason.
     assert.match(cli.err, /^error: .* is invalid/, label);
     assert.ok(cli.err.includes(reason), `${label}: ${cli.err} / ${reason}`);
     assert.equal(cli.requests.length + lib.requests.length, 0, label);
   }
+});
+
+// Finding #6 (PAT-4): a blank User-Agent is rejected by the library too, not sent.
+test("parity: a blank or whitespace User-Agent is rejected alike, with no request", async () => {
+  for (const ua of ["", "   ", "\t"]) {
+    const { cli, lib } = await parity(
+      ["--user-agent", ua, "system", fx.SYSTEM_URL],
+      (t) => libClient(t, { userAgent: ua }).system(fx.SYSTEM_URL),
+      () => jsonResponse(fx.system),
+    );
+    const label = JSON.stringify(ua);
+    assert.equal(cli.code, 2, label);
+    assert.match(cli.err, /Expected a non-empty value\./, label);
+    assert.equal(lib.ok, false, label);
+    assert.ok(lib.error instanceof OparlValidationError, label);
+    assert.equal((lib.error as Error).message, "Invalid userAgent: Expected a non-empty value.", label);
+    assert.equal(cli.requests.length + lib.requests.length, 0, label);
+  }
+  // A padded but non-blank value is sent as given by both.
+  const { cli, lib } = await parity(
+    ["--user-agent", " x ", "system", fx.SYSTEM_URL],
+    (t) => libClient(t, { userAgent: " x " }).system(fx.SYSTEM_URL),
+    () => jsonResponse(fx.system),
+  );
+  assert.equal(cli.code, 0);
+  assert.equal(lib.ok, true);
+  assert.equal(cli.requests[0]?.headers?.["User-Agent"], " x ");
+  assert.equal(lib.requests[0]?.headers?.["User-Agent"], " x ");
 });

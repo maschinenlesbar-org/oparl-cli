@@ -36,6 +36,7 @@ export {
   resolveLink,
   sanitizeServerText,
   upgradeSameHostUrls,
+  userAgentProblem,
   withQuery,
 } from "./engine.js";
 export type { EngineOptions, JsonResponse } from "./engine.js";

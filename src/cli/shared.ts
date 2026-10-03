@@ -7,7 +7,7 @@ import type { CliDeps } from "./io.js";
 import type { OparlClientOptions } from "../client/client.js";
 import { normalizeTimestamp } from "../client/client.js";
 import { OparlError, OparlValidationError } from "../client/errors.js";
-import { assertHeaderValue, parseHttpUrl } from "../client/engine.js";
+import { parseHttpUrl, userAgentProblem } from "../client/engine.js";
 import type { Problem } from "../client/validate.js";
 
 /**
@@ -119,14 +119,10 @@ export function parseTimestamp(value: string): string {
 }
 
 /**
- * commander value-parser for the User-Agent header: a blank value is rejected (it used
- * to be replaced by the default without a word), then the library's header rule
- * (assertHeaderValue: no control characters, nothing above U+00FF).
+ * commander value-parser for the User-Agent header: the library's userAgentProblem (not
+ * blank, no control characters, nothing above U+00FF), so both reject the same values.
  */
-export function parseHeaderValue(value: string): string {
-  parseNonEmpty(value);
-  return fromLibrary((v) => assertHeaderValue("User-Agent", v))(value);
-}
+export const parseHeaderValue: (value: string) => string = fromProblem(userAgentProblem);
 
 export interface GlobalOptions {
   timeout?: number;
@@ -142,9 +138,7 @@ export interface GlobalOptions {
 export function toEngineOptions(global: GlobalOptions): OparlClientOptions {
   const options: OparlClientOptions = {};
   if (global.timeout !== undefined) options.timeoutMs = global.timeout;
-  if (global.userAgent !== undefined && global.userAgent.trim().length > 0) {
-    options.userAgent = global.userAgent;
-  }
+  if (global.userAgent !== undefined) options.userAgent = global.userAgent;
   if (global.maxRetries !== undefined) options.maxRetries = global.maxRetries;
   if (global.maxRedirects !== undefined) options.maxRedirects = global.maxRedirects;
   if (global.maxResponseBytes !== undefined) options.maxResponseBytes = global.maxResponseBytes;

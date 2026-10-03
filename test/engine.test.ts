@@ -9,6 +9,7 @@ import {
   carryQuery,
   encodeTimestampPlus,
   headerValueProblem,
+  userAgentProblem,
   parseHttpUrl,
   resolveLink,
   sanitizeServerText,
@@ -469,4 +470,20 @@ test("parseHttpUrl rejects a blank URL as such", () => {
     assert.throws(() => parseHttpUrl(blank), (err: unknown) => err instanceof OparlValidationError && err.message === "Expected a non-empty URL.");
   }
   assert.throws(() => parseHttpUrl("not a url"), (err: unknown) => err instanceof OparlValidationError && err.message === "Not a valid URL.");
+});
+
+test("userAgentProblem rejects a blank value, then applies the header-value rule", () => {
+  for (const blank of ["", "   ", "\t"]) assert.equal(userAgentProblem(blank), "Expected a non-empty value.", JSON.stringify(blank));
+  assert.equal(userAgentProblem(" x "), undefined);
+  assert.equal(userAgentProblem("oparl-cli/Köln\t(1)"), undefined);
+  assert.equal(userAgentProblem(`a${String.fromCharCode(0x0a)}b`), "The User-Agent header value contains control characters.");
+  assert.match(userAgentProblem("€") ?? "", /^The User-Agent header value contains U\+20AC/);
+  // The engine enforces it: an explicit blank is an error, only undefined means the default.
+  for (const userAgent of ["", "  "]) {
+    assert.throws(
+      () => new RequestEngine({ userAgent }),
+      (err: unknown) => err instanceof OparlValidationError && err.message === "Invalid userAgent: Expected a non-empty value.",
+    );
+  }
+  assert.doesNotThrow(() => new RequestEngine({ userAgent: undefined }));
 });

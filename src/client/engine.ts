@@ -143,6 +143,17 @@ export function assertHeaderValue(name: string, value: string): string {
 }
 
 /**
+ * Why a value cannot be the User-Agent, or undefined when it can: a blank value
+ * (empty or whitespace only) is refused before the header-value rule. Only an absent
+ * `userAgent` means the default; a blank one would otherwise be sent as is. The
+ * CLI's `--user-agent` parser calls this too.
+ */
+export function userAgentProblem(value: string): string | undefined {
+  if (value.trim() === "") return "Expected a non-empty value.";
+  return headerValueProblem("User-Agent", value);
+}
+
+/**
  * Check a header this client is about to send: a name that is not a token
  * (`ERR_INVALID_HTTP_TOKEN` in Node) or a value assertHeaderValue refuses becomes an
  * OparlValidationError, which the CLI reports as the usage error it is (exit 2) and
@@ -424,9 +435,9 @@ export class RequestEngine {
 
   constructor(options: EngineOptions = {}) {
     this.transport = options.transport ?? nodeHttpTransport;
-    this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
+    this.userAgent =
+      options.userAgent === undefined ? DEFAULT_USER_AGENT : assertValid("userAgent", options.userAgent, userAgentProblem);
     this.defaultHeaders = options.defaultHeaders ?? {};
-    checkHeader("User-Agent", this.userAgent);
     for (const [name, value] of Object.entries(this.defaultHeaders)) checkHeader(name, value);
     // Every numeric option is checked: NaN, Infinity, a fraction or a negative number
     // would silently defeat the comparisons below (no timeout, no cap, no end).
