@@ -66,6 +66,16 @@ export const LIST_TYPES = {
 export type ListType = keyof typeof LIST_TYPES;
 
 /**
+ * Whether `value` is a list type: an own key of LIST_TYPES. A keyed lookup alone would
+ * also let the names every object inherits (`constructor`, `toString`, `__proto__`)
+ * through. `list()` checks this before any request; the CLI offers the same keys as
+ * the `<type>` choices.
+ */
+export function isListType(value: unknown): value is ListType {
+  return typeof value === "string" && Object.hasOwn(LIST_TYPES, value);
+}
+
+/**
  * Non-spec Body fields some servers use instead of the spec name, tried when the spec
  * field is missing. Düsseldorf's Somacos server (ris-oparl.itk-rheinland.de) links
  * `consultations` and `files`.
@@ -79,7 +89,7 @@ const LIST_FIELD_FALLBACKS: Partial<Record<ListType, string>> = {
 function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
   const url = body[LIST_TYPES[type]];
   if (typeof url === "string") return url;
-  const fallback = LIST_FIELD_FALLBACKS[type];
+  const fallback = Object.hasOwn(LIST_FIELD_FALLBACKS, type) ? LIST_FIELD_FALLBACKS[type] : undefined;
   return fallback !== undefined && typeof body[fallback] === "string" ? body[fallback] : url;
 }
 
@@ -554,10 +564,10 @@ export class OparlClient {
    * result's `note` says how many terms the filter could not be applied to.
    */
   async list(bodyUrl: string, type: ListType, options: ListOptions = {}): Promise<ListResult<OparlObject>> {
-    const field = LIST_TYPES[type];
-    if (field === undefined) {
+    if (!isListType(type)) {
       throw new OparlValidationError(`Unknown list type "${String(type)}". Use one of: ${Object.keys(LIST_TYPES).join(", ")}.`);
     }
+    const field = LIST_TYPES[type];
     const maxPages = assertValid("maxPages", options.maxPages ?? 1, maxPagesProblem);
     const query = listQuery(options);
     bodyUrl = callerUrl(bodyUrl);

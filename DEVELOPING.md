@@ -125,7 +125,7 @@ loops. The CLI's flags take the same ranges.
 | `endpointsReport(options)` | `{ entries, registryError? }` — as `endpoints`, but with `source` `"all"` a registry that cannot be read (any `OparlError` but a validation error) is not thrown: `entries` holds the curated list alone, filtered alike, and `registryError` says why. This is what `oparl endpoints` prints, with the error as a stderr note; `endpoints()` is the same call that throws `registryError` |
 | `system(url)` | `OparlSystem` — checks `type` and `body` |
 | `bodies(systemUrl, { maxPages })` | `ListResult<OparlBody>` — all pages by default. `maxPages` (here and in `list` and `walk`) must be a non-negative integer, checked before any request |
-| `list(bodyUrl, type, options)` | `ListResult` — one page by default; `LIST_TYPES` maps CLI names to Body fields. `limit` must be an integer from 1 to `MAX_LIST_LIMIT` (1000), the bound `--limit` uses; anything else is an `OparlValidationError` before any request |
+| `list(bodyUrl, type, options)` | `ListResult` — one page by default; `LIST_TYPES` maps CLI names to Body fields. `type` must be one of its own keys (`isListType`), so an inherited name such as `constructor` or `__proto__` is an `OparlValidationError` (`Unknown list type …`) before any request, as the CLI's `<type>` choices reject it. `limit` must be an integer from 1 to `MAX_LIST_LIMIT` (1000), the bound `--limit` uses; anything else is an `OparlValidationError` before any request |
 | `page(url, query?)` | one `OparlListPage`; every entry of `data` must be an object, and a bare JSON array is read as a single page |
 | `walk(url, query?, maxPages)` | `ListResult` — follows `links.next` with the same-host rule |
 | `get(url)` | any object; rejects arrays and `{ error }` objects |

@@ -4,7 +4,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { OparlClient, type OparlClientOptions } from "../src/client/client.js";
+import { OparlClient, type ListType, type OparlClientOptions } from "../src/client/client.js";
 import { OparlApiError, OparlError, OparlNetworkError, OparlValidationError } from "../src/client/errors.js";
 import type { Transport } from "../src/client/http.js";
 import type { RegistryEntry } from "../src/client/types.js";
@@ -390,4 +390,23 @@ test("parity: a blank or whitespace User-Agent is rejected alike, with no reques
   assert.equal(lib.ok, true);
   assert.equal(cli.requests[0]?.headers?.["User-Agent"], " x ");
   assert.equal(lib.requests[0]?.headers?.["User-Agent"], " x ");
+});
+
+// Finding #7 (PAT-25): an inherited Object.prototype name is not a list type.
+test("parity: list rejects an Object.prototype name as type alike, with no request", async () => {
+  // A Body carrying the odd non-spec key "[object Object]" must not lend __proto__ a list either.
+  const oddBody = { ...fx.body, "[object Object]": fx.MEETINGS_URL };
+  for (const type of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "Meeting", ""]) {
+    const { cli, lib } = await parity(
+      ["--compact", "list", type, fx.BODY_URL],
+      (t) => libClient(t).list(fx.BODY_URL, type as ListType),
+      () => jsonResponse(oddBody),
+    );
+    assert.equal(cli.code, 2, type);
+    assert.match(cli.err, /Allowed choices are organization, person/, type);
+    assert.equal(lib.ok, false, type);
+    assert.ok(lib.error instanceof OparlValidationError, type);
+    assert.match((lib.error as Error).message, /^Unknown list type ".*"\. Use one of: organization, person/, type);
+    assert.equal(cli.requests.length + lib.requests.length, 0, type);
+  }
 });

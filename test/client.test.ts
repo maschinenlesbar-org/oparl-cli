@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_PAGES_HARD_LIMIT, OparlClient, endpointKey, normalizeTimestamp } from "../src/client/client.js";
+import { LIST_TYPES, MAX_PAGES_HARD_LIMIT, OparlClient, endpointKey, isListType, normalizeTimestamp } from "../src/client/client.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
 import { OparlApiError, OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "../src/client/errors.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
@@ -841,5 +841,12 @@ test("normalizeTimestamp accepts the other ISO 8601 forms and writes the spec fo
   for (const [input, expected] of cases) assert.equal(normalizeTimestamp(input), expected, input);
   for (const bad of ["2026-09-01T12:30:00", "2026-09-01T12:30:00+2400", "2026-09-01T12:30:00+02:60", "2026-09-01T12:30:00.Z", "2026-09-01T12Z"]) {
     assert.throws(() => normalizeTimestamp(bad), OparlValidationError, bad);
+  }
+});
+
+test("isListType accepts the own keys of LIST_TYPES only", () => {
+  for (const type of Object.keys(LIST_TYPES)) assert.equal(isListType(type), true, type);
+  for (const value of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf", "Meeting", "", " meeting", 1, null, undefined, {}]) {
+    assert.equal(isListType(value), false, String(value));
   }
 });

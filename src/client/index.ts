@@ -6,6 +6,7 @@ export {
   LIST_TYPES,
   MAX_PAGES_HARD_LIMIT,
   endpointKey,
+  isListType,
   listQuery,
   normalizeTimestamp,
   shortOparlVersion,
