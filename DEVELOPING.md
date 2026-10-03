@@ -155,6 +155,7 @@ src/
                  # sanitizeServerText, error mapping
     errors.ts    # OparlError / OparlApiError / OparlNetworkError / OparlParseError /
                  # OparlValidationError / OparlLinkError
+    validate.ts  # Problem rules + assertValid (input checks before any request)
     client.ts    # OparlClient — endpoints, System, bodies, lists, get
     endpoints-list.ts  # the curated endpoint list (generated, see below)
     index.ts
@@ -180,6 +181,15 @@ dependency is `commander`.
 | `OparlNetworkError` | DNS, connection, timeout, size cap, a request that ends without a response | 6 |
 | `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), wrong object type, `{ error }` object | 1 |
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
+
+**The library owns the input rules.** Every check on what a request may contain lives in
+`src/client` and runs before any request, so a library caller and a CLI user get the same
+answer for the same input. A rule is a pure, exported `…Problem(value)` function (in
+`validate.ts` or next to the parameter it checks) returning the reason a value is invalid
+or `undefined`; `assertValid(name, value, problem)` throws an `OparlValidationError`
+reading `Invalid <name>: <reason>` (a method that returns a promise rejects with it). The
+CLI's commander parsers call the same functions and turn the reason into a usage error, and
+`run.ts` maps an `OparlValidationError` raised in an action to exit 2 (`Error: <message>`).
 
 Server text that reaches an error message goes through `sanitizeServerText`: control
 characters are dropped, whitespace (newlines and the Unicode line separators included) is
@@ -277,7 +287,9 @@ node --test dist/test/client.test.js   # one file, after a build
 
 The suite runs in-process on Node's test runner with a mock `Transport`
 (`test/helpers.ts`, `routes()` serves fixtures by URL); `test/http.test.ts` exercises the
-real transport against a loopback server. Fixtures in `test/fixtures.ts` are shaped after
+real transport against a loopback server. `parity()` in `test/helpers.ts` drives one input
+through `run()` and through a library call on the same recording transport, so a test can
+assert both reject without a request or both send the same requests. Fixtures in `test/fixtures.ts` are shaped after
 real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
 ## Continuous integration

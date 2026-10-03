@@ -4,6 +4,9 @@
 
 import { mock } from "node:test";
 import type { Transport, HttpRequest, HttpResponse } from "../src/client/http.js";
+import { OparlClient, type OparlClientOptions } from "../src/client/client.js";
+import { run } from "../src/cli/run.js";
+import type { CliDeps } from "../src/cli/io.js";
 
 /**
  * Whether a string holds a character a terminal may act on: C0 (ESC, BEL, CR, LF),
@@ -98,4 +101,63 @@ export function routes(table: Record<string, HttpResponse | ((req: HttpRequest) 
 /** Parse the query string of a recorded request URL into a URLSearchParams. */
 export function queryOf(req: HttpRequest): URLSearchParams {
   return new URL(req.url).searchParams;
+}
+
+/** What the CLI did with one input: exit code, output, and the requests it sent. */
+export interface CliOutcome {
+  code: number;
+  out: string;
+  err: string;
+  requests: HttpRequest[];
+}
+
+/** What the library did with the same input: its value or error, and the requests it sent. */
+export interface LibOutcome {
+  ok: boolean;
+  value?: unknown;
+  error?: unknown;
+  requests: HttpRequest[];
+}
+
+/**
+ * Drive one input through the CLI (`run(argv)`, its client built on the recording mock
+ * transport) and through a library call on the same transport, and return both
+ * outcomes, each with the requests it sent. A parity test then asserts the two agree:
+ * both reject without a request, or both send the same requests and give the same
+ * result.
+ *
+ * `clientOptions` are given to the CLI's client under the options the CLI derives from
+ * argv (as the tests' own `makeCli` does with the endpoint lists); the library call
+ * builds its own client from the transport it is handed.
+ */
+export async function parity(
+  argv: string[],
+  call: (transport: Transport) => unknown,
+  responder: (req: HttpRequest) => HttpResponse | Promise<HttpResponse> = () => jsonResponse({}),
+  clientOptions: Partial<OparlClientOptions> = {},
+): Promise<{ cli: CliOutcome; lib: LibOutcome }> {
+  const mt = makeMockTransport(responder);
+  const out: string[] = [];
+  const err: string[] = [];
+  const deps: CliDeps = {
+    io: {
+      out: (s) => out.push(s),
+      err: (s) => err.push(s),
+      writeFile: () => {
+        throw new Error("parity(): the CLI tried to write a file");
+      },
+    },
+    createClient: (opts) => new OparlClient({ ...clientOptions, ...opts, transport: mt.transport }),
+  };
+  const code = await run(argv, deps);
+  const cliCalls = mt.calls.length;
+  const cli: CliOutcome = { code, out: out.join("\n"), err: err.join("\n"), requests: mt.calls.slice(0, cliCalls) };
+  let lib: LibOutcome;
+  try {
+    const value = await call(mt.transport);
+    lib = { ok: true, value, requests: mt.calls.slice(cliCalls) };
+  } catch (error) {
+    lib = { ok: false, error, requests: mt.calls.slice(cliCalls) };
+  }
+  return { cli, lib };
 }
