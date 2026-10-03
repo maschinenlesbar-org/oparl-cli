@@ -84,3 +84,48 @@ test("parity: a blank endpoints search or a bad OParl version is rejected before
     assert.equal(lib.requests.length, 0, flags.join(" "));
   }
 });
+
+const bodySite = routes({
+  [fx.BODY_URL]: jsonResponse(fx.body),
+  [fx.MEETINGS_URL]: jsonResponse(fx.meetingPages[1]),
+});
+const bodyResponder = (req: Parameters<Transport>[0]) => bodySite.transport(req);
+
+// Finding #3 (PAT-11): the list page size is an integer from 1 to MAX_LIST_LIMIT.
+test("parity: list rejects a page size outside 1..1000 before any request", async () => {
+  const cases: Array<[string, number]> = [
+    ["0", 0],
+    ["-1", -1],
+    ["1.5", 1.5],
+    ["1001", 1001],
+    ["NaN", Number.NaN],
+    ["1e20", 1e20],
+    ["Infinity", Number.POSITIVE_INFINITY],
+  ];
+  for (const [flag, limit] of cases) {
+    const { cli, lib } = await parity(
+      ["list", "meeting", fx.BODY_URL, "--limit", flag],
+      (transport) => libClient(transport).list(fx.BODY_URL, "meeting", { limit }),
+      bodyResponder,
+    );
+    assert.equal(cli.code, 2, flag);
+    assert.equal(cli.requests.length, 0, flag);
+    assert.equal(lib.ok, false, flag);
+    assert.ok(lib.error instanceof OparlValidationError, flag);
+    assert.equal(lib.requests.length, 0, flag);
+  }
+});
+
+test("parity: list sends a page size inside 1..1000 alike", async () => {
+  for (const limit of [1, 2, 1000]) {
+    const { cli, lib } = await parity(
+      ["--compact", "list", "meeting", fx.BODY_URL, "--limit", String(limit)],
+      (transport) => libClient(transport).list(fx.BODY_URL, "meeting", { limit }),
+      bodyResponder,
+    );
+    assert.equal(cli.code, 0, String(limit));
+    assert.equal(lib.ok, true, String(limit));
+    assert.deepEqual(JSON.parse(cli.out), lib.value);
+    assert.deepEqual(cli.requests.map((r) => r.url), lib.requests.map((r) => r.url));
+  }
+});

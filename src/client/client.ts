@@ -26,6 +26,7 @@ import {
 import type { QueryParams } from "./query.js";
 import { OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
+import { assertValid, listLimitProblem } from "./validate.js";
 import { checkEndpointFilters, filterEndpoints, shortOparlVersion, type EndpointFilters } from "./endpoints-search.js";
 import type {
   CuratedEndpoint,
@@ -112,7 +113,10 @@ export interface ListOptions {
   modifiedSince?: string;
   /** Only objects modified at or before this time (OParl `modified_until`). */
   modifiedUntil?: string;
-  /** Page size hint (OParl `limit`); servers may ignore or reject it. */
+  /**
+   * Page size hint (OParl `limit`): an integer from 1 to MAX_LIST_LIMIT (1000), else an
+   * OparlValidationError before any request. Servers may ignore or reject it.
+   */
   limit?: number;
   /** Ask the server to leave out embedded objects (OParl `omit_internal`). */
   omitInternal?: boolean;
@@ -244,8 +248,8 @@ export function normalizeTimestamp(value: string): string {
 }
 
 /**
- * The OParl filter query for a list request. A window whose start is after its end is
- * rejected: nothing can match it, and SD.NET servers answer an empty window with HTTP 404,
+ * The OParl filter query for a list request. A `limit` outside 1..MAX_LIST_LIMIT is
+ * rejected, and so is a window whose start is after its end: nothing can match it, and SD.NET servers answer an empty window with HTTP 404,
  * which reads as "not found".
  */
 export function listQuery(options: ListOptions): QueryParams {
@@ -254,7 +258,7 @@ export function listQuery(options: ListOptions): QueryParams {
     created_until: options.createdUntil !== undefined ? normalizeTimestamp(options.createdUntil) : undefined,
     modified_since: options.modifiedSince !== undefined ? normalizeTimestamp(options.modifiedSince) : undefined,
     modified_until: options.modifiedUntil !== undefined ? normalizeTimestamp(options.modifiedUntil) : undefined,
-    limit: options.limit,
+    limit: options.limit !== undefined ? assertValid("limit", options.limit, listLimitProblem) : undefined,
     omit_internal: options.omitInternal ? true : undefined,
   };
   for (const field of ["created", "modified"] as const) {

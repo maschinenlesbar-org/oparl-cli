@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertValid, type Problem } from "../src/client/validate.js";
+import { MAX_LIST_LIMIT, assertValid, listLimitProblem, type Problem } from "../src/client/validate.js";
 import * as lib from "../src/index.js";
 import { OparlError, OparlValidationError } from "../src/client/errors.js";
 import { run } from "../src/cli/run.js";
 import type { CliDeps } from "../src/cli/io.js";
-import { OparlClient } from "../src/client/client.js";
+import { OparlClient, listQuery } from "../src/client/client.js";
 import { jsonResponse, parity } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
@@ -65,4 +65,20 @@ test("parity() runs one input through the CLI and the library on one recording t
     library.requests.map((r) => r.url),
   );
   assert.equal(cli.requests.length, 1);
+});
+
+test("listLimitProblem accepts an integer from 1 to MAX_LIST_LIMIT and nothing else", () => {
+  assert.equal(MAX_LIST_LIMIT, 1000);
+  for (const ok of [1, 2, 999, MAX_LIST_LIMIT]) assert.equal(listLimitProblem(ok), undefined, String(ok));
+  for (const bad of [0, -1, 1.5, MAX_LIST_LIMIT + 1, Number.NaN, Number.POSITIVE_INFINITY, 1e20, "5" as unknown as number]) {
+    assert.equal(listLimitProblem(bad), `Expected an integer from 1 to ${MAX_LIST_LIMIT}.`, String(bad));
+  }
+});
+
+test("listQuery rejects an invalid limit with 'Invalid limit: …'", () => {
+  assert.throws(
+    () => listQuery({ limit: 0 }),
+    (err: unknown) => err instanceof OparlValidationError && err.message === "Invalid limit: Expected an integer from 1 to 1000.",
+  );
+  assert.equal(listQuery({ limit: 5 })["limit"], 5);
 });

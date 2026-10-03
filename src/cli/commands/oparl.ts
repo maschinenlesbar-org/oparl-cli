@@ -19,6 +19,7 @@ import {
   type ListOptions,
   type ListType,
 } from "../../client/client.js";
+import { MAX_LIST_LIMIT } from "../../client/validate.js";
 import { normalizeOparlVersion, oparlVersionProblem, searchTextProblem } from "../../client/endpoints-search.js";
 import type { OparlClient } from "../../client/client.js";
 import { OparlError, OparlValidationError } from "../../client/errors.js";
@@ -163,7 +164,11 @@ export function registerCommands(program: Command, deps: CliDeps): void {
     .option("--modified-until <time>", "only objects modified until (YYYY-MM-DD or ISO 8601)", parseTimestamp)
     .option("--created-since <time>", "only objects created since (YYYY-MM-DD or ISO 8601)", parseTimestamp)
     .option("--created-until <time>", "only objects created until (YYYY-MM-DD or ISO 8601)", parseTimestamp)
-    .option("--limit <n>", "page size hint (1..1000); some servers ignore or reject it, ALLRIS 1.0 cuts the list to it", parseBoundedInt(1, 1000))
+    .option(
+      "--limit <n>",
+      `page size hint (1..${MAX_LIST_LIMIT}); some servers ignore or reject it, ALLRIS 1.0 cuts the list to it`,
+      parseBoundedInt(1, MAX_LIST_LIMIT),
+    )
     .option("--omit-internal", "ask the server to leave out embedded objects")
     .action(
       action(deps, async ({ client, global, opts }, [type, bodyUrl]) => {

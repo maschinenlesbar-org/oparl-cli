@@ -19,3 +19,17 @@ export function assertValid<T>(name: string, value: T, problem: Problem<T>): T {
   if (reason !== undefined) throw new OparlValidationError(`Invalid ${name}: ${reason}`);
   return value;
 }
+
+/** The largest list page size (`limit`) a list request may ask for. */
+export const MAX_LIST_LIMIT = 1000;
+
+/**
+ * Why a list page size (OParl `limit`) is unusable: anything but an integer from 1 to
+ * MAX_LIST_LIMIT. Some servers answer a bad `limit` with HTTP 400, and ALLRIS 1.0 cuts
+ * the list to it.
+ */
+export function listLimitProblem(value: number): string | undefined {
+  return Number.isSafeInteger(value) && value >= 1 && value <= MAX_LIST_LIMIT
+    ? undefined
+    : `Expected an integer from 1 to ${MAX_LIST_LIMIT}.`;
+}
