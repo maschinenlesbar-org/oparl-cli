@@ -203,3 +203,20 @@ test("parity: in-range engine options reach the transport alike", async () => {
     assert.deepEqual(cli.requests, lib.requests, flag);
   }
 });
+
+// Finding #8 (PAT-1): registryUrl is checked when the client is made, not on first use.
+test("parity: a bad registry URL is rejected even when the registry is not asked", async () => {
+  for (const registryUrl of ["ftp://reg.example/x", "", "   ", "not a url"]) {
+    const { cli, lib } = await parity(
+      ["endpoints", "--registry-url", registryUrl, "--source", "curated"],
+      (transport) => libClient(transport, { registryUrl }).endpoints({ source: "curated" }),
+      registryResponder,
+      noLists,
+    );
+    assert.equal(cli.code, 2, JSON.stringify(registryUrl));
+    assert.equal(lib.ok, false, JSON.stringify(registryUrl));
+    assert.ok(lib.error instanceof OparlValidationError, JSON.stringify(registryUrl));
+    assert.match((lib.error as Error).message, /^Invalid registryUrl: /, JSON.stringify(registryUrl));
+    assert.equal(cli.requests.length + lib.requests.length, 0, JSON.stringify(registryUrl));
+  }
+});

@@ -96,7 +96,7 @@ const one = await client.get(papers.data[0]!.id);
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `registryUrl` | `https://dev.oparl.org/api/endpoints` | Endpoint registry used by `endpoints()` |
+| `registryUrl` | `https://dev.oparl.org/api/endpoints` | Endpoint registry used by `endpoints()`; an http(s) URL, checked by the constructor (`Invalid registryUrl: …`), with any `user:password@` dropped |
 | `curatedEndpoints` | `CURATED_ENDPOINTS` | Endpoints the registry lacks, appended by `endpoints()` |
 | `registryChecks` | `REGISTRY_CHECKS` | Live checks applied to registry entries by `endpoints()` |
 | `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms, where `--timeout` rejects a larger value) |

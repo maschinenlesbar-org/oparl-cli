@@ -123,7 +123,10 @@ export interface ListOptions {
 }
 
 export interface OparlClientOptions extends EngineOptions {
-  /** URL of the endpoint registry. Defaults to https://dev.oparl.org/api/endpoints */
+  /**
+   * URL of the endpoint registry. Defaults to https://dev.oparl.org/api/endpoints. An
+   * http(s) URL, checked by the constructor (OparlValidationError); any userinfo is dropped.
+   */
   registryUrl?: string;
   /** Endpoints the registry lacks. Defaults to the list shipped with this package. */
   curatedEndpoints?: readonly CuratedEndpoint[];
@@ -173,6 +176,19 @@ function checkedEndpointList<T extends { url: string }>(list: readonly T[], opti
     }
   }
   return list;
+}
+
+/**
+ * The `registryUrl` option, checked when the client is made (as the endpoint lists are)
+ * rather than on the first registry request, and without any `user:password@`.
+ */
+function checkedRegistryUrl(url: string): string {
+  try {
+    return parseHttpUrl(url).href;
+  } catch (err) {
+    if (err instanceof OparlValidationError) throw new OparlValidationError(`Invalid registryUrl: ${err.message}`);
+    throw err;
+  }
 }
 
 /** What arrived where an OParl object or URL was expected, for an error message. */
@@ -282,7 +298,7 @@ export class OparlClient {
 
   constructor(options: OparlClientOptions = {}) {
     this.engine = new RequestEngine(options);
-    this.registryUrl = options.registryUrl ?? DEFAULT_REGISTRY_URL;
+    this.registryUrl = options.registryUrl === undefined ? DEFAULT_REGISTRY_URL : checkedRegistryUrl(options.registryUrl);
     this.curatedEndpoints = checkedEndpointList(options.curatedEndpoints ?? CURATED_ENDPOINTS, "curatedEndpoints");
     this.registryChecks = checkedEndpointList(options.registryChecks ?? REGISTRY_CHECKS, "registryChecks");
   }
@@ -620,7 +636,6 @@ export class OparlClient {
    * checks. Entries whose `url` is missing or not an http(s) URL are left out.
    */
   private async registry(): Promise<RegistryEntry[]> {
-    parseHttpUrl(this.registryUrl);
     const entries: RegistryEntry[] = [];
     let url: string | null = this.registryUrl;
     const seen = new Set<string>();
