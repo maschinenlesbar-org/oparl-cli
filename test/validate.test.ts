@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_LIST_LIMIT, assertValid, listLimitProblem, type Problem } from "../src/client/validate.js";
+import { MAX_LIST_LIMIT, assertValid, listLimitProblem, maxPagesProblem, type Problem } from "../src/client/validate.js";
 import * as lib from "../src/index.js";
 import { OparlError, OparlValidationError } from "../src/client/errors.js";
 import { run } from "../src/cli/run.js";
@@ -81,4 +81,11 @@ test("listQuery rejects an invalid limit with 'Invalid limit: …'", () => {
     (err: unknown) => err instanceof OparlValidationError && err.message === "Invalid limit: Expected an integer from 1 to 1000.",
   );
   assert.equal(listQuery({ limit: 5 })["limit"], 5);
+});
+
+test("maxPagesProblem accepts a non-negative safe integer and nothing else", () => {
+  for (const ok of [0, 1, 2, 10_000, Number.MAX_SAFE_INTEGER]) assert.equal(maxPagesProblem(ok), undefined, String(ok));
+  for (const bad of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 1e20, "1" as unknown as number]) {
+    assert.equal(maxPagesProblem(bad), "Expected a non-negative integer.", String(bad));
+  }
 });

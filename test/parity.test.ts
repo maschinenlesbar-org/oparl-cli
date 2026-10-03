@@ -129,3 +129,33 @@ test("parity: list sends a page size inside 1..1000 alike", async () => {
     assert.deepEqual(cli.requests.map((r) => r.url), lib.requests.map((r) => r.url));
   }
 });
+
+// Finding #9 (PAT-11): maxPages is checked before the first request, on every path.
+test("parity: bodies and list reject a bad maxPages before any request", async () => {
+  const site = routes({
+    [fx.SYSTEM_URL]: jsonResponse(fx.system),
+    [fx.BODIES_URL]: jsonResponse(fx.bodyList),
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.body10.id]: jsonResponse(fx.body10),
+    [fx.MEETINGS_URL]: jsonResponse(fx.meetingPages[1]),
+  });
+  const responder = (req: Parameters<Transport>[0]) => site.transport(req);
+  const cases: Array<[string[], (t: Transport, maxPages: number) => Promise<unknown>]> = [
+    [["bodies", fx.SYSTEM_URL], (t, maxPages) => libClient(t).bodies(fx.SYSTEM_URL, { maxPages })],
+    [["list", "meeting", fx.BODY_URL], (t, maxPages) => libClient(t).list(fx.BODY_URL, "meeting", { maxPages })],
+    // An OParl 1.0 body embeds its terms: no list walk, so walk() never checked maxPages.
+    [["list", "legislative-term", fx.body10.id], (t, maxPages) => libClient(t).list(fx.body10.id, "legislative-term", { maxPages })],
+  ];
+  for (const [argv, call] of cases) {
+    for (const [flag, maxPages] of [["-1", -1], ["1.5", 1.5], ["NaN", Number.NaN]] as const) {
+      const label = `${argv.join(" ")} --max-pages ${flag}`;
+      const { cli, lib } = await parity([...argv, "--max-pages", flag], (t) => call(t, maxPages), responder);
+      assert.equal(cli.code, 2, label);
+      assert.equal(cli.requests.length, 0, label);
+      assert.equal(lib.ok, false, label);
+      assert.ok(lib.error instanceof OparlValidationError, label);
+      assert.equal((lib.error as Error).message, "Invalid maxPages: Expected a non-negative integer.", label);
+      assert.equal(lib.requests.length, 0, label);
+    }
+  }
+});

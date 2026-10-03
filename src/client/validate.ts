@@ -33,3 +33,8 @@ export function listLimitProblem(value: number): string | undefined {
     ? undefined
     : `Expected an integer from 1 to ${MAX_LIST_LIMIT}.`;
 }
+
+/** Why a page count (`maxPages`, 0 = all) is unusable: anything but a non-negative integer. */
+export function maxPagesProblem(value: number): string | undefined {
+  return Number.isSafeInteger(value) && value >= 0 ? undefined : "Expected a non-negative integer.";
+}

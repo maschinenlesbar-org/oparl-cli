@@ -26,7 +26,7 @@ import {
 import type { QueryParams } from "./query.js";
 import { OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
-import { assertValid, listLimitProblem } from "./validate.js";
+import { assertValid, listLimitProblem, maxPagesProblem } from "./validate.js";
 import { checkEndpointFilters, filterEndpoints, shortOparlVersion, type EndpointFilters } from "./endpoints-search.js";
 import type {
   CuratedEndpoint,
@@ -103,7 +103,7 @@ const MAX_UNPRODUCTIVE_PAGES = 3;
 const LIST_TYPES_1_0: readonly ListType[] = ["organization", "person", "meeting", "paper"];
 
 export interface ListOptions {
-  /** Pages to fetch; 0 means all. Defaults to 1. */
+  /** Pages to fetch; 0 means all. Defaults to 1. A non-negative integer, checked before any request. */
   maxPages?: number;
   /** Only objects created at or after this time (OParl `created_since`). */
   createdSince?: string;
@@ -392,9 +392,7 @@ export class OparlClient {
    * can be resumed there.
    */
   async walk<T extends JsonObject = OparlObject>(url: string, query?: QueryParams, maxPages = 1): Promise<ListResult<T>> {
-    if (!Number.isInteger(maxPages) || maxPages < 0) {
-      throw new OparlValidationError("maxPages must be a non-negative integer.");
-    }
+    assertValid("maxPages", maxPages, maxPagesProblem);
     const limit = maxPages === 0 ? MAX_PAGES_HARD_LIMIT : maxPages;
     const data: T[] = [];
     const seenPages = new Set<string>();
@@ -507,8 +505,9 @@ export class OparlClient {
 
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
   async bodies(systemUrl: string, options: { maxPages?: number } = {}): Promise<ListResult<OparlBody>> {
+    const maxPages = assertValid("maxPages", options.maxPages ?? 0, maxPagesProblem);
     const { system, url } = await this.systemFrom(systemUrl);
-    return this.walk<OparlBody>(resolveLink(url, system.body), undefined, options.maxPages ?? 0);
+    return this.walk<OparlBody>(resolveLink(url, system.body), undefined, maxPages);
   }
 
   /**
@@ -527,6 +526,7 @@ export class OparlClient {
     if (field === undefined) {
       throw new OparlValidationError(`Unknown list type "${String(type)}". Use one of: ${Object.keys(LIST_TYPES).join(", ")}.`);
     }
+    const maxPages = assertValid("maxPages", options.maxPages ?? 1, maxPagesProblem);
     const query = listQuery(options);
     const { object: body, url: from } = await this.getFrom<JsonObject>(bodyUrl);
     const bodyType = str(body["type"]) ?? "";
@@ -573,7 +573,7 @@ export class OparlClient {
     }
     // Resolved against the URL the Body was read from: a relative list URL belongs to
     // the document that carried it, which a redirect may have moved.
-    return this.walk(resolveLink(from, listUrl), query, options.maxPages ?? 1);
+    return this.walk(resolveLink(from, listUrl), query, maxPages);
   }
 
   /**

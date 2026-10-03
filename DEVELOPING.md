@@ -113,7 +113,7 @@ const one = await client.get(papers.data[0]!.id);
 | --- | --- |
 | `endpoints({ source, search, oparlVersion, working })` | `RegistryEntry[]` — the registry (all pages, projected, with the live checks applied) followed by the curated list; `source` `"registry"` or `"curated"` for one of them. The filters are the CLI's `--search`, `--oparl-version` and `--working` (`filterEndpoints` in `endpoints-search.ts`): `search` matches title, URL and note ignoring case and accents, with the umlaut spellings (`koeln` → `Köln`) as a fallback; `oparlVersion` takes `1.1` or a version URI. A blank `search` or another version string is an `OparlValidationError`, before any request |
 | `system(url)` | `OparlSystem` — checks `type` and `body` |
-| `bodies(systemUrl, { maxPages })` | `ListResult<OparlBody>` — all pages by default |
+| `bodies(systemUrl, { maxPages })` | `ListResult<OparlBody>` — all pages by default. `maxPages` (here and in `list` and `walk`) must be a non-negative integer, checked before any request |
 | `list(bodyUrl, type, options)` | `ListResult` — one page by default; `LIST_TYPES` maps CLI names to Body fields. `limit` must be an integer from 1 to `MAX_LIST_LIMIT` (1000), the bound `--limit` uses; anything else is an `OparlValidationError` before any request |
 | `page(url, query?)` | one `OparlListPage`; every entry of `data` must be an object, and a bare JSON array is read as a single page |
 | `walk(url, query?, maxPages)` | `ListResult` — follows `links.next` with the same-host rule |
