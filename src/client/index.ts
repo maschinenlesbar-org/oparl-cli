@@ -5,6 +5,7 @@ export {
   DEFAULT_REGISTRY_URL,
   LIST_TYPES,
   MAX_PAGES_HARD_LIMIT,
+  MAX_REGISTRY_PAGES,
   endpointKey,
   isListType,
   listQuery,

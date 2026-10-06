@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { run } from "../src/cli/run.js";
-import { OparlClient } from "../src/client/client.js";
+import { MAX_REGISTRY_PAGES, OparlClient } from "../src/client/client.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
 import { OparlNetworkError } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
@@ -560,4 +560,25 @@ test("-o - prints to stdout instead of writing a file named -", async () => {
   assert.deepEqual(Object.keys(cli.files), []);
   assert.equal((cli.json() as { id: string }).id, fx.system.id);
   assert.ok(!cli.err.some((line) => line.startsWith("Wrote")), cli.err.join("\n"));
+});
+
+test("a registry walk stopped at its page cap says so on stderr", async () => {
+  // A registry whose meta.next never ends: 50 pages are read, then a note, exit 0.
+  let n = 0;
+  const cli = makeCli((req) => {
+    n += 1;
+    const page = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    return jsonResponse({
+      data: [{ title: `Stadt ${page}`, url: `https://ris${page}.example/oparl/system` }],
+      meta: { next: `${fx.REGISTRY_URL}?page=${page + 1}` },
+    });
+  });
+  assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], cli.deps), 0);
+  assert.equal(n, MAX_REGISTRY_PAGES);
+  assert.equal((cli.json() as unknown[]).length, MAX_REGISTRY_PAGES);
+  assert.match(cli.err.join("\n"), /^Note: the endpoint registry was read up to page 50, .* incomplete/m);
+  // A registry that ends says nothing.
+  const done = makeCli(() => jsonResponse({ data: [{ title: "Stadt", url: "https://ris.example/oparl/system" }], meta: {} }));
+  assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], done.deps), 0);
+  assert.deepEqual(done.err, []);
 });

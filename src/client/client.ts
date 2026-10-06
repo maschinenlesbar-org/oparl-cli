@@ -99,7 +99,12 @@ function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
  * explicit `maxPages` goes further.
  */
 export const MAX_PAGES_HARD_LIMIT = 10_000;
-const MAX_REGISTRY_PAGES = 50;
+/**
+ * The most registry pages `endpoints()` reads (at 100 entries a page; the registry has
+ * about 130 entries in two pages): a guard against a registry whose `meta.next` never
+ * ends. A walk stopped by it says so in `EndpointsReport.note` (the CLI prints it).
+ */
+export const MAX_REGISTRY_PAGES = 50;
 /**
  * Consecutive pages that may add nothing new before a walk gives up: a server that
  * serves the same page (or an empty one) under ever-new `?page=n` links would
@@ -185,6 +190,11 @@ export interface EndpointsReport {
   entries: RegistryEntry[];
   /** Why the registry could not be read, when `entries` holds only the curated list. */
   registryError?: OparlError;
+  /**
+   * Set when the registry walk stopped at MAX_REGISTRY_PAGES with a `meta.next` still to
+   * follow: the registry entries are then incomplete.
+   */
+  note?: string;
 }
 
 /** The options of `endpoints()`: the source, and the filters applied to its entries. */
@@ -753,9 +763,10 @@ export class OparlClient {
     const filters = checkEndpointFilters(options);
     let fetched: RegistryEntry[] = [];
     let registryError: OparlError | undefined;
+    let note: string | undefined;
     if (source !== "curated") {
       try {
-        fetched = await this.registry();
+        ({ entries: fetched, note } = await this.registry());
       } catch (err) {
         if (source !== "all" || !(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
         registryError = err;
@@ -770,7 +781,8 @@ export class OparlClient {
       listed.set(key, registry.length);
       registry.push(applyCheck(entry, checks));
     }
-    if (source === "registry") return { entries: filterEndpoints(registry, filters) };
+    const noted = note === undefined ? {} : { note };
+    if (source === "registry") return { entries: filterEndpoints(registry, filters), ...noted };
     const curated: RegistryEntry[] = [];
     for (const entry of this.curatedEndpoints) {
       const listedAt = listed.get(endpointKey(entry.url));
@@ -779,14 +791,14 @@ export class OparlClient {
       else registry[listedAt] = preferFresherCheck(registry[listedAt]!, projected);
     }
     const entries = filterEndpoints([...registry, ...curated], filters);
-    return registryError === undefined ? { entries } : { entries, registryError };
+    return registryError === undefined ? { entries, ...noted } : { entries, registryError };
   }
 
   /**
    * The registry at `registryUrl`, projected to the useful fields, without the curated
    * checks. Entries whose `url` is missing or not an http(s) URL are left out.
    */
-  private async registry(): Promise<RegistryEntry[]> {
+  private async registry(): Promise<{ entries: RegistryEntry[]; note?: string }> {
     const entries: RegistryEntry[] = [];
     let url: string | null = this.registryUrl;
     const seen = new Set<string>();
@@ -813,7 +825,15 @@ export class OparlClient {
       url = nextLink ? resolveLink(from, nextLink) : null;
       if (url !== null && seen.has(url)) url = null;
     }
-    return entries;
+    if (url !== null) {
+      return {
+        entries,
+        note:
+          `the endpoint registry was read up to page ${MAX_REGISTRY_PAGES}, the most this client reads, and goes on ` +
+          `(meta.next: ${sanitizeServerText(url)}); the registry entries listed are incomplete.`,
+      };
+    }
+    return { entries };
   }
 }
 

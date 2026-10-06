@@ -99,7 +99,8 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           if (opts["working"]) options.working = true;
           // With --source all, a registry that cannot be read leaves the curated list
           // alone; the user is told, since the answer is then only as fresh as this release.
-          const { entries, registryError } = await client.endpointsReport(options);
+          const { entries, registryError, note } = await client.endpointsReport(options);
+          if (note !== undefined) deps.io.err(`Note: ${note}`);
           if (registryError !== undefined) {
             deps.io.err(
               `Note: the endpoint registry at ${opts["registryUrl"] as string} could not be read (${registryError.message}) — ` +
