@@ -118,16 +118,16 @@ const one = await client.get(papers.data[0]!.id);
 | `curatedEndpoints` | `CURATED_ENDPOINTS` | Endpoints the registry lacks, appended by `endpoints()` |
 | `registryChecks` | `REGISTRY_CHECKS` | Live checks applied to registry entries by `endpoints()` |
 | `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms, where `--timeout` rejects a larger value). Enforced by the engine for every transport |
-| `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) and for a connection reset (`ECONNRESET`, `EPIPE`, `ECONNABORTED`, undici's `UND_ERR_SOCKET`, anywhere in the error's `cause` chain); 0 to `MAX_RETRIES` (10). A timeout is not retried |
-| `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
+| `maxRetries` | `2` | Retries for 429/503 (see `retryDelayMs` for the waits) and for a connection reset (`ECONNRESET`, `EPIPE`, `ECONNABORTED`, undici's `UND_ERR_SOCKET`, anywhere in the error's `cause` chain); 0 to `MAX_RETRIES` (10). A timeout is not retried |
+| `retryDelayMs` | `500` | Backoff base, 0 to 30 000: linear per attempt for a 503 or a reset; a 429 waits at least 1 s, doubling per attempt. A `Retry-After` (seconds or an HTTP date) can lengthen a wait, never shorten it — `Retry-After: 0` or a past date doesn't make a burst — and every wait is capped at 30 s |
 | `maxRedirects` | `3` | 0 to `MAX_REDIRECTS` (10). Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
 | `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too, and checked by the engine on the body any transport returns |
 | `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1 and not blank, else an `OparlValidationError` (`Invalid userAgent: …`). Only an absent `userAgent` selects the default; `""` or whitespace is rejected, as `--user-agent` rejects it |
 | `defaultHeaders` | none | Extra headers on every request. OParl is anonymous; a credential header (`Authorization`, `Proxy-Authorization`, `X-API-Key`, `Cookie`) is kept in a private field — `util.inspect`, `console.log` and `JSON.stringify` of a client don't show it — and its value is scrubbed (`***`) from error bodies, details, messages and `cause` chains that echo the request |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock); see *Custom transports* below |
 
-The numeric options must be integers in their range — `timeoutMs`, `retryDelayMs` and
-`maxResponseBytes` non-negative, `maxRetries` and `maxRedirects` from 0 to 10. Anything
+The numeric options must be integers in their range — `timeoutMs` and `maxResponseBytes`
+non-negative, `retryDelayMs` from 0 to 30 000, `maxRetries` and `maxRedirects` from 0 to 10. Anything
 else (NaN, Infinity, a fraction, a negative number) is an `OparlValidationError` from the
 constructor, such as `Invalid maxRetries: Expected an integer from 0 to 10.`; it would
 otherwise silently remove the timeout, the size cap or the end of the retry and redirect

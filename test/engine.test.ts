@@ -510,3 +510,18 @@ test("a transport response without a status, or with status 0, is a network erro
     await assert.rejects(engine.getJson(URL_1), OparlNetworkError, String(status));
   }
 });
+
+test("a Retry-After HTTP date is honoured, and retryDelayMs is bounded at 30 s", async () => {
+  const sleeps: number[] = [];
+  let n = 0;
+  const when = new Date(Date.now() + 20_000).toUTCString();
+  const engine = new RequestEngine({
+    transport: async () => (n++ === 0 ? rawResponse("", "text/plain", 503, { "retry-after": when }) : jsonResponse({ id: "x" })),
+    sleep: async (ms) => void sleeps.push(ms),
+  });
+  await engine.getJson(URL_1);
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0]! > 15_000 && sleeps[0]! <= 20_000, String(sleeps[0]));
+  assert.throws(() => new RequestEngine({ retryDelayMs: 30_001 }), OparlValidationError);
+  assert.doesNotThrow(() => new RequestEngine({ retryDelayMs: 30_000 }));
+});

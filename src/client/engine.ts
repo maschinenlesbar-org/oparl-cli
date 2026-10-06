@@ -57,7 +57,12 @@ export interface EngineOptions {
    * not retried.
    */
   maxRetries?: number;
-  /** Base backoff between retries in milliseconds (grows linearly); a non-negative integer. */
+  /**
+   * Base backoff between retries in milliseconds (default 500), 0 to MAX_RETRY_AFTER_MS
+   * (30 000). Grows linearly per attempt for a 503 and a reset; a 429 waits at least 1 s,
+   * doubling per attempt. A Retry-After header (seconds or an HTTP date) can lengthen a
+   * wait, never shorten it; every wait is capped at 30 s.
+   */
   retryDelayMs?: number;
   /**
    * Redirects (301/302/303/307/308) followed per request, same host only. Defaults to 3;
@@ -83,7 +88,29 @@ const DEFAULT_MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
  */
 const FOLLOWED_REDIRECTS = new Set([301, 302, 303, 307, 308]);
 /** Longest wait honoured from a Retry-After header, so a hostile 429 can't stall us. */
-const MAX_RETRY_AFTER_MS = 30_000;
+export const MAX_RETRY_AFTER_MS = 30_000;
+/** Shortest wait before retrying a 429: a rate limit is not lifted in half a second. */
+const MIN_RATE_LIMIT_DELAY_MS = 1_000;
+
+/** An IMF-fixdate (RFC 9110 §5.6.7), the one HTTP-date form senders must generate. */
+const IMF_FIXDATE =
+  /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+/**
+ * Parse a `Retry-After` header into a delay in milliseconds: the delta-seconds form
+ * (`Retry-After: 120`) or the HTTP-date form (`Retry-After: Wed, 21 Oct 2026 07:28:00 GMT`;
+ * a date in the past is 0). Undefined when the header is absent or unparseable, so the
+ * caller falls back to its own backoff. Only an IMF-fixdate reaches `Date.parse`: V8 reads
+ * "1.5" or "-5" as dates in 2001.
+ */
+export function parseRetryAfter(value: string | string[] | undefined): number | undefined {
+  const raw = (Array.isArray(value) ? value[0] : value)?.trim();
+  if (!raw) return undefined;
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000;
+  if (!IMF_FIXDATE.test(raw)) return undefined;
+  const when = Date.parse(raw);
+  return Number.isNaN(when) ? undefined : Math.max(0, when - Date.now());
+}
 /** Deepest JSON nesting accepted; OParl objects are a handful of levels deep. */
 const MAX_JSON_DEPTH = 256;
 
@@ -592,7 +619,7 @@ export class RequestEngine {
     const nonNegative = intRangeProblem(0);
     this.timeoutMs = assertValid("timeoutMs", options.timeoutMs ?? 120_000, nonNegative);
     this.maxRetries = assertValid("maxRetries", options.maxRetries ?? 2, intRangeProblem(0, MAX_RETRIES));
-    this.retryDelayMs = assertValid("retryDelayMs", options.retryDelayMs ?? 500, nonNegative);
+    this.retryDelayMs = assertValid("retryDelayMs", options.retryDelayMs ?? 500, intRangeProblem(0, MAX_RETRY_AFTER_MS));
     this.maxRedirects = assertValid("maxRedirects", options.maxRedirects ?? 3, intRangeProblem(0, MAX_REDIRECTS));
     this.maxResponseBytes = assertValid("maxResponseBytes", options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES, nonNegative);
     this.sleep = options.sleep ?? realSleep;
@@ -695,7 +722,7 @@ export class RequestEngine {
 
       if ((status === 429 || status === 503) && attempt < this.maxRetries) {
         attempt += 1;
-        await this.sleep(this.retryDelay(responseHeaders["retry-after"], attempt));
+        await this.sleep(this.retryDelay(status, responseHeaders["retry-after"], attempt));
         continue;
       }
 
@@ -759,12 +786,21 @@ export class RequestEngine {
     }
   }
 
-  private retryDelay(retryAfter: string | string[] | undefined, attempt: number): number {
-    const value = Array.isArray(retryAfter) ? retryAfter[0] : retryAfter;
-    if (value !== undefined && /^[0-9]+$/.test(value.trim())) {
-      return Math.min(Number(value.trim()) * 1000, MAX_RETRY_AFTER_MS);
-    }
-    return this.retryDelayMs * attempt;
+  /**
+   * The wait before retry `attempt` of a 429 or 503. The normal backoff is the floor: from
+   * 1 s doubling per attempt for a 429 (or from retryDelayMs, if larger), linear from
+   * retryDelayMs for a 503. A Retry-After header — seconds or an HTTP date — can ask for
+   * longer, never for less: `Retry-After: 0` or a date in the past turned the retries into
+   * a burst against a council server that had just asked for less load. Every wait is
+   * capped at MAX_RETRY_AFTER_MS (30 s), so a hostile value can't stall the client.
+   */
+  private retryDelay(status: number, retryAfter: string | string[] | undefined, attempt: number): number {
+    const backoff =
+      status === 429
+        ? Math.max(this.retryDelayMs, MIN_RATE_LIMIT_DELAY_MS) * 2 ** (attempt - 1)
+        : this.retryDelayMs * attempt;
+    const asked = parseRetryAfter(retryAfter);
+    return Math.min(asked === undefined ? backoff : Math.max(asked, backoff), MAX_RETRY_AFTER_MS);
   }
 
   private decode<T>(url: string, rawBody: Buffer, headers: ResponseHeaders): T {
