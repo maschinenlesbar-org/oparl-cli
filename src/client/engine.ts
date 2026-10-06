@@ -38,7 +38,11 @@ export interface EngineOptions {
   transport?: Transport;
   /** Value of the User-Agent header. */
   userAgent?: string;
-  /** Extra headers sent on every request. */
+  /**
+   * Extra headers sent on every request. The values of credential headers (Authorization,
+   * Proxy-Authorization, X-API-Key, Cookie) are kept out of logged clients and errors, and
+   * go only to the origin of the URL a request starts at (see fetchJson).
+   */
   defaultHeaders?: Record<string, string>;
   /**
    * Time limit per request in milliseconds, covering the whole response body, not
@@ -507,10 +511,59 @@ function nonJsonBody(body: Buffer, text: string, type: string): string | null {
   return null;
 }
 
+/** Header names (lower-case) that carry credentials. */
+const CREDENTIAL_HEADERS = new Set(["authorization", "proxy-authorization", "x-api-key", "cookie"]);
+
+/** Whether `name` is a credential header (any case). */
+export function isCredentialHeader(name: string): boolean {
+  return CREDENTIAL_HEADERS.has(name.toLowerCase());
+}
+
+/**
+ * The secret parts of the credential headers among `headers`: the whole value, the part
+ * after an auth scheme (`Bearer <token>` → the token), and for `Basic` the decoded
+ * `user:password` and the password.
+ */
+function credentialSecrets(headers: Record<string, string>): string[] {
+  const secrets = new Set<string>();
+  for (const [name, value] of Object.entries(headers)) {
+    if (!isCredentialHeader(name)) continue;
+    secrets.add(value.trim());
+    const token = value.trim().replace(/^\S+\s+/, "");
+    secrets.add(token);
+    if (/^basic\s/i.test(value.trim())) {
+      const pair = Buffer.from(token, "base64").toString("latin1");
+      secrets.add(pair);
+      if (pair.includes(":")) secrets.add(pair.slice(pair.indexOf(":") + 1));
+    }
+  }
+  // The longest first, so a value is replaced before a part of it.
+  return [...secrets].filter((secret) => secret.length >= 4).sort((a, b) => b.length - a.length);
+}
+
+/**
+ * `text` with every occurrence of each secret (a header value, which has no `@` to anchor
+ * on) replaced by `***`. Secrets shorter than 4 characters are skipped: they are not
+ * credentials, and replacing them would garble the rest of the text.
+ */
+function redactSecrets(text: string, secrets: readonly string[]): string {
+  let out = text;
+  for (const secret of secrets) {
+    if (secret.trim().length < 4) continue;
+    out = out.split(secret).join("***");
+  }
+  return out;
+}
+
 export class RequestEngine {
+  // Real private fields (not TypeScript's `private`): util.inspect, console.log and
+  // JSON.stringify of a client never show them, so a credential a library caller put in
+  // `defaultHeaders` can't be logged by accident.
+  readonly #defaultHeaders: Record<string, string>;
+  /** The secret parts of the credential headers, scrubbed from server and transport text. */
+  readonly #secrets: string[];
   private readonly transport: Transport;
   private readonly userAgent: string;
-  private readonly defaultHeaders: Record<string, string>;
   private readonly timeoutMs: number;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
@@ -522,8 +575,9 @@ export class RequestEngine {
     this.transport = options.transport ?? nodeHttpTransport;
     this.userAgent =
       options.userAgent === undefined ? DEFAULT_USER_AGENT : assertValid("userAgent", options.userAgent, userAgentProblem);
-    this.defaultHeaders = options.defaultHeaders ?? {};
-    for (const [name, value] of Object.entries(this.defaultHeaders)) checkHeader(name, value);
+    this.#defaultHeaders = { ...(options.defaultHeaders ?? {}) };
+    for (const [name, value] of Object.entries(this.#defaultHeaders)) checkHeader(name, value);
+    this.#secrets = credentialSecrets(this.#defaultHeaders);
     // Every numeric option is checked: NaN, Infinity, a fraction or a negative number
     // would silently defeat the comparisons below (no timeout, no cap, no end).
     const nonNegative = intRangeProblem(0);
@@ -556,7 +610,7 @@ export class RequestEngine {
   async fetchJson<T = unknown>(url: string, query?: QueryParams): Promise<JsonResponse<T>> {
     const requested = encodeTimestampPlus(carryQuery(parseHttpUrl(url).href, query));
     const headers: Record<string, string> = {
-      ...this.defaultHeaders,
+      ...this.#defaultHeaders,
       Accept: "application/json",
       "User-Agent": this.userAgent,
     };
@@ -584,7 +638,7 @@ export class RequestEngine {
           await this.sleep(this.retryDelayMs * attempt);
           continue;
         }
-        throw toNetworkError(current, cause);
+        throw this.toNetworkError(current, cause);
       }
 
       // An injected transport may resolve with anything; a malformed response would
@@ -691,7 +745,8 @@ export class RequestEngine {
             (what === "a PDF file"
               ? " — this CLI prints file metadata, it does not download files."
               : " — is this an OParl URL?"),
-        { cause },
+        // V8's SyntaxError quotes the body, which may echo the request's headers.
+        { cause: this.scrubCause(cause) },
       );
     }
     if (jsonDepth(value) > MAX_JSON_DEPTH) {
@@ -750,6 +805,51 @@ export class RequestEngine {
     );
   }
 
+  /**
+   * `text` without the secret parts of the credential headers in `defaultHeaders`: server
+   * text (an error body that echoes the request) and transport text can carry them. Used for
+   * every message the client builds from such text.
+   */
+  redact(text: string): string {
+    return this.#secrets.length === 0 ? text : redactSecrets(text, this.#secrets);
+  }
+
+  /**
+   * An error as the `cause` of the error the engine raises: the original when its text
+   * carries no secret, otherwise a copy with them scrubbed (message, `code` and the cause
+   * chain kept), so logging the error with its causes can't reveal a credential header.
+   */
+  private scrubCause(cause: unknown, depth = 0): unknown {
+    if (this.#secrets.length === 0 || depth > 5) return cause;
+    if (typeof cause === "string") return this.redact(cause);
+    if (!(cause instanceof Error)) return cause;
+    const inner = this.scrubCause(cause.cause, depth + 1);
+    const message = this.redact(cause.message);
+    const stack = cause.stack ?? "";
+    if (message === cause.message && inner === cause.cause && this.redact(stack) === stack) return cause;
+    const copy = new Error(message, inner === undefined ? undefined : { cause: inner });
+    copy.name = cause.name;
+    const code = (cause as { code?: unknown }).code;
+    if (code !== undefined) Object.assign(copy, { code });
+    return copy;
+  }
+
+  /**
+   * What a transport threw, as the error the engine raises. The built-in transport rejects
+   * with OparlNetworkError only, and that passes through; an injected one may throw
+   * anything (a string, fetch's TypeError, an AbortError), which is wrapped into an
+   * OparlNetworkError naming the request, with the original (scrubbed) as `cause` — a
+   * caller (and the CLI) can rely on every failure being an OparlError. Any other
+   * OparlError passes through.
+   */
+  private toNetworkError(url: string, cause: unknown): OparlError {
+    if (cause instanceof OparlError) return cause;
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    return new OparlNetworkError(`GET ${url} failed: ${sanitizeServerText(this.redact(reason))}`, {
+      cause: this.scrubCause(cause),
+    });
+  }
+
   private toApiError(
     url: string,
     status: number,
@@ -766,7 +866,9 @@ export class RequestEngine {
       // rather than replacing it with a decoding complaint.
       decoded = body;
     }
-    const text = decoded.toString("utf8");
+    // A server that echoes the request (its headers included) must not put a credential
+    // into `body`, `detail` or the message.
+    const text = this.redact(decoded.toString("utf8"));
     let detail: string | undefined;
     try {
       // SD.NET answers { error, code }, others { message } / { detail }.
@@ -797,19 +899,6 @@ export class RequestEngine {
       ...(redirectsFollowed !== undefined ? { redirectsFollowed } : {}),
     });
   }
-}
-
-/**
- * What a transport threw, as the error the engine raises. The built-in transport rejects
- * with OparlNetworkError only, and that passes through; an injected one may throw anything
- * (a string, fetch's TypeError, an AbortError), which is wrapped into an OparlNetworkError
- * naming the request, with the original as `cause` — a caller (and the CLI) can rely on
- * every failure being an OparlError. Any other OparlError passes through.
- */
-function toNetworkError(url: string, cause: unknown): OparlError {
-  if (cause instanceof OparlError) return cause;
-  const reason = cause instanceof Error ? cause.message : String(cause);
-  return new OparlNetworkError(`GET ${url} failed: ${sanitizeServerText(reason)}`, { cause });
 }
 
 /**

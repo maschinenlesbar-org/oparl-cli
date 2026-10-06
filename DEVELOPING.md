@@ -117,6 +117,7 @@ const one = await client.get(papers.data[0]!.id);
 | `maxRedirects` | `3` | 0 to `MAX_REDIRECTS` (10). Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
 | `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too, and checked by the engine on the body any transport returns |
 | `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1 and not blank, else an `OparlValidationError` (`Invalid userAgent: …`). Only an absent `userAgent` selects the default; `""` or whitespace is rejected, as `--user-agent` rejects it |
+| `defaultHeaders` | none | Extra headers on every request. OParl is anonymous; a credential header (`Authorization`, `Proxy-Authorization`, `X-API-Key`, `Cookie`) is kept in a private field — `util.inspect`, `console.log` and `JSON.stringify` of a client don't show it — and its value is scrubbed (`***`) from error bodies, details, messages and `cause` chains that echo the request |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock); see *Custom transports* below |
 
 The numeric options must be integers in their range — `timeoutMs`, `retryDelayMs` and

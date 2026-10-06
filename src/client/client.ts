@@ -245,11 +245,11 @@ function listItems(url: string, items: readonly JsonValue[]): JsonObject[] {
  * or `{ "error": "…" }`, without an `id` — stripped of control characters and capped.
  * Null for anything else.
  */
-function errorObjectMessage(value: JsonObject): string | null {
+function errorObjectMessage(value: JsonObject, redact: (text: string) => string): string | null {
   if (typeof value["id"] === "string") return null;
   const message = str(value["message"]) ?? str(value["error"]);
   if (message === null && !/\/Error$/.test(str(value["type"]) ?? "")) return null;
-  return sanitizeServerText(message ?? "(no message)"); // one line, capped
+  return sanitizeServerText(redact(message ?? "(no message)")); // one line, capped
 }
 
 /**
@@ -345,7 +345,7 @@ export class OparlClient {
     if (!isObject(value)) {
       throw new OparlParseError(`Expected an OParl object from ${url} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
     }
-    const message = errorObjectMessage(value);
+    const message = errorObjectMessage(value, (text) => this.engine.redact(text));
     if (message !== null) {
       throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
     }
@@ -395,7 +395,7 @@ export class OparlClient {
       return { page: { data: listItems(url, value as JsonValue[]) as T[] }, url: from };
     }
     if (!isObject(value) || !Array.isArray(value["data"])) {
-      const message = isObject(value) ? errorObjectMessage(value) : null;
+      const message = isObject(value) ? errorObjectMessage(value, (text) => this.engine.redact(text)) : null;
       if (message !== null) {
         throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
       }
