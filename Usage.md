@@ -215,4 +215,8 @@ oparl --compact bodies "$SYSTEM" | jq -c '.data[]'
 oparl --user-agent "stadtdaten-bot (kontakt@example.de)" system "$SYSTEM"
 ```
 
+A start URL on plain `http:` to a remote host (`oparl get http://ris.example/oparl/system`)
+gets one `warning: requests to ris.example are sent unencrypted (http:, not https:)` line on
+stderr per run; loopback hosts and `https:` don't. stdout and the exit code are unchanged.
+
 See the README for the full table and the exit codes.

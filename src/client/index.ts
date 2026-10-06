@@ -33,6 +33,7 @@ export {
   RequestEngine,
   assertHeaderValue,
   carryQuery,
+  cleartextProblem,
   encodeTimestampPlus,
   headerValueProblem,
   parseHttpUrl,

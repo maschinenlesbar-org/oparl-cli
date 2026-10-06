@@ -237,6 +237,14 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `--max-redirects <n>` | Redirects to follow on the same host (0..10, default `3`) |
 | `--max-response-bytes <n>` | Cap response body size in bytes, decompressed size included (`0` = unlimited; default 100 MiB) |
 
+oparl has no `--base-url`: every command names the URL it starts from. When that start URL
+— the `system`/`bodies`/`list`/`get` URL, or for `endpoints` the registry it reads
+(`--registry-url`) — is plain `http:` to a host other than loopback (`localhost`,
+`127.0.0.0/8`, `::1`), the CLI prints one `warning: requests to <host> are sent unencrypted
+(http:, not https:)` line on stderr before the first request, once per run. stdout and the
+exit code are unchanged. (A `user:password@` in a URL is dropped, never sent: OParl access
+is anonymous.)
+
 ## Learn more
 
 - **[SKILLS.md](SKILLS.md)** — Claude Code Agent Skills that drive this CLI.

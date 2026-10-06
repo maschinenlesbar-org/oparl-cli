@@ -7,7 +7,7 @@ import type { CliDeps } from "./io.js";
 import type { OparlClientOptions } from "../client/client.js";
 import { normalizeTimestamp } from "../client/client.js";
 import { OparlError, OparlValidationError } from "../client/errors.js";
-import { parseHttpUrl, userAgentProblem } from "../client/engine.js";
+import { cleartextProblem, parseHttpUrl, userAgentProblem } from "../client/engine.js";
 import type { Problem } from "../client/validate.js";
 
 /**
@@ -224,9 +224,28 @@ export interface ActionContext {
 }
 
 /**
+ * The URL a run starts from: the first positional argument that is an http(s) URL (the
+ * System, Body or object URL `system`, `bodies`, `list` and `get` take), else the registry
+ * URL `endpoints` reads (`--registry-url`, default dev.oparl.org) unless `--source curated`
+ * leaves the registry alone. Undefined when the run reads no URL.
+ */
+export function startUrl(positionals: readonly string[], opts: Record<string, unknown>): string | undefined {
+  const url = positionals.find((p) => /^https?:\/\//i.test(p));
+  if (url !== undefined) return url;
+  const registry = opts["registryUrl"];
+  return typeof registry === "string" && opts["source"] !== "curated" ? registry : undefined;
+}
+
+/**
  * Wrap an async command action with consistent global-option resolution and
  * client construction. The callback receives a context (client + resolved global
  * options + this command's options) and the command's positional arguments.
+ *
+ * Before the client is built (so before the first request) it writes one
+ * `warning: <sentence>` line to stderr when the run's start URL ({@link startUrl}) is
+ * plain `http:` to a host other than loopback (cleartextProblem). oparl has no base URL;
+ * the start URL is the one the command names. Help, version and usage errors never reach
+ * an action, so they never warn.
  *
  * Commander invokes actions as (arg1, ..., argN, options, command); we slice off
  * the trailing options object and command instance to recover the positionals.
@@ -241,6 +260,9 @@ export function action(
     const positionals = args.slice(0, Math.max(0, args.length - 2)) as string[];
     const global = command.optsWithGlobals() as GlobalOptions;
     const opts = command.opts();
+    const start = startUrl(positionals, opts);
+    const cleartext = start === undefined ? undefined : cleartextProblem(start);
+    if (cleartext !== undefined) deps.io.err(`warning: ${cleartext}`);
     const client = deps.createClient({ ...toEngineOptions(global), ...clientOptions(opts) });
     await fn({ client, global, opts }, positionals);
   };

@@ -362,7 +362,12 @@ real 1.1 and 1.0 servers and the registry, moved to example hosts.
   P4/P19 base-URL validation (both skipped here: no base URL, no environment variable), P5
   the transport contract (timeout, size cap, body types, header shapes, resets), P6 the
   retry floor, P7 pipes and exit codes (spawns the built bin), P8/P9/P13 charset, 2xx body
-  shapes and error classes, P10 strict option keys and repeated flags, P12 `-o -`.
+  shapes and error classes, P10 strict option keys and repeated flags, P12 `-o -`. The
+  follow-up round of 2026-10-06 added P20 (`conformance-p20-cleartext-warning`): oparl has no
+  `--base-url`, so the shared cases that pass one are skipped (`BASE_URL_OPTION = false`, a
+  flag the body reads) and the adapter's own cases check the start URL instead — the first
+  URL argument, or the registry `endpoints` reads (`startUrl()` in `shared.ts`); `action()`
+  prints `warning: <cleartextProblem(start)>` on stderr once, before the client is built.
 - **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
   real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
   file holds only filtered objects.
