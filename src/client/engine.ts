@@ -163,6 +163,8 @@ const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
  * free of control bytes.
  */
 export function headerValueProblem(name: string, value: string): string | undefined {
+  // A JavaScript caller may pass anything; iterating a number was a raw TypeError.
+  if (typeof value !== "string") return `The ${name} header value must be a string.`;
   for (const ch of value) {
     const n = ch.codePointAt(0) ?? 0;
     if (n === 0x09) continue;
@@ -195,6 +197,7 @@ export function assertHeaderValue(name: string, value: string): string {
  * CLI's `--user-agent` parser calls this too.
  */
 export function userAgentProblem(value: string): string | undefined {
+  if (typeof value !== "string") return "Expected a string.";
   if (value.trim() === "") return "Expected a non-empty value.";
   return headerValueProblem("User-Agent", value);
 }
@@ -538,6 +541,17 @@ function nonJsonBody(body: Buffer, text: string, type: string): string | null {
   return null;
 }
 
+/**
+ * A function option: `undefined` gives the default; anything else that is not a function
+ * is an OparlValidationError. A string `transport` failed at the first request instead, and
+ * a bad `sleep` as a raw TypeError on the first retry.
+ */
+function functionOption<F>(name: string, value: F | undefined, fallback: F): F {
+  if (value === undefined) return fallback;
+  if (typeof value !== "function") throw new OparlValidationError(`Invalid ${name}: Expected a function, got ${typeof value}.`);
+  return value;
+}
+
 /** The origin of `url` (scheme, host and port), or undefined when it does not parse. */
 function originOf(url: string): string | undefined {
   try {
@@ -608,9 +622,13 @@ export class RequestEngine {
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: EngineOptions = {}) {
-    this.transport = options.transport ?? nodeHttpTransport;
+    this.transport = functionOption("transport", options.transport, nodeHttpTransport);
     this.userAgent =
       options.userAgent === undefined ? DEFAULT_USER_AGENT : assertValid("userAgent", options.userAgent, userAgentProblem);
+    const given: unknown = options.defaultHeaders;
+    if (given !== undefined && (typeof given !== "object" || given === null || Array.isArray(given))) {
+      throw new OparlValidationError("Invalid defaultHeaders: Expected an object of header names and values.");
+    }
     this.#defaultHeaders = { ...(options.defaultHeaders ?? {}) };
     for (const [name, value] of Object.entries(this.#defaultHeaders)) checkHeader(name, value);
     this.#secrets = credentialSecrets(this.#defaultHeaders);
@@ -622,7 +640,7 @@ export class RequestEngine {
     this.retryDelayMs = assertValid("retryDelayMs", options.retryDelayMs ?? 500, intRangeProblem(0, MAX_RETRY_AFTER_MS));
     this.maxRedirects = assertValid("maxRedirects", options.maxRedirects ?? 3, intRangeProblem(0, MAX_REDIRECTS));
     this.maxResponseBytes = assertValid("maxResponseBytes", options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES, nonNegative);
-    this.sleep = options.sleep ?? realSleep;
+    this.sleep = functionOption("sleep", options.sleep, realSleep);
   }
 
   /**

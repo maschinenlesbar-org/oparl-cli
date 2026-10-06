@@ -260,6 +260,13 @@ function errorObjectMessage(value: JsonObject, redact: (text: string) => string)
  * offset is rejected, since the server would have to guess the time zone.
  */
 export function normalizeTimestamp(value: string): string {
+  // A JavaScript caller may pass a Date or a number; `.trim` on it was a raw TypeError.
+  if (typeof value !== "string") {
+    throw new OparlValidationError(
+      "Invalid timestamp: expected a string such as 2026-09-01 or 2026-09-01T12:00:00+02:00, got " +
+        `${(value as unknown) instanceof Date ? "a Date" : typeof value}.`,
+    );
+  }
   const trimmed = value.trim();
   const invalid = (reason: string) => new OparlValidationError(`Invalid timestamp "${value}": ${reason}`);
   const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
@@ -293,6 +300,14 @@ export function normalizeTimestamp(value: string): string {
  * rejected, and so is a window whose start is after its end: nothing can match it, and SD.NET servers answer an empty window with HTTP 404,
  * which reads as "not found".
  */
+/** `omitInternal` as the query value: true or nothing; anything but a boolean is rejected. */
+function omitInternalOption(value: unknown): true | undefined {
+  if (value !== undefined && typeof value !== "boolean") {
+    throw new OparlValidationError("Invalid omitInternal: Expected true or false.");
+  }
+  return value === true ? true : undefined;
+}
+
 export function listQuery(options: ListOptions): QueryParams {
   const query = {
     created_since: options.createdSince !== undefined ? normalizeTimestamp(options.createdSince) : undefined,
@@ -300,7 +315,7 @@ export function listQuery(options: ListOptions): QueryParams {
     modified_since: options.modifiedSince !== undefined ? normalizeTimestamp(options.modifiedSince) : undefined,
     modified_until: options.modifiedUntil !== undefined ? normalizeTimestamp(options.modifiedUntil) : undefined,
     limit: options.limit !== undefined ? assertValid("limit", options.limit, listLimitProblem) : undefined,
-    omit_internal: options.omitInternal ? true : undefined,
+    omit_internal: omitInternalOption(options.omitInternal),
   };
   for (const field of ["created", "modified"] as const) {
     const since = query[`${field}_since`];

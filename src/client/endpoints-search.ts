@@ -3,6 +3,7 @@
 // rules for their values. The CLI's `endpoints --search/--oparl-version/--working` and
 // its value parsers use these same functions.
 
+import { OparlValidationError } from "./errors.js";
 import { assertValid } from "./validate.js";
 import type { RegistryEntry } from "./types.js";
 
@@ -103,6 +104,9 @@ export function checkEndpointFilters(filters: EndpointFilters): EndpointFilters 
   const checked: EndpointFilters = {};
   if (filters.search !== undefined) checked.search = assertValid("search", filters.search, searchTextProblem);
   if (filters.oparlVersion !== undefined) checked.oparlVersion = normalizeOparlVersion(filters.oparlVersion);
+  if (filters.working !== undefined && typeof filters.working !== "boolean") {
+    throw new OparlValidationError("Invalid working: Expected true or false.");
+  }
   if (filters.working) checked.working = true;
   return checked;
 }

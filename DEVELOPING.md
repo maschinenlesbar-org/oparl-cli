@@ -131,7 +131,11 @@ non-negative, `retryDelayMs` from 0 to 30 000, `maxRetries` and `maxRedirects` f
 else (NaN, Infinity, a fraction, a negative number) is an `OparlValidationError` from the
 constructor, such as `Invalid maxRetries: Expected an integer from 0 to 10.`; it would
 otherwise silently remove the timeout, the size cap or the end of the retry and redirect
-loops. The CLI's flags take the same ranges.
+loops. The CLI's flags take the same ranges. Wrong-typed input is the same
+`OparlValidationError`, never a raw `TypeError`: a timestamp filter that is not a string (a
+`Date`), `omitInternal` or `working` that is not a boolean, a `userAgent` or header value
+that is not a string, `defaultHeaders` that is not an object, and a `transport` or `sleep`
+that is not a function.
 
 ### Methods
 
