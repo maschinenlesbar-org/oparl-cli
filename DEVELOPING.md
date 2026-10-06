@@ -236,7 +236,11 @@ levels is rejected before it can blow the stack.
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
 characters *and* by `Content-Type`, since Aachen's error page starts with an HTML comment
 and Apache's with an XML declaration), an XML document or a PDF — and a body that starts
-like JSON is reported as broken JSON whatever the server declared. JSON under a
+like JSON is reported as broken JSON whatever the server declared. A body is decoded by the
+charset its `Content-Type` declares (UTF-8 when none; a byte order mark is dropped): JSON is
+UTF-8 by RFC 8259, but a server that declares `ISO-8859-1` and sends Latin-1 would otherwise
+have every umlaut turned into U+FFFD without a word. An unknown charset is an
+`OparlParseError`. JSON under a
 `text/html` content type is still accepted: several servers send it that way. A
 `Content-Encoding` of gzip, x-gzip, deflate (with or without the zlib wrapper) or br is
 decoded with `node:zlib`; no `Accept-Encoding` is sent, but RFC 9110 §12.5.3 lets a

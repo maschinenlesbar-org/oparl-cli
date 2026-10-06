@@ -805,7 +805,7 @@ export class RequestEngine {
 
   private decode<T>(url: string, rawBody: Buffer, headers: ResponseHeaders): T {
     const body = this.decompress(url, rawBody, headers);
-    const text = body.toString("utf8").replace(/^﻿/, "");
+    const text = decodeText(body, headers, url);
     if (text.trim().length === 0) {
       throw new OparlParseError(`Empty response from ${url} (expected OParl JSON).`);
     }
@@ -949,7 +949,13 @@ export class RequestEngine {
     }
     // A server that echoes the request (its headers included) must not put a credential
     // into `body`, `detail` or the message.
-    const text = this.redact(decoded.toString("utf8"));
+    let raw: string;
+    try {
+      raw = decodeText(decoded, headers, url);
+    } catch {
+      raw = decoded.toString("utf8"); // an unknown charset label: still report the status
+    }
+    const text = this.redact(raw);
     let detail: string | undefined;
     try {
       // SD.NET answers { error, code }, others { message } / { detail }.
@@ -981,6 +987,26 @@ export class RequestEngine {
       ...(credentialsDropped !== undefined ? { credentialsDropped } : {}),
     });
   }
+}
+
+/**
+ * Decode a response body by the charset its Content-Type names (UTF-8 when it names none).
+ * JSON is UTF-8 by RFC 8259, but a server that declares `charset=ISO-8859-1` and sends
+ * Latin-1 bytes had every umlaut turned into U+FFFD, silently. TextDecoder also drops a
+ * leading byte order mark, which JSON.parse would reject. An unknown charset label is an
+ * OparlParseError.
+ */
+function decodeText(body: Buffer, headers: ResponseHeaders, url: string): string {
+  const raw = headers["content-type"];
+  const type = Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? "");
+  const charset = /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(type)?.[1] ?? "utf-8";
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(charset);
+  } catch {
+    throw new OparlParseError(`The response from ${url} declares the charset "${sanitizeServerText(charset, 40)}", which this client cannot decode.`);
+  }
+  return decoder.decode(body);
 }
 
 /**

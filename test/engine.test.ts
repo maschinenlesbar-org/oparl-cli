@@ -525,3 +525,12 @@ test("a Retry-After HTTP date is honoured, and retryDelayMs is bounded at 30 s",
   assert.throws(() => new RequestEngine({ retryDelayMs: 30_001 }), OparlValidationError);
   assert.doesNotThrow(() => new RequestEngine({ retryDelayMs: 30_000 }));
 });
+
+test("a body is decoded by its declared charset; an unknown one is a parse error", async () => {
+  const latin1 = Buffer.from(JSON.stringify({ id: "x", name: "Bürgermeister" }), "latin1");
+  const engine = (contentType: string, body: Buffer) =>
+    new RequestEngine({ transport: async () => rawResponse(body, contentType) });
+  assert.deepEqual(await engine("application/json; charset=ISO-8859-1", latin1).getJson(URL_1), { id: "x", name: "Bürgermeister" });
+  assert.deepEqual(await engine('application/json; charset="utf-8"', Buffer.from('﻿{"id":"ü"}')).getJson(URL_1), { id: "ü" });
+  await assert.rejects(engine("application/json; charset=x-no-such", latin1).getJson(URL_1), OparlParseError);
+});
