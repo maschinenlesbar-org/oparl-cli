@@ -154,7 +154,7 @@ test("a URL argument's credentials are not echoed in a parse error", async () =>
   assert.equal(await run(["get", "ftp://user:hunter2@example.org/x"], cli.deps), 2);
   const err = cli.err.join("\n");
   assert.doesNotMatch(err, /hunter2/, err);
-  assert.match(err, /<redacted>@/);
+  assert.match(err, /\*\*\*@/);
 });
 
 test("-o with an empty name is a usage error, not stdout", async () => {

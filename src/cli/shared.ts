@@ -82,13 +82,14 @@ export function fromLibrary<T>(check: (value: string) => T): (value: string) => 
 export const parseUrl: (value: string) => string = fromLibrary((value) => parseHttpUrl(value).href);
 
 /**
- * Replace the userinfo of any URL in a text with `<redacted>`. `parseUrl` strips
- * `user:password@` from every URL the client uses, but commander quotes the raw
- * argument back in its own parse errors ("argument '…' is invalid"), so anything the
- * CLI prints goes through this first.
+ * Replace the userinfo of any URL in a text with `***`, by pattern: the fallback for a URL
+ * the run's own arguments don't hold (`withRedactedOutput` in run.ts redacts the exact
+ * userinfo of every argument first, which a pattern can't delimit when the password holds a
+ * space, `/` or `#`). `parseUrl` drops `user:password@` from every URL the client uses, but
+ * commander quotes the raw argument back in its own parse errors ("argument '…' is invalid").
  */
-export function redactCredentials(text: string): string {
-  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1<redacted>@");
+export function redactUserinfo(text: string): string {
+  return text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#']*@/gi, "$1***@");
 }
 
 /**

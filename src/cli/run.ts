@@ -5,13 +5,15 @@
 import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
 import type { CliDeps } from "./io.js";
-import { redactCredentials, stripTerminalControls } from "./shared.js";
+import { redactUserinfo, stripTerminalControls } from "./shared.js";
 import {
   OparlApiError,
   OparlError,
   OparlLinkError,
   OparlNetworkError,
   OparlValidationError,
+  credentialsIn,
+  redactCredentials,
 } from "../client/errors.js";
 
 /**
@@ -61,15 +63,43 @@ function configureTree(command: Command, deps: CliDeps): void {
   for (const child of command.commands) configureTree(child, deps);
 }
 
-export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {
-  // Everything written to stderr — our messages and commander's parse errors, which
-  // quote the raw argument — gets any URL userinfo redacted and terminal control
-  // characters removed (an argument such as a URL is echoed in messages as typed).
-  // stdout is left alone: it carries the server's data as escaped JSON.
-  const deps: CliDeps = {
-    ...rawDeps,
-    io: { ...rawDeps.io, err: (text) => rawDeps.io.err(stripTerminalControls(redactCredentials(text))) },
+/**
+ * `deps` with an `io` that keeps the credentials of every argument out of everything it
+ * prints, on stdout and stderr alike. Commander echoes rejected values in its errors
+ * ("argument '…' is invalid"), and the CLI's own messages name URLs: whatever path a
+ * credential takes, the exact userinfo of each argument (as `credentialsIn` finds it, also
+ * in an `--option=value` token, plus its terminal-stripped and JSON-escaped forms) is
+ * replaced by `***`. A pattern alone can't delimit a password holding a space, `/`, `#` or
+ * `@`; the exact strings can. Any other `scheme://user@` left in stderr is redacted by
+ * pattern, and terminal control characters are removed there (an argument such as a URL
+ * is echoed as typed). stdout otherwise passes unchanged: it carries the server's data as
+ * escaped JSON.
+ */
+export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliDeps {
+  // An `--option=value` token is echoed as its value alone.
+  const values = argv.map((token) => (token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token));
+  const secrets = new Set<string>();
+  for (const source of [...argv, ...values]) {
+    for (const secret of credentialsIn(source)) {
+      secrets.add(secret);
+      secrets.add(stripTerminalControls(secret));
+      secrets.add(JSON.stringify(secret).slice(1, -1));
+    }
+  }
+  const list = [...secrets];
+  const exact = (text: string): string => (list.length === 0 ? text : redactCredentials(text, list));
+  return {
+    ...deps,
+    io: {
+      ...deps.io,
+      out: (text) => deps.io.out(exact(text)),
+      err: (text) => deps.io.err(stripTerminalControls(redactUserinfo(exact(text)))),
+    },
   };
+}
+
+export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {
+  const deps = withRedactedOutput(rawDeps, argv);
   const program = buildProgram(deps);
   configureTree(program, deps);
 

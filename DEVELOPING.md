@@ -28,6 +28,15 @@ in a URL — typed or handed out — is dropped: never sent as Basic auth, never
 `OparlClient` does this itself for every URL a caller hands it (`get`, `system`, `bodies`,
 `list`, `page`, `walk`, `registryUrl`): it works with `parseHttpUrl(url).href` from then on,
 in the request and in its own messages, so a library caller gets the same messages as the CLI.
+A URL typed without its scheme (`bob:hunter2@ris.example/oparl`) parses with the scheme
+`bob:` and keeps its password in the path; `redactUrl` cuts it out by text, using
+`credentialsIn`, which finds the exact userinfo of a URL-like value whether it parses or
+not. The CLI goes further, because commander quotes rejected arguments raw: `run()` wraps
+its output (`withRedactedOutput`) so that the exact userinfo of every argument — also in an
+`--option=value` token, and in its terminal-stripped and JSON-escaped forms — is printed as
+`***` on stdout and stderr. A pattern can't delimit a password holding a space, `/`, `#` or
+`@`; the exact strings can. Anything else shaped `scheme://user@` on stderr is redacted by
+pattern (`redactUserinfo`).
 
 "The URL it came from" is the URL the request **ended** on: `RequestEngine.fetchJson`
 returns the last redirect target alongside the decoded body (`getJson` is the same call
@@ -214,7 +223,7 @@ escapes the same characters instead (`escapeControlChars`). Messages also quote 
 user's own arguments as typed (`<url> is not an OParl System`), and the documented
 workflows feed server data into those (`oparl get "$(jq -r .data[0].id)"`), so the CLI
 additionally drops terminal control characters from everything it writes to stderr
-(`stripTerminalControls` in `run.ts`, next to the userinfo redaction). JSON deeper than 256
+(`stripTerminalControls`, applied in `run.ts` next to the userinfo redaction). JSON deeper than 256
 levels is rejected before it can blow the stack.
 
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200

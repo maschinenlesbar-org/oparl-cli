@@ -12,7 +12,7 @@ import zlib from "node:zlib";
 import type { IncomingHttpHeaders } from "node:http";
 import { nodeHttpTransport, type Transport } from "./http.js";
 import { buildQueryString, type QueryParams } from "./query.js";
-import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError } from "./errors.js";
+import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, redactUrl } from "./errors.js";
 import { assertValid, intRangeProblem } from "./validate.js";
 
 const DEFAULT_USER_AGENT = "oparl-cli";
@@ -184,7 +184,12 @@ export function parseHttpUrl(value: string): URL {
   url.username = "";
   url.password = "";
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new OparlValidationError(`Only http: and https: URLs are supported: ${url.href}`);
+    // A URL typed without its scheme (`bob:hunter2@ris.example/oparl`) parses with the
+    // scheme `bob:` and its password in the path, so the userinfo is cut out by text.
+    // `href` keeps control characters percent-encoded.
+    const shown = redactUrl(url.href);
+    const hint = typeof value === "string" && !value.includes("://") ? " Is the https:// missing?" : "";
+    throw new OparlValidationError(`Only http: and https: URLs are supported: ${shown}.${hint}`);
   }
   return url;
 }
