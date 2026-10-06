@@ -51,7 +51,10 @@ against that, as RFC 3986 §5.1.3 requires. A server that redirects `/oparl` to
 `/v1/system` and hands out a relative `"body": "bodies"` otherwise sends the client to
 `/bodies`. The engine also re-applies the caller's query on every redirect hop, so a
 server that redirects a filtered list URL to a path without the query cannot answer the
-unfiltered list unnoticed. One rule for all of it: `carryQuery` **sets** the caller's
+unfiltered list unnoticed; `walk()` hands it the query for every page, not only the
+first (a page-2 redirect used to lose the filters, or send the server's stale ones), and
+`get()`/`page()` hand it the OParl filters the URL itself carries, so `oparl get <next>`
+stays filtered too (`test/redirect-filters.test.ts`, on two local servers). One rule for all of it: `carryQuery` **sets** the caller's
 parameters, replacing whatever copy the URL carried — the requested URL, a redirect
 target and a `next` link alike — and leaves the server's other parameters exactly as it
 wrote them (no `%20` → `+`, no `flag` → `flag=`) (`withQuery`, which appends, is no longer used for

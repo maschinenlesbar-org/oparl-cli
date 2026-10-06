@@ -205,6 +205,27 @@ const str = (value: JsonValue | undefined): string | null => (typeof value === "
  */
 const callerUrl = (url: string): string => parseHttpUrl(url).href;
 
+/** The OParl list parameters: the filters a list URL can carry. */
+const LIST_PARAMS = ["created_since", "created_until", "modified_since", "modified_until", "limit", "omit_internal"];
+
+/**
+ * The OParl filters a URL already carries, as a query to set again on every redirect hop
+ * (see RequestEngine.fetchJson); undefined when it carries none. A literal `+` in a
+ * timestamp is read as the plus sign it stands for (encodeTimestampPlus).
+ */
+function urlFilters(url: string): QueryParams | undefined {
+  const params = new URL(encodeTimestampPlus(url)).searchParams;
+  const query: QueryParams = {};
+  let found = false;
+  for (const name of LIST_PARAMS) {
+    const value = params.get(name);
+    if (value === null) continue;
+    query[name] = value;
+    found = true;
+  }
+  return found ? query : undefined;
+}
+
 /** Whether a URL is one this client could fetch: a valid absolute http/https URL. */
 function isFetchableUrl(url: string): boolean {
   try {
@@ -382,19 +403,26 @@ export class OparlClient {
   }
 
   /**
-   * Fetch one OParl object by URL. Rejects non-objects and OParl/vendor error objects
+   * Fetch one OParl object by URL. The OParl filters the URL carries (`created_since`,
+   * `created_until`, `modified_since`, `modified_until`, `limit`, `omit_internal`) are set
+   * again on every redirect target, so a page URL taken from a walk's `next` keeps its
+   * filters even when the server moves it. Rejects non-objects and OParl/vendor error objects
    * (`{ "type": ".../Error", "message": "…" }`, `{ "error": "…" }`) with an OparlParseError.
    */
   async get<T extends JsonObject = OparlObject>(url: string): Promise<T> {
-    return (await this.getFrom<T>(callerUrl(url))).object;
+    const checked = callerUrl(url);
+    return (await this.getFrom<T>(checked, urlFilters(checked))).object;
   }
 
   /**
    * As `get`, plus the URL the object was finally read from — the base for the relative
    * links it may contain (see RequestEngine.fetchJson).
    */
-  private async getFrom<T extends JsonObject = OparlObject>(url: string): Promise<{ object: T; url: string }> {
-    const { value, url: from } = await this.engine.fetchJson<unknown>(url);
+  private async getFrom<T extends JsonObject = OparlObject>(
+    url: string,
+    query?: QueryParams,
+  ): Promise<{ object: T; url: string }> {
+    const { value, url: from } = await this.engine.fetchJson<unknown>(url, query);
     if (!isObject(value)) {
       throw new OparlParseError(`Expected an OParl object from ${url} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
     }
@@ -430,12 +458,14 @@ export class OparlClient {
   }
 
   /**
-   * Fetch one list page and check it has a `data` array of objects. A server that
+   * Fetch one list page and check it has a `data` array of objects. Without a `query`, the
+   * OParl filters the URL carries are set again on every redirect target (as for `get`). A server that
    * answers a list URL with a bare JSON array instead of a list page (seen on an
    * SD.NET RIM build in Essen) is read as a single page holding those objects.
    */
   async page<T extends JsonObject = OparlObject>(url: string, query?: QueryParams): Promise<OparlListPage<T>> {
-    return (await this.pageFrom<T>(callerUrl(url), query)).page;
+    const checked = callerUrl(url);
+    return (await this.pageFrom<T>(checked, query ?? urlFilters(checked))).page;
   }
 
   /** As `page`, plus the URL it was finally read from (the base for a relative `next`). */
@@ -464,7 +494,9 @@ export class OparlClient {
   /**
    * Walk a list from its first page along `links.next`, staying on the same host.
    * `maxPages` 0 fetches every page. The `query` (filters) is set on every page,
-   * including on the server's `next` links (see carryQuery), and on the `next` returned.
+   * including on the server's `next` links (see carryQuery), on every redirect target of
+   * every page, and on the `next` returned — the server's own (possibly stale) values for
+   * those parameters are replaced, never sent.
    *
    * Objects are listed once per `id`; when a page repeats an `id`, the later copy wins,
    * since that is the newer one — a list that changes while it is being walked serves
@@ -499,10 +531,13 @@ export class OparlClient {
     let note: string | undefined;
     let unproductive = 0;
     while (current !== null && pages < limit) {
-      const pageQuery = pages === 0 ? query : undefined;
       let fetched: { page: OparlListPage<T>; url: string };
       try {
-        fetched = await this.pageFrom<T>(current, pageQuery);
+        // The caller's query goes with every page, not only the first: the `next` link
+        // already carries it, but the engine sets it again on every redirect hop only
+        // when it is handed the query. A page 2 that redirected to a URL without the
+        // filters — or with the server's stale ones — was fetched unfiltered and merged.
+        fetched = await this.pageFrom<T>(current, query);
       } catch (err) {
         // The first page failing is the whole request failing. A later one must not
         // cost the pages already fetched: a redirect this client refuses ends the walk
@@ -527,7 +562,7 @@ export class OparlClient {
       const { page, url: pageUrl } = fetched;
       // The URL the request actually went to, filters included, and the one a redirect
       // took it to, so that a `next` link leading back to either is recognised.
-      seenPages.add(carryQuery(parseHttpUrl(current).href, pageQuery));
+      seenPages.add(encodeTimestampPlus(carryQuery(parseHttpUrl(current).href, query)));
       seenPages.add(pageUrl);
       pages += 1;
       let added = 0;

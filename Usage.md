@@ -119,7 +119,10 @@ empty fields), which the `select` drops. For new papers only, also compare `date
 
 The filter is sent with every page: your value replaces the one a server put into its own
 `next` link (several get the encoding wrong) or into a list URL, and it is sent again if
-the server redirects the request elsewhere. So every page of the result is filtered alike.
+the server redirects the request elsewhere — on page 2 or later as on the first, and in
+place of any stale value the redirect carries. So every page of the result is filtered
+alike, and so is the `-o` file of a delta sync. A redirect to another host is never
+followed: the walk ends there with a note, keeping the pages it has.
 
 Some servers answer a filter they cannot satisfy with an error instead of an empty list:
 SD.NET RIM (Bremen, Essen and most other `…/webservice/oparl/…` endpoints) replies HTTP

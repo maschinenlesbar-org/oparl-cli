@@ -109,7 +109,8 @@ ALLRIS's `papers.asp?body=1&limit=100` would be asked for two page sizes at once
 redirect that drops the query would quietly answer the unfiltered list. Every request
 also sends a literal `+` in the four date parameters as `%2B`: Somacos servers put
 `modified_since=…+00:00` unencoded into their `next` links, and would read the `+` as a
-space, so a raw page's `.links.next` can be passed to `oparl get` as it is.
+space, so a raw page's `.links.next` can be passed to `oparl get` as it is. `oparl get`
+also keeps the OParl filters such a page URL carries when the server redirects it.
 
 `list` returns `{ "data": [...], "pages": n, "next": "…" }`. `next` is the link to the
 following page, or `null` at the end: continue with `oparl get <next>` or a higher
