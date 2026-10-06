@@ -10,7 +10,7 @@ import { defaultIO } from "./io.js";
 import { OparlClient } from "../client/client.js";
 import { MAX_TIMEOUT_MS } from "../client/http.js";
 import { MAX_REDIRECTS, MAX_RETRIES } from "../client/engine.js";
-import { parseBoundedInt, parseHeaderValue, parseIntArg, parseNonEmpty } from "./shared.js";
+import { forbidRepeatedOptions, parseBoundedInt, parseHeaderValue, parseIntArg, parseNonEmpty } from "./shared.js";
 import { registerCommands } from "./commands/oparl.js";
 
 /**
@@ -75,6 +75,7 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
     .showHelpAfterError();
 
   registerCommands(program, deps);
+  forbidRepeatedOptions(program);
 
   return program;
 }

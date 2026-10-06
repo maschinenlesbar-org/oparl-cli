@@ -26,7 +26,7 @@ import {
 import type { QueryParams } from "./query.js";
 import { OparlError, OparlLinkError, OparlParseError, OparlValidationError } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
-import { assertValid, listLimitProblem, maxPagesProblem } from "./validate.js";
+import { assertKnownKeys, assertOptionsObject, assertValid, listLimitProblem, maxPagesProblem } from "./validate.js";
 import { checkEndpointFilters, filterEndpoints, shortOparlVersion, type EndpointFilters } from "./endpoints-search.js";
 import type {
   CuratedEndpoint,
@@ -111,6 +111,38 @@ const MAX_UNPRODUCTIVE_PAGES = 3;
 
 /** The lists an OParl 1.0 Body links; 1.1 added the rest of LIST_TYPES. */
 const LIST_TYPES_1_0: readonly ListType[] = ["organization", "person", "meeting", "paper"];
+
+/** The keys `list()` takes in its options. */
+const LIST_OPTION_NAMES = [
+  "maxPages",
+  "createdSince",
+  "createdUntil",
+  "modifiedSince",
+  "modifiedUntil",
+  "limit",
+  "omitInternal",
+] as const satisfies ReadonlyArray<keyof ListOptions>;
+
+/** The keys `endpoints()` and `endpointsReport()` take. */
+const ENDPOINTS_OPTION_NAMES = ["source", "search", "oparlVersion", "working"] as const satisfies ReadonlyArray<
+  keyof EndpointsOptions
+>;
+
+/** The keys the client's constructor takes. */
+const CLIENT_OPTION_NAMES = [
+  "registryUrl",
+  "curatedEndpoints",
+  "registryChecks",
+  "transport",
+  "userAgent",
+  "defaultHeaders",
+  "timeoutMs",
+  "maxRetries",
+  "retryDelayMs",
+  "maxRedirects",
+  "maxResponseBytes",
+  "sleep",
+] as const satisfies ReadonlyArray<keyof OparlClientOptions>;
 
 export interface ListOptions {
   /** Pages to fetch; 0 means all. Defaults to 1. A non-negative integer, checked before any request. */
@@ -309,6 +341,8 @@ function omitInternalOption(value: unknown): true | undefined {
 }
 
 export function listQuery(options: ListOptions): QueryParams {
+  assertOptionsObject("list options", options);
+  assertKnownKeys("list option", options, LIST_OPTION_NAMES);
   const query = {
     created_since: options.createdSince !== undefined ? normalizeTimestamp(options.createdSince) : undefined,
     created_until: options.createdUntil !== undefined ? normalizeTimestamp(options.createdUntil) : undefined,
@@ -337,6 +371,10 @@ export class OparlClient {
   private readonly registryChecks: readonly RegistryCheck[];
 
   constructor(options: OparlClientOptions = {}) {
+    // A JavaScript caller may pass null for "no options"; treat it like undefined.
+    options = options ?? {};
+    assertOptionsObject("client options", options);
+    assertKnownKeys("client option", options, CLIENT_OPTION_NAMES);
     this.engine = new RequestEngine(options);
     this.registryUrl = options.registryUrl === undefined ? DEFAULT_REGISTRY_URL : checkedRegistryUrl(options.registryUrl);
     this.curatedEndpoints = checkedEndpointList(options.curatedEndpoints ?? CURATED_ENDPOINTS, "curatedEndpoints");
@@ -562,6 +600,8 @@ export class OparlClient {
 
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
   async bodies(systemUrl: string, options: { maxPages?: number } = {}): Promise<ListResult<OparlBody>> {
+    assertOptionsObject("bodies options", options);
+    assertKnownKeys("bodies option", options, ["maxPages"]);
     const maxPages = assertValid("maxPages", options.maxPages ?? 0, maxPagesProblem);
     const { system, url } = await this.systemFrom(callerUrl(systemUrl));
     return this.walk<OparlBody>(resolveLink(url, system.body), undefined, maxPages);
@@ -583,8 +623,8 @@ export class OparlClient {
       throw new OparlValidationError(`Unknown list type "${String(type)}". Use one of: ${Object.keys(LIST_TYPES).join(", ")}.`);
     }
     const field = LIST_TYPES[type];
+    const query = listQuery(options); // checks the options' shape and keys first
     const maxPages = assertValid("maxPages", options.maxPages ?? 1, maxPagesProblem);
-    const query = listQuery(options);
     bodyUrl = callerUrl(bodyUrl);
     const { object: body, url: from } = await this.getFrom<JsonObject>(bodyUrl);
     const bodyType = str(body["type"]) ?? "";
@@ -667,6 +707,8 @@ export class OparlClient {
    * "registry" the error is thrown, since there would be nothing left to return.
    */
   async endpointsReport(options: EndpointsOptions = {}): Promise<EndpointsReport> {
+    assertOptionsObject("endpoints options", options);
+    assertKnownKeys("endpoints option", options, ENDPOINTS_OPTION_NAMES);
     const source = options.source ?? "all";
     if (source !== "all" && source !== "registry" && source !== "curated") {
       throw new OparlValidationError(`Unknown endpoint source "${String(source)}". Use all, registry or curated.`);

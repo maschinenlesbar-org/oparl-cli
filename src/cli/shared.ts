@@ -125,6 +125,30 @@ export function parseTimestamp(value: string): string {
  */
 export const parseHeaderValue: (value: string) => string = fromProblem(userAgentProblem);
 
+/**
+ * Make giving a single-value option twice a usage error, on `command` and every
+ * subcommand. Commander keeps the last value silently: `--modified-since 2026-09-01
+ * --modified-since 2026-08-01` walked from August, and `--limit 2 --limit 5` asked for 5,
+ * with nothing telling the user that a value was dropped. Flags without a value are left
+ * alone. Call it once on a freshly built program: the check counts per Option object.
+ */
+export function forbidRepeatedOptions(command: Command): void {
+  for (const option of command.options) {
+    if ((!option.required && !option.optional) || option.variadic) continue;
+    const parse = option.parseArg;
+    let given = false;
+    const guarded = (value: string, previous: unknown): unknown => {
+      if (given) {
+        throw new InvalidArgumentError(`${option.long ?? option.short} was given more than once; it takes one value.`);
+      }
+      given = true;
+      return parse === undefined ? value : parse(value, previous);
+    };
+    option.parseArg = guarded as typeof option.parseArg;
+  }
+  for (const child of command.commands) forbidRepeatedOptions(child);
+}
+
 export interface GlobalOptions {
   timeout?: number;
   userAgent?: string;

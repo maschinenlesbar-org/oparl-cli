@@ -139,7 +139,8 @@ oparl get "$next" | jq '.data | length'
 ```
 
 Use `--compact` for single-line JSON and `-o <file>` to write to a file — both are
-**global options** that work before or after the command.
+**global options** that work before or after the command. Every option takes one value:
+giving one twice (`--limit 2 --limit 5`) is a usage error rather than "the last one wins".
 
 **Exit codes** make the CLI easy to use in scripts:
 

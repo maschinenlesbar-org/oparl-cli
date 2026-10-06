@@ -137,6 +137,13 @@ loops. The CLI's flags take the same ranges. Wrong-typed input is the same
 that is not a string, `defaultHeaders` that is not an object, and a `transport` or `sleep`
 that is not a function.
 
+The constructor, `list()`, `bodies()` and `endpoints()`/`endpointsReport()` reject an
+options key they don't take — an unknown or misspelled one, the OParl parameter name
+instead of the option (`modified_since` for `modifiedSince`), or `__proto__` from parsed
+JSON — with an `OparlValidationError` (`Unknown list option "modified_since" (did you mean
+modifiedSince?).`). Such a key was ignored, so the filter was never sent and the server
+answered the whole list. The CLI makes a repeated single-value option a usage error.
+
 ### Methods
 
 | Method | Returns |

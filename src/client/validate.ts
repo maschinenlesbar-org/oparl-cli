@@ -49,3 +49,33 @@ export function intRangeProblem(min: number, max: number = Number.MAX_SAFE_INTEG
     min === 0 && max === Number.MAX_SAFE_INTEGER ? "Expected a non-negative integer." : `Expected an integer from ${min} to ${max}.`;
   return (value) => (Number.isSafeInteger(value) && value >= min && value <= max ? undefined : expected);
 }
+
+/**
+ * Throw an OparlValidationError for a key of `options` that is not one of `known` — an
+ * unknown, misspelled or wrongly cased name (`modified_since` for `modifiedSince`), or
+ * `__proto__` from parsed JSON. A JavaScript caller's typo was ignored silently: the
+ * filter was never sent, and the server answered the whole unfiltered list. A key whose
+ * value is `undefined` changes nothing and is let through (a spread config).
+ */
+export function assertKnownKeys(what: string, options: object, known: readonly string[]): void {
+  for (const key of Object.keys(options)) {
+    if ((options as Record<string, unknown>)[key] === undefined || known.includes(key)) continue;
+    const folded = key.toLowerCase().replace(/[_-]/g, "");
+    const hint = known.find((name) => name.toLowerCase() === folded);
+    throw new OparlValidationError(
+      `Unknown ${what} ${JSON.stringify(key.slice(0, 60))}` +
+        (hint !== undefined ? ` (did you mean ${hint}?).` : `; use ${known.join(", ")}.`),
+    );
+  }
+}
+
+/**
+ * Throw an OparlValidationError unless `options` is undefined or a plain object. An
+ * array or a string passed where options belong was read key by key, or ignored.
+ */
+export function assertOptionsObject(what: string, options: unknown): void {
+  if (options === undefined) return;
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new OparlValidationError(`Invalid ${what}: Expected an object.`);
+  }
+}
