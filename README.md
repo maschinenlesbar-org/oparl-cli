@@ -36,7 +36,7 @@ their meetings, papers or persons as clean JSON you can pipe straight into
 npm i -g @maschinenlesbar.org/oparl-cli
 ```
 
-This installs the **`oparl`** command. Requires **Node.js 20+**. No API key.
+This installs the **`oparl`** command. Requires **Node.js 22.12+**. No API key.
 
 Check it works:
 

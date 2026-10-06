@@ -8,6 +8,7 @@
 // which is why redirects and links are kept on the host they came from (see
 // resolveLink).
 
+import { TextDecoder } from "node:util";
 import zlib from "node:zlib";
 import { MAX_TIMEOUT_MS, nodeHttpTransport, sizeLimitMessage, type HttpRequest, type HttpResponse, type Transport } from "./http.js";
 import { buildQueryString, type QueryParams } from "./query.js";

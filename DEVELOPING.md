@@ -355,7 +355,7 @@ real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- **ci.yml** — typecheck, build and test on Node 20/22/24 for every push and PR.
+- **ci.yml** — typecheck, build and test on Node 22/24 for every push and PR.
 - **release.yml** — on a `v*` tag: test, `npm pack`, CycloneDX SBOMs, a changelog, and a
   GitHub Release.
 - **publish.yml** — manual dispatch: publish to npm via OIDC **Trusted Publishing** (no
