@@ -151,6 +151,9 @@ Use `--compact` for single-line JSON and `-o <file>` to write to a file — both
 | `6` | Network / transport failure (DNS, connection, timeout, size cap, no response at all) |
 | `1` | Any other error — a non-OParl response, a refused link, another HTTP status |
 
+A reader that stops early (`| head`) ends the run quietly with `0`; if stderr's reader is
+gone, a failed run still exits with its own code.
+
 ## Troubleshooting
 
 - **The registry is unreachable** — dev.oparl.org is a single third-party host. When it
