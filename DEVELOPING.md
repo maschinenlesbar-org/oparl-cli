@@ -354,6 +354,19 @@ through `run()` and through a library call on the same recording transport, so a
 assert both reject without a request or both send the same requests. Fixtures in `test/fixtures.ts` are shaped after
 real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
+- **`conformance-p*.test.ts`** — the checks shared across the `*-cli` repos (fix plan
+  `.reviews/2026-10-05-exploratory/fix-plan.md` in the workspace), one file per pattern, the
+  same code in every repo apart from an adapter block at the top: P1 credential redaction in
+  CLI output, P2 in library objects and errors, P3 credentials across redirects (a two-port
+  mock pair; oparl's adapter refuses cross-origin redirects and sends no URL userinfo),
+  P4/P19 base-URL validation (both skipped here: no base URL, no environment variable), P5
+  the transport contract (timeout, size cap, body types, header shapes, resets), P6 the
+  retry floor, P7 pipes and exit codes (spawns the built bin), P8/P9/P13 charset, 2xx body
+  shapes and error classes, P10 strict option keys and repeated flags, P12 `-o -`.
+- **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
+  real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
+  file holds only filtered objects.
+
 ## Continuous integration
 
 GitHub Actions workflows under `.github/workflows/`:
