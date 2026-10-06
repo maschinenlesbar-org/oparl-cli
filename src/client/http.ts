@@ -21,8 +21,22 @@ export interface HttpRequest {
   timeoutMs?: number;
   /** Hard cap on the response body size in bytes; the request aborts if exceeded. */
   maxResponseBytes?: number;
+  /**
+   * Aborted when the engine's overall deadline (`timeoutMs`) passes. A transport should stop
+   * the request then (`fetch(url, { signal })`); the engine rejects at the deadline either
+   * way, and enforces `maxResponseBytes` on the body it gets back, so neither limit depends
+   * on the transport.
+   */
+  signal?: AbortSignal;
 }
 
+/**
+ * What a transport resolves with. The engine checks the shape (an integer `status` from 100
+ * to 599, a `headers` object, a byte-array `body`) and rejects anything else as an
+ * OparlNetworkError. `headers` may be Node's lower-case record, a record in any case, a
+ * fetch `Headers` object or a `Map`; `body` a Buffer, any ArrayBuffer view (fetch's
+ * Uint8Array, from any realm) or an ArrayBuffer.
+ */
 export interface HttpResponse {
   status: number;
   headers: http.IncomingHttpHeaders;
@@ -30,6 +44,11 @@ export interface HttpResponse {
 }
 
 export type Transport = (request: HttpRequest) => Promise<HttpResponse>;
+
+/** The message for a body over the size cap, naming the option on both sides. */
+export function sizeLimitMessage(maxBytes: number): string {
+  return `Response exceeded the size limit of ${maxBytes} bytes (maxResponseBytes; --max-response-bytes on the CLI)`;
+}
 
 /**
  * The longest delay Node's timers support (2^31 - 1 ms, about 24.8 days). A longer one
@@ -94,7 +113,7 @@ export const nodeHttpTransport: Transport = (request) =>
             if (maxBytes !== undefined && received > maxBytes) {
               aborted = true;
               res.destroy();
-              fail(new OparlNetworkError(`Response exceeded maxResponseBytes (${maxBytes})`));
+              fail(new OparlNetworkError(sizeLimitMessage(maxBytes)));
               return;
             }
             chunks.push(chunk);
@@ -128,6 +147,17 @@ export const nodeHttpTransport: Transport = (request) =>
         fail(err);
         req.destroy(err);
       }, Math.min(timeoutMs, MAX_TIMEOUT_MS));
+    }
+
+    // The engine's overall deadline (HttpRequest.signal): stop the request when it fires.
+    if (request.signal !== undefined) {
+      const abort = (): void => {
+        const err = new OparlNetworkError(`Request timed out after ${request.timeoutMs ?? 0}ms`);
+        fail(err);
+        req.destroy(err);
+      };
+      if (request.signal.aborted) abort();
+      else request.signal.addEventListener("abort", abort, { once: true });
     }
 
     req.on("error", (err) => {

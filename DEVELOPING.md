@@ -111,13 +111,13 @@ const one = await client.get(papers.data[0]!.id);
 | `registryUrl` | `https://dev.oparl.org/api/endpoints` | Endpoint registry used by `endpoints()`; an http(s) URL, checked by the constructor (`Invalid registryUrl: …`), with any `user:password@` dropped |
 | `curatedEndpoints` | `CURATED_ENDPOINTS` | Endpoints the registry lacks, appended by `endpoints()` |
 | `registryChecks` | `REGISTRY_CHECKS` | Live checks applied to registry entries by `endpoints()` |
-| `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms, where `--timeout` rejects a larger value) |
-| `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s); 0 to `MAX_RETRIES` (10) |
+| `timeoutMs` | `120000` | Time limit per request, covering the whole response body, not only idle gaps (0 disables; capped at `MAX_TIMEOUT_MS`, 2^31 - 1 ms, where `--timeout` rejects a larger value). Enforced by the engine for every transport |
+| `maxRetries` | `2` | Retries for 429/503 (Retry-After in seconds honoured, capped at 30 s) and for a connection reset (`ECONNRESET`, `EPIPE`, `ECONNABORTED`, undici's `UND_ERR_SOCKET`, anywhere in the error's `cause` chain); 0 to `MAX_RETRIES` (10). A timeout is not retried |
 | `retryDelayMs` | `500` | Linear backoff base when there is no Retry-After |
 | `maxRedirects` | `3` | 0 to `MAX_REDIRECTS` (10). Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
-| `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too |
+| `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too, and checked by the engine on the body any transport returns |
 | `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1 and not blank, else an `OparlValidationError` (`Invalid userAgent: …`). Only an absent `userAgent` selects the default; `""` or whitespace is rejected, as `--user-agent` rejects it |
-| `transport` | node http/https | Swap the HTTP layer (tests inject a mock) |
+| `transport` | node http/https | Swap the HTTP layer (tests inject a mock); see *Custom transports* below |
 
 The numeric options must be integers in their range — `timeoutMs`, `retryDelayMs` and
 `maxResponseBytes` non-negative, `maxRetries` and `maxRedirects` from 0 to 10. Anything
@@ -234,6 +234,18 @@ like JSON is reported as broken JSON whatever the server declared. JSON under a
 `Content-Encoding` of gzip, x-gzip, deflate (with or without the zlib wrapper) or br is
 decoded with `node:zlib`; no `Accept-Encoding` is sent, but RFC 9110 §12.5.3 lets a
 server compress anyway.
+
+**Custom transports.** The engine holds the transport to the documented limits itself, so a
+`fetch` or `node:http` transport gets the same guarantees as the built-in one. It runs every
+call under the `timeoutMs` deadline and passes an `AbortSignal` (`HttpRequest.signal`) that
+fires then; the call rejects at the deadline whether the transport stops or not. It checks
+`maxResponseBytes` on the body it gets back. It accepts the body as a Buffer, any
+`ArrayBuffer` view (fetch's `Uint8Array`, from any realm) or an `ArrayBuffer`, and the
+headers as a plain record in any case, a `Headers` object or a `Map` — `Location` and
+`Retry-After` are found in all of them. A response without an integer status from 100 to
+599, without a headers object or without a byte-array body is an `OparlNetworkError`, never
+data; so is whatever the transport throws (a string, fetch's `TypeError`, an `AbortError`),
+with the original as `cause`.
 
 The transport rejects a request that ends without a response — a server answering
 HTTP 101 (`upgrade`), a socket closed after the headers — instead of leaving the promise

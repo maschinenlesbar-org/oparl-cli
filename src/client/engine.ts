@@ -9,10 +9,17 @@
 // resolveLink).
 
 import zlib from "node:zlib";
-import type { IncomingHttpHeaders } from "node:http";
-import { nodeHttpTransport, type Transport } from "./http.js";
+import { MAX_TIMEOUT_MS, nodeHttpTransport, sizeLimitMessage, type HttpRequest, type HttpResponse, type Transport } from "./http.js";
 import { buildQueryString, type QueryParams } from "./query.js";
-import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, redactUrl } from "./errors.js";
+import {
+  OparlApiError,
+  OparlError,
+  OparlLinkError,
+  OparlNetworkError,
+  OparlParseError,
+  OparlValidationError,
+  redactUrl,
+} from "./errors.js";
 import { assertValid, intRangeProblem } from "./validate.js";
 
 const DEFAULT_USER_AGENT = "oparl-cli";
@@ -23,7 +30,11 @@ export const MAX_RETRIES = 10;
 export const MAX_REDIRECTS = 10;
 
 export interface EngineOptions {
-  /** Swappable transport. Defaults to the built-in node http/https transport. */
+  /**
+   * Swappable transport. Defaults to the built-in node http/https transport. The engine
+   * enforces `timeoutMs` and `maxResponseBytes` on any transport and checks the shape of
+   * what it returns (see HttpResponse).
+   */
   transport?: Transport;
   /** Value of the User-Agent header. */
   userAgent?: string;
@@ -33,10 +44,14 @@ export interface EngineOptions {
    * Time limit per request in milliseconds, covering the whole response body, not
    * only idle gaps (0 disables). Defaults to 120 s: some
    * council systems take well over 30 s to render a single list page. A non-negative
-   * integer; the transport caps it at MAX_TIMEOUT_MS.
+   * integer, capped at MAX_TIMEOUT_MS. The engine enforces it for every transport.
    */
   timeoutMs?: number;
-  /** Number of automatic retries for transient (429/503) responses: 0 to MAX_RETRIES. */
+  /**
+   * Number of automatic retries for transient 429/503 responses and reset connections
+   * (ECONNRESET, EPIPE, ECONNABORTED, UND_ERR_SOCKET): 0 to MAX_RETRIES. Timeouts are
+   * not retried.
+   */
   maxRetries?: number;
   /** Base backoff between retries in milliseconds (grows linearly); a non-negative integer. */
   retryDelayMs?: number;
@@ -371,6 +386,71 @@ export function encodeTimestampPlus(url: string): string {
   return changed ? `${url.slice(0, start + 1)}${parts.join("&")}${url.slice(end)}` : url;
 }
 
+/** Response headers as the engine reads them: a record with lower-case names. */
+type ResponseHeaders = Record<string, string | string[] | undefined>;
+
+/** Why `value` is not a usable HttpResponse, or undefined when it is. */
+function responseProblem(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) return "not an object";
+  const r = value as Partial<Record<"status" | "headers" | "body", unknown>>;
+  if (typeof r.status !== "number" || !Number.isInteger(r.status) || r.status < 100 || r.status > 599) {
+    return "status is not an HTTP status code";
+  }
+  if (typeof r.headers !== "object" || r.headers === null || Array.isArray(r.headers)) return "headers is not an object";
+  if (bodyBytes(r.body) === undefined) return "body is not a Buffer, Uint8Array, other ArrayBuffer view or ArrayBuffer";
+  return undefined;
+}
+
+/**
+ * The response body as a Buffer (a view, no copy): a Buffer, any ArrayBuffer view (a
+ * Uint8Array from fetch, a DataView) or an ArrayBuffer/SharedArrayBuffer — checked by
+ * internal slot, not `instanceof`, so a value from another realm (a vm context, a Jest
+ * test) counts. Undefined for anything else.
+ */
+function bodyBytes(value: unknown): Buffer | undefined {
+  if (Buffer.isBuffer(value)) return value;
+  if (ArrayBuffer.isView(value)) return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  const tag = Object.prototype.toString.call(value);
+  if (tag === "[object ArrayBuffer]" || tag === "[object SharedArrayBuffer]") return Buffer.from(value as ArrayBuffer);
+  return undefined;
+}
+
+/**
+ * The response headers as a plain record with lower-case names. A transport built on
+ * `fetch` naturally returns its `Headers` object, which has no plain properties: the
+ * engine then saw no `Location` ("redirect not followed (no Location header)") and no
+ * `Retry-After`. Such an object (anything with `get` and `forEach`, a `Map` included) is
+ * copied into a record; a plain record gets its names lower-cased, as the engine reads
+ * them (`{ Location: … }` type-checks as IncomingHttpHeaders).
+ */
+function plainHeaders(headers: object): ResponseHeaders {
+  const h = headers as { get?: unknown; forEach?: unknown };
+  if (typeof h.get === "function" && typeof h.forEach === "function") {
+    const record: Record<string, string> = {};
+    (h.forEach as (cb: (value: unknown, name: unknown) => void) => void).call(headers, (value, name) => {
+      record[String(name).toLowerCase()] = String(value);
+    });
+    return record;
+  }
+  const record: ResponseHeaders = {};
+  for (const [name, value] of Object.entries(headers as ResponseHeaders)) record[name.toLowerCase()] = value;
+  return record;
+}
+
+/**
+ * Error codes of a connection that broke off mid-request: Node's (`socket hang up` is
+ * ECONNRESET) and undici's (`fetch failed` with cause UND_ERR_SOCKET, "other side closed").
+ */
+const TRANSIENT_NETWORK_CODES = new Set(["ECONNRESET", "EPIPE", "ECONNABORTED", "UND_ERR_SOCKET"]);
+
+/** True when `err` or an error in its `cause` chain has a transient connection code. */
+function hasTransientCode(err: unknown, depth = 0): boolean {
+  if (typeof err !== "object" || err === null || depth > 4) return false;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === "string" && TRANSIENT_NETWORK_CODES.has(code)) return true;
+  return hasTransientCode((err as { cause?: unknown }).cause, depth + 1);
+}
+
 function jsonDepth(value: unknown): number {
   let max = 0;
   const stack: Array<[unknown, number]> = [[value, 1]];
@@ -400,7 +480,7 @@ export interface JsonResponse<T> {
 }
 
 /** The `Content-Type` of a response, without parameters, lowercased and sanitised. */
-function contentType(headers: IncomingHttpHeaders): string {
+function contentType(headers: ResponseHeaders): string {
   const raw = headers["content-type"];
   const value = Array.isArray(raw) ? raw[0] ?? "" : raw ?? "";
   return sanitizeServerText(value.split(";")[0]?.trim().toLowerCase() ?? "", 60);
@@ -485,44 +565,99 @@ export class RequestEngine {
     let redirects = 0;
     let attempt = 0;
     for (;;) {
-      const response = await this.transport({
-        method: "GET",
-        url: current,
-        headers,
-        timeoutMs: this.timeoutMs,
-        ...(this.maxResponseBytes > 0 ? { maxResponseBytes: this.maxResponseBytes } : {}),
-      });
+      let raw: unknown;
+      try {
+        raw = await this.callTransport({
+          method: "GET",
+          url: current,
+          headers,
+          timeoutMs: this.timeoutMs,
+          ...(this.maxResponseBytes > 0 ? { maxResponseBytes: this.maxResponseBytes } : {}),
+        });
+      } catch (cause) {
+        // A connection the server reset is the network-level twin of a 503: the GET is
+        // sent again, whichever transport reported it (Node's ECONNRESET, fetch's
+        // UND_ERR_SOCKET). A timeout is not retried: a slow council system should not be
+        // asked again at once.
+        if (hasTransientCode(cause) && attempt < this.maxRetries) {
+          attempt += 1;
+          await this.sleep(this.retryDelayMs * attempt);
+          continue;
+        }
+        throw toNetworkError(current, cause);
+      }
+
+      // An injected transport may resolve with anything; a malformed response would
+      // otherwise surface below as a raw TypeError, or — without a status — as a success.
+      const invalid = responseProblem(raw);
+      if (invalid !== undefined) {
+        throw new OparlNetworkError(`GET ${current} failed: the transport returned an invalid response (${invalid}).`);
+      }
+      const response = raw as HttpResponse;
       const status = response.status;
+      const responseHeaders = plainHeaders(response.headers);
+      const body = bodyBytes(response.body) as Buffer;
+      // The size cap holds whatever the transport did: the built-in one aborts early, a
+      // custom one may have read everything.
+      if (this.maxResponseBytes > 0 && body.byteLength > this.maxResponseBytes) {
+        throw new OparlNetworkError(`GET ${current} failed: ${sizeLimitMessage(this.maxResponseBytes)}`);
+      }
 
       if ((status === 429 || status === 503) && attempt < this.maxRetries) {
         attempt += 1;
-        await this.sleep(this.retryDelay(response.headers["retry-after"], attempt));
+        await this.sleep(this.retryDelay(responseHeaders["retry-after"], attempt));
         continue;
       }
 
       if (status >= 300 && status < 400) {
-        const header = response.headers["location"];
+        const header = responseHeaders["location"];
         const location = typeof header === "string" && header.trim() !== "" ? header : undefined;
         if (location !== undefined && FOLLOWED_REDIRECTS.has(status)) {
           if (redirects >= this.maxRedirects) {
             // A loop or a long chain: say how far it got. (With maxRedirects 0 nothing
             // was followed, and the plain text says enough.)
-            throw this.toApiError(current, status, response.body, response.headers, location, redirects || undefined);
+            throw this.toApiError(current, status, body, responseHeaders, location, redirects || undefined);
           }
           redirects += 1;
           current = encodeTimestampPlus(carryQuery(resolveLink(current, location), query));
           continue;
         }
         // Any other 3xx, or one without a Location: nothing to follow.
-        throw this.toApiError(current, status, response.body, response.headers, location);
+        throw this.toApiError(current, status, body, responseHeaders, location);
       }
 
       if (status < 200 || status >= 300) {
-        throw this.toApiError(current, status, response.body, response.headers);
+        throw this.toApiError(current, status, body, responseHeaders);
       }
 
-      const value = upgradeSameHostUrls(this.decode<T>(current, response.body, response.headers), current);
+      const value = upgradeSameHostUrls(this.decode<T>(current, body, responseHeaders), current);
       return { value, url: current };
+    }
+  }
+
+  /**
+   * Call the transport under the overall deadline (`timeoutMs`): the request gets an
+   * AbortSignal that fires at the deadline, and the call rejects then whether the transport
+   * stops or not — a custom transport (fetch, a node:http wrapper) that ignores `timeoutMs`
+   * can't hang the caller. A synchronous throw becomes a rejection.
+   */
+  private async callTransport(request: HttpRequest): Promise<unknown> {
+    const call = (signal?: AbortSignal): Promise<unknown> =>
+      Promise.resolve().then(() => this.transport(signal === undefined ? request : { ...request, signal }));
+    if (this.timeoutMs === 0) return call();
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const err = new OparlNetworkError(`Request timed out after ${this.timeoutMs}ms`);
+        controller.abort(err);
+        reject(err);
+      }, Math.min(this.timeoutMs, MAX_TIMEOUT_MS));
+    });
+    try {
+      return await Promise.race([call(controller.signal), deadline]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -534,7 +669,7 @@ export class RequestEngine {
     return this.retryDelayMs * attempt;
   }
 
-  private decode<T>(url: string, rawBody: Buffer, headers: IncomingHttpHeaders): T {
+  private decode<T>(url: string, rawBody: Buffer, headers: ResponseHeaders): T {
     const body = this.decompress(url, rawBody, headers);
     const text = body.toString("utf8").replace(/^﻿/, "");
     if (text.trim().length === 0) {
@@ -575,7 +710,7 @@ export class RequestEngine {
    * `maxResponseBytes` caps the decompressed size too; the transport can only see the
    * bytes on the wire, which a compression bomb makes small on purpose.
    */
-  private decompress(url: string, body: Buffer, headers: IncomingHttpHeaders): Buffer {
+  private decompress(url: string, body: Buffer, headers: ResponseHeaders): Buffer {
     const raw = headers["content-encoding"];
     const value = (Array.isArray(raw) ? raw.join(",") : raw ?? "").trim().toLowerCase();
     if (value === "" || value === "identity") return body;
@@ -619,7 +754,7 @@ export class RequestEngine {
     url: string,
     status: number,
     body: Buffer,
-    headers: IncomingHttpHeaders,
+    headers: ResponseHeaders,
     location?: string,
     redirectsFollowed?: number,
   ): OparlApiError {
@@ -662,6 +797,19 @@ export class RequestEngine {
       ...(redirectsFollowed !== undefined ? { redirectsFollowed } : {}),
     });
   }
+}
+
+/**
+ * What a transport threw, as the error the engine raises. The built-in transport rejects
+ * with OparlNetworkError only, and that passes through; an injected one may throw anything
+ * (a string, fetch's TypeError, an AbortError), which is wrapped into an OparlNetworkError
+ * naming the request, with the original as `cause` — a caller (and the CLI) can rely on
+ * every failure being an OparlError. Any other OparlError passes through.
+ */
+function toNetworkError(url: string, cause: unknown): OparlError {
+  if (cause instanceof OparlError) return cause;
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  return new OparlNetworkError(`GET ${url} failed: ${sanitizeServerText(reason)}`, { cause });
 }
 
 /**

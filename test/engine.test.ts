@@ -487,3 +487,26 @@ test("userAgentProblem rejects a blank value, then applies the header-value rule
   }
   assert.doesNotThrow(() => new RequestEngine({ userAgent: undefined }));
 });
+
+test("a Location from a Headers object or in any case is followed (custom transports)", async () => {
+  for (const headers of [new Headers({ Location: "/moved" }), { Location: "/moved" }, new Map([["location", "/moved"]])]) {
+    const mt = makeMockTransport((req) =>
+      req.url.endsWith("/moved")
+        ? jsonResponse({ id: "x" })
+        : { status: 302, headers: headers as unknown as Record<string, string>, body: Buffer.alloc(0) },
+    );
+    const engine = new RequestEngine({ transport: mt.transport });
+    assert.deepEqual(await engine.getJson(URL_1), { id: "x" }, headers.constructor.name);
+    assert.equal(mt.calls[1]?.url, "https://ris.example.de/moved");
+  }
+});
+
+test("a transport response without a status, or with status 0, is a network error, not data", async () => {
+  for (const status of [undefined, 0]) {
+    const engine = new RequestEngine({
+      transport: async () => ({ status, headers: {}, body: Buffer.from('{"id":"x"}') }) as never,
+      maxRetries: 0,
+    });
+    await assert.rejects(engine.getJson(URL_1), OparlNetworkError, String(status));
+  }
+});
