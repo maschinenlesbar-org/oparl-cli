@@ -28,6 +28,12 @@ in a URL — typed or handed out — is dropped: never sent as Basic auth, never
 `OparlClient` does this itself for every URL a caller hands it (`get`, `system`, `bodies`,
 `list`, `page`, `walk`, `registryUrl`): it works with `parseHttpUrl(url).href` from then on,
 in the request and in its own messages, so a library caller gets the same messages as the CLI.
+Credential headers a library caller sets in `defaultHeaders` go only to the origin a
+request starts at: a same-origin redirect (relative or absolute `Location`) keeps them, the
+http→https upgrade drops them for the rest of the chain — a 401/403 there says so and asks
+for the https URL (`OparlApiError.credentialsDropped`) — and any other origin is refused
+anyway. The transport is told `redirect: "manual"`; a response whose `url` shows that the
+transport followed a redirect to another origin itself fails as an `OparlNetworkError`.
 A URL typed without its scheme (`bob:hunter2@ris.example/oparl`) parses with the scheme
 `bob:` and keeps its password in the path; `redactUrl` cuts it out by text, using
 `credentialsIn`, which finds the exact userinfo of a URL-like value whether it parses or

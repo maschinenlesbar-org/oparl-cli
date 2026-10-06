@@ -511,6 +511,15 @@ function nonJsonBody(body: Buffer, text: string, type: string): string | null {
   return null;
 }
 
+/** The origin of `url` (scheme, host and port), or undefined when it does not parse. */
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Header names (lower-case) that carry credentials. */
 const CREDENTIAL_HEADERS = new Set(["authorization", "proxy-authorization", "x-api-key", "cookie"]);
 
@@ -606,25 +615,41 @@ export class RequestEngine {
    * that redirects a filtered list URL to a path without the query would otherwise
    * answer the unfiltered list, and nothing in the result would say so. A literal `+`
    * in an OParl timestamp parameter is sent as `%2B` (see encodeTimestampPlus).
+   *
+   * Credential headers from `defaultHeaders` go to the origin the request starts at only:
+   * a same-origin redirect (relative or absolute `Location`) keeps them, the http→https
+   * upgrade resolveLink allows drops them for the rest of the chain (a 401/403 then says
+   * so), and every other origin is refused anyway. The transport is told `redirect:
+   * "manual"`; a response whose `url` shows the transport followed a redirect to another
+   * origin itself fails the request.
    */
   async fetchJson<T = unknown>(url: string, query?: QueryParams): Promise<JsonResponse<T>> {
     const requested = encodeTimestampPlus(carryQuery(parseHttpUrl(url).href, query));
-    const headers: Record<string, string> = {
-      ...this.#defaultHeaders,
-      Accept: "application/json",
-      "User-Agent": this.userAgent,
-    };
+    const plain: Record<string, string> = {};
+    const credentials: Record<string, string> = {};
+    for (const [name, value] of Object.entries(this.#defaultHeaders)) {
+      (isCredentialHeader(name) ? credentials : plain)[name] = value;
+    }
+    plain["Accept"] = "application/json";
+    plain["User-Agent"] = this.userAgent;
+    const hasCredentials = Object.keys(credentials).length > 0;
+    // Credential headers belong to the origin the request starts at (scheme, host, port).
+    const credentialOrigin = new URL(requested).origin;
+    let dropped: { from: string; to: string } | undefined;
 
     let current = requested;
     let redirects = 0;
     let attempt = 0;
     for (;;) {
+      const sendCredentials = hasCredentials && dropped === undefined && new URL(current).origin === credentialOrigin;
+      const headers = sendCredentials ? { ...plain, ...credentials } : plain;
       let raw: unknown;
       try {
         raw = await this.callTransport({
           method: "GET",
           url: current,
           headers,
+          redirect: "manual",
           timeoutMs: this.timeoutMs,
           ...(this.maxResponseBytes > 0 ? { maxResponseBytes: this.maxResponseBytes } : {}),
         });
@@ -648,6 +673,17 @@ export class RequestEngine {
         throw new OparlNetworkError(`GET ${current} failed: the transport returned an invalid response (${invalid}).`);
       }
       const response = raw as HttpResponse;
+      // A transport that followed a redirect itself (fetch's default) took the request to a
+      // server the engine never checked — credential headers and all: fetch strips
+      // Authorization across origins, but not X-API-Key or Cookie. Don't trust it.
+      const reported = (response as { url?: unknown }).url;
+      if (typeof reported === "string" && reported !== "" && originOf(reported) !== originOf(current)) {
+        throw new OparlNetworkError(
+          `GET ${current} failed: the transport followed a redirect to ${originOf(reported) ?? "an unparseable URL"}, ` +
+            'another origin. A transport must not follow redirects (HttpRequest.redirect is "manual"); the engine ' +
+            "follows them and decides where credential headers may go.",
+        );
+      }
       const status = response.status;
       const responseHeaders = plainHeaders(response.headers);
       const body = bodyBytes(response.body) as Buffer;
@@ -670,18 +706,26 @@ export class RequestEngine {
           if (redirects >= this.maxRedirects) {
             // A loop or a long chain: say how far it got. (With maxRedirects 0 nothing
             // was followed, and the plain text says enough.)
-            throw this.toApiError(current, status, body, responseHeaders, location, redirects || undefined);
+            throw this.toApiError(current, status, body, responseHeaders, location, redirects || undefined, dropped);
           }
           redirects += 1;
-          current = encodeTimestampPlus(carryQuery(resolveLink(current, location), query));
+          const next = encodeTimestampPlus(carryQuery(resolveLink(current, location), query));
+          // resolveLink keeps a redirect on the same host and port, but upgrades http to
+          // https: another origin, so the credential headers stay behind for the rest of
+          // the chain, and a 401/403 there says why.
+          const nextOrigin = new URL(next).origin;
+          if (hasCredentials && dropped === undefined && nextOrigin !== credentialOrigin) {
+            dropped = { from: new URL(current).origin, to: nextOrigin };
+          }
+          current = next;
           continue;
         }
         // Any other 3xx, or one without a Location: nothing to follow.
-        throw this.toApiError(current, status, body, responseHeaders, location);
+        throw this.toApiError(current, status, body, responseHeaders, location, undefined, dropped);
       }
 
       if (status < 200 || status >= 300) {
-        throw this.toApiError(current, status, body, responseHeaders);
+        throw this.toApiError(current, status, body, responseHeaders, undefined, undefined, dropped);
       }
 
       const value = upgradeSameHostUrls(this.decode<T>(current, body, responseHeaders), current);
@@ -857,6 +901,7 @@ export class RequestEngine {
     headers: ResponseHeaders,
     location?: string,
     redirectsFollowed?: number,
+    credentialsDropped?: { from: string; to: string },
   ): OparlApiError {
     let decoded = body;
     try {
@@ -897,6 +942,7 @@ export class RequestEngine {
       ...(detail ? { detail } : {}),
       ...(target !== undefined ? { location: target } : {}),
       ...(redirectsFollowed !== undefined ? { redirectsFollowed } : {}),
+      ...(credentialsDropped !== undefined ? { credentialsDropped } : {}),
     });
   }
 }

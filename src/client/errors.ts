@@ -97,6 +97,13 @@ export class OparlApiError extends OparlError {
   readonly method: string;
   readonly body: string;
   readonly location: string | undefined;
+  /**
+   * Set when a redirect led to another origin (in OParl, only an http→https upgrade on
+   * the same host), so the credential headers of `defaultHeaders` were not sent to the
+   * server that answered. A 401/403 then says nothing about them; the message says what
+   * happened.
+   */
+  readonly credentialsDropped: { from: string; to: string } | undefined;
 
   constructor(args: {
     status: number;
@@ -107,6 +114,8 @@ export class OparlApiError extends OparlError {
     location?: string;
     /** Set when the redirect limit stopped the request: the redirects followed. */
     redirectsFollowed?: number;
+    /** Set when a redirect to another origin dropped the credential headers. */
+    credentialsDropped?: { from: string; to: string };
   }) {
     const parts: string[] = [];
     if (args.detail) parts.push(args.detail);
@@ -119,6 +128,10 @@ export class OparlApiError extends OparlError {
         args.location ? `redirect to ${args.location} not followed${limit}` : "redirect not followed (no Location header)",
       );
     }
+    const dropped = args.credentialsDropped;
+    if (dropped !== undefined && (args.status === 401 || args.status === 403)) {
+      parts.push(credentialsDroppedHint(dropped));
+    }
     const detailPart = parts.length > 0 ? `: ${parts.join("; ")}` : "";
     super(`HTTP ${args.status} for ${args.method} ${args.url}${detailPart}`);
     this.status = args.status;
@@ -127,6 +140,7 @@ export class OparlApiError extends OparlError {
     this.body = args.body;
     this.detail = args.detail;
     this.location = args.location;
+    this.credentialsDropped = dropped;
   }
 
   /** True for HTTP statuses treated as transient and retry-able. */
@@ -138,6 +152,27 @@ export class OparlApiError extends OparlError {
   get isNotFound(): boolean {
     return this.status === 404;
   }
+}
+
+/**
+ * Why a 401/403 after a redirect to another origin is not about the credential headers:
+ * they were never sent to the server that answered. In OParl the only such redirect the
+ * client follows is an http→https upgrade on the same host.
+ */
+export function credentialsDroppedHint(dropped: { from: string; to: string }): string {
+  let upgrade = false;
+  try {
+    const from = new URL(dropped.from);
+    const to = new URL(dropped.to);
+    upgrade = from.protocol === "http:" && to.protocol === "https:" && from.hostname === to.hostname;
+  } catch {
+    // fall through to the general text
+  }
+  return upgrade
+    ? `the server redirected ${dropped.from} to ${dropped.to}, and credential headers are not sent across a ` +
+        `change of scheme, so the request arrived without them: use an https URL (${dropped.to})`
+    : `a redirect led from ${dropped.from} to ${dropped.to}, another origin, so the credential headers were ` +
+        "not sent there";
 }
 
 /** A transport-level failure (DNS, connection reset, timeout, size cap, ...). */
