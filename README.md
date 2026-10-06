@@ -28,7 +28,7 @@ their meetings, papers or persons as clean JSON you can pipe straight into
   write to disk.
 
 > Want to use this as a TypeScript library or understand how it's built?
-> See **[DEVELOPING.md](DEVELOPING.md)**.
+> See **[DEVELOPING.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/DEVELOPING.md)**.
 
 ## Install
 
@@ -72,7 +72,7 @@ oparl list meeting https://buergerinfo.stadt-koeln.de/oparl/bodies/stadtverwaltu
 | `list <type> <bodyUrl>` | One of a body's object lists, paged — see types below |
 | `get <url>` | Any OParl object or list page by URL |
 
-New to *Body*, *Paper* or *Consultation*? The **[Glossary](GLOSSARY.md)** decodes every term.
+New to *Body*, *Paper* or *Consultation*? The **[Glossary](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/GLOSSARY.md)** decodes every term.
 
 ### `list` types
 
@@ -247,10 +247,10 @@ is anonymous.)
 
 ## Learn more
 
-- **[SKILLS.md](SKILLS.md)** — Claude Code Agent Skills that drive this CLI.
-- **[Usage.md](Usage.md)** — use-case-driven cookbook.
-- **[GLOSSARY.md](GLOSSARY.md)** — OParl objects and terms explained.
-- **[DEVELOPING.md](DEVELOPING.md)** — TypeScript library usage, architecture, testing, CI.
+- **[SKILLS.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/SKILLS.md)** — Claude Code Agent Skills that drive this CLI.
+- **[Usage.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/Usage.md)** — use-case-driven cookbook.
+- **[GLOSSARY.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/GLOSSARY.md)** — OParl objects and terms explained.
+- **[DEVELOPING.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/DEVELOPING.md)** — TypeScript library usage, architecture, testing, CI.
 
 ## Data license
 

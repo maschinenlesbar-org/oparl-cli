@@ -368,6 +368,9 @@ real 1.1 and 1.0 servers and the registry, moved to example hosts.
   flag the body reads) and the adapter's own cases check the start URL instead — the first
   URL argument, or the registry `endpoints` reads (`startUrl()` in `shared.ts`); `action()`
   prints `warning: <cleartextProblem(start)>` on stderr once, before the client is built.
+  P21 (`conformance-p21-readme-links`): every relative link in `README.md` points to a file
+  `package.json` `files` ships, since npmjs.com shows the README; other documents are linked
+  by their GitHub URL.
 - **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
   real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
   file holds only filtered objects.
