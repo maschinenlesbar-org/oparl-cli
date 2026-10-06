@@ -110,6 +110,9 @@ export const nodeHttpTransport: Transport = (request) =>
     const done = settle(resolve);
     const fail = settle(reject);
 
+    // How much of a response arrived, for the message when the connection breaks off.
+    let responseBytes: number | undefined;
+
     let req: http.ClientRequest;
     try {
       req = driver.request(
@@ -119,10 +122,12 @@ export const nodeHttpTransport: Transport = (request) =>
           const chunks: Buffer[] = [];
           let received = 0;
           let aborted = false;
+          responseBytes = 0;
 
           res.on("data", (chunk: Buffer) => {
             if (aborted) return;
             received += chunk.length;
+            responseBytes = received;
             if (maxBytes !== undefined && received > maxBytes) {
               aborted = true;
               res.destroy();
@@ -173,8 +178,18 @@ export const nodeHttpTransport: Transport = (request) =>
       else request.signal.addEventListener("abort", abort, { once: true });
     }
 
-    req.on("error", (err) => {
-      fail(err instanceof OparlNetworkError ? err : new OparlNetworkError(err.message, { cause: err }));
+    req.on("error", (err: NodeJS.ErrnoException) => {
+      if (err instanceof OparlNetworkError) return fail(err);
+      // A connection dropped before any byte of a response is Node's bare "socket hang up"
+      // (ECONNRESET); say what happened, in the words used for the other cases.
+      if (err.code === "ECONNRESET" && responseBytes === undefined) {
+        return fail(
+          new OparlNetworkError(`The server at ${url.host} closed the connection without sending a response (${err.message})`, {
+            cause: err,
+          }),
+        );
+      }
+      fail(new OparlNetworkError(err.message, { cause: err }));
     });
 
     // A server that answers with 101 Switching Protocols sends no response body, and
@@ -190,7 +205,13 @@ export const nodeHttpTransport: Transport = (request) =>
     // this the promise stays pending for ever, and with no timeout to fire the CLI
     // exited 0 with no output — a caller could not tell success from silence.
     req.on("close", () => {
-      fail(new OparlNetworkError(`The server at ${url.host} closed the connection without sending a response`));
+      fail(
+        new OparlNetworkError(
+          responseBytes === undefined
+            ? `The server at ${url.host} closed the connection without sending a response`
+            : `The server at ${url.host} closed the connection after ${responseBytes} bytes of the response, before it was complete`,
+        ),
+      );
     });
 
     if (request.body !== undefined) req.write(request.body);

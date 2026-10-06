@@ -127,3 +127,30 @@ test("enforces maxResponseBytes", async () => {
     },
   );
 });
+
+test("a connection cut mid-body, or dropped before any byte, is named as such", async () => {
+  const server = net.createServer((socket) => {
+    socket.once("data", (data) => {
+      if (data.toString().startsWith("GET /drop")) {
+        socket.destroy();
+        return;
+      }
+      socket.write('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 500\r\n\r\n{"id":"x"');
+      setTimeout(() => socket.destroy(), 20);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  try {
+    await assert.rejects(
+      nodeHttpTransport({ method: "GET", url: `http://127.0.0.1:${port}/cut` }),
+      (err: unknown) => err instanceof OparlNetworkError && /closed the connection after 9 bytes of the response, before it was complete/.test(err.message),
+    );
+    await assert.rejects(
+      nodeHttpTransport({ method: "GET", url: `http://127.0.0.1:${port}/drop` }),
+      (err: unknown) => err instanceof OparlNetworkError && /closed the connection without sending a response \(socket hang up\)/.test(err.message),
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

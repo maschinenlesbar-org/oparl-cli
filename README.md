@@ -200,7 +200,9 @@ gone, a failed run still exits with its own code.
 - **Exit `6` / "closed the connection without sending a response"**, or "answered with
   HTTP 101 (protocol upgrade)" — something answered at that address, but not with an HTTP
   response: a proxy, or a WebSocket endpoint rather than an OParl one. Check the URL
-  against `oparl endpoints`.
+  against `oparl endpoints`. "closed the connection after n bytes of the response, before it
+  was complete" means the server broke off mid-answer: try again later. A connection dropped
+  without any answer is retried (`--max-retries`) before it is reported.
 - **"but received an HTML page / a PDF file"** (exit `1`) — the URL answers with something
   other than OParl JSON, and the message names the content type the server sent. Council
   systems serve error and portal pages with HTTP 200, so this is what a wrong path usually
