@@ -492,6 +492,19 @@ test("a last page as long as the limit, without a next link, gets a note", async
   }
 });
 
+test("a full last page after next links is the end of the list, without the ALLRIS note", async () => {
+  // Three pages of two, with `next` on pages 1 and 2: the server pages correctly, and a
+  // list whose length is a multiple of the limit got the note telling the user to re-walk.
+  const paged = (req: { url: string }) => {
+    const page = Number(new URL(req.url).searchParams.get("page") ?? "1");
+    const next = page < 3 ? { next: `${fx.MEETINGS_URL}?page=${page + 1}` } : {};
+    return jsonResponse({ data: [fx.meeting(2 * page - 1), fx.meeting(2 * page)], links: next });
+  };
+  const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: paged });
+  const result = await c.list(fx.BODY_URL, "meeting", { limit: 2, maxPages: 0 });
+  assert.deepEqual({ n: result.data.length, pages: result.pages, note: result.note }, { n: 6, pages: 3, note: undefined });
+});
+
 test("a page that repeats objects because the list shifted does not truncate the walk", async () => {
   // Two objects are inserted at the head of the list between page 1 and page 2, so page 2
   // repeats page 1 — indistinguishable from a repeating server until the next page.
