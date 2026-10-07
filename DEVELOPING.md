@@ -87,7 +87,7 @@ git clone https://github.com/maschinenlesbar-org/oparl-cli
 cd oparl-cli
 npm install
 npm run build        # tsc -> dist/
-npm test             # builds, then runs node --test dist/test/*.test.js
+npm test             # builds, then runs node --test --test-timeout=5000 dist/test/*.test.js
 node dist/src/cli/index.js endpoints --search köln
 ```
 

@@ -32,7 +32,12 @@ async function serveBodies(count: number): Promise<{ server: Server; systemUrl: 
   return { server, systemUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}/system` };
 }
 
-test("the bin exits quietly when the reader closes stdout early", async () => {
+// These tests start the built CLI as a process. Process start-up is the one slow part of the
+// suite (a cold disk, a virus scanner, a busy CI runner), so they get 30 s instead of the 5 s
+// default the `test` script sets.
+const STARTS_A_PROCESS = { timeout: 30_000 };
+
+test("the bin exits quietly when the reader closes stdout early", STARTS_A_PROCESS, async () => {
   const { server, systemUrl } = await serveBodies(4000);
   try {
     const child = spawn(process.execPath, [BIN, "bodies", systemUrl], { stdio: ["ignore", "pipe", "pipe"] });
@@ -52,7 +57,7 @@ test("the bin exits quietly when the reader closes stdout early", async () => {
   }
 });
 
-test("the bin reports a usage error with exit 2 and no stack trace", async () => {
+test("the bin reports a usage error with exit 2 and no stack trace", STARTS_A_PROCESS, async () => {
   const child = spawn(process.execPath, [BIN, "get", "ftp://example.org/x"], { stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
   child.stderr.setEncoding("utf8");
