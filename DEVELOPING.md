@@ -382,7 +382,7 @@ GitHub Actions workflows under `.github/workflows/`:
 - **ci.yml** — typecheck, build and test on Node 22/24 for every push and PR.
 - **release.yml** — on a `v*` tag: test, `npm pack`, CycloneDX SBOMs, a changelog, and a
   GitHub Release.
-- **publish.yml** — manual dispatch: publish to npm via OIDC **Trusted Publishing** (no
+- **publish.yml** — manual dispatch from the release tag (`gh workflow run publish.yml --ref vX.Y.Z`; the version is the tag's): publish to npm via OIDC **Trusted Publishing** (no
   stored `NPM_TOKEN`) with provenance.
 - **docs.yml** — build the project website (`site/`, English and German) with the TypeDoc API docs
   under `/api/`, and deploy both to GitHub Pages on each `v*` tag.
