@@ -372,6 +372,8 @@ through `run()` and through a library call on the same recording transport, so a
 assert both reject without a request or both send the same requests. Fixtures in `test/fixtures.ts` are shaped after
 real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
+- **`io.test.ts`** — `handleOutputErrors` on fake streams: a closed pipe, and a stdout
+  write error as an ERROR record of `oparl.output`.
 - **`log.test.ts`** — the record helpers of `src/cli/log.ts` on their own
   (`escapeForRecord`, `formatLogRecord`); the CLI-level checks are P23's.
 - **`conformance-p*.test.ts`** — the checks shared across the `*-cli` repos (fix plan
@@ -466,8 +468,11 @@ of a parse error.
 The logger carries the run's redaction (`withRedactedOutput`),
 which replaces a secret in the message only, before it is escaped: the frame is never
 touched, and a secret is kept out of the log in either format. `CliDeps.now` makes the timestamps testable. stdout
-carries data only. Two lines stay raw: `Output error: …` from `handleOutputErrors` and the
-bin shim's last-resort `Unexpected error: …`, both written before or outside `run()`.
+carries data only. A stdout write error other than a reader that has gone (EBADF, EIO) is
+an ERROR record of `oparl.output` too, `Could not write to stdout: …` (`handleOutputErrors`,
+with the bin shim's `processLogger(argv)`: the format argv asks for, the run's redaction).
+One line stays raw: the bin shim's last-resort `Unexpected error: …`, written outside
+`run()`.
 Conformance test P23 checks all of this, and its body is shared across the *-cli repos;
 oparl's adapter turns the shared cases' `--base-url` into the registry URL `endpoints`
 reads.

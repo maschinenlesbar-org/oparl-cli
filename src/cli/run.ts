@@ -5,7 +5,7 @@
 import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
 import { logOf, type CliDeps } from "./io.js";
-import { DEFAULT_LOG_FORMAT, createLogger, logFormatFromArgv, type LogFormat } from "./log.js";
+import { DEFAULT_LOG_FORMAT, createLogger, logFormatFromArgv, type LogFormat, type Logger } from "./log.js";
 import { redactUserinfo, stripTerminalControls } from "./shared.js";
 import {
   OparlApiError,
@@ -223,6 +223,21 @@ export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliD
       ...(deps.now === undefined ? {} : { now: deps.now }),
     }),
   };
+}
+
+/**
+ * The log for what happens outside `run()`, in the bin shim: a stdout write error
+ * (`handleOutputErrors`). Its format is the one argv asks for (`logFormatFromArgv`), and
+ * it replaces the credentials of argv like the run's own log; it writes to the raw
+ * stderr.
+ */
+export function processLogger(argv: readonly string[]): Logger {
+  const program = buildProgram();
+  return createLogger({
+    format: logFormatFromArgv(argv, programValueOptions(program)),
+    write: (line) => process.stderr.write(line + "\n"),
+    redact: redactionFor(argv, valueOptionsOf(program)).err,
+  });
 }
 
 export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {

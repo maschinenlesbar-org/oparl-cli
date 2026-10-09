@@ -3,11 +3,12 @@
 // logic lives in run.ts (testable without spawning a subprocess).
 
 import { handleOutputErrors } from "./io.js";
-import { run } from "./run.js";
+import { processLogger, run } from "./run.js";
 
-handleOutputErrors();
+const argv = process.argv.slice(2);
+handleOutputErrors(process, undefined, processLogger(argv));
 
-run(process.argv.slice(2)).then(
+run(argv).then(
   (code) => {
     process.exitCode = code;
   },
