@@ -125,7 +125,7 @@ Durchlaufens in die Liste eingefügt wurde.
 stderr ausgegeben: Er nennt den Grund, aus dem das Durchlaufen vor dem Ende der Liste endete
 (eine Seitenschleife, ein `next`-Link oder eine Weiterleitung, der die CLI nicht folgt, oder
 eine spätere Seite, deren Abruf scheiterte), oder welcher Filter nicht angewendet werden
-konnte. Scheitert eine Seite nach der ersten, werden die zuvor abgerufenen Seiten mit einem
+konnte. Ein Durchlauf, der aus einem nicht gewählten Grund endete (`stoppedEarly` im Ergebnis), wird als `WARN` protokolliert; der Hinweis nach dem eigenen `--limit` bleibt `INFO`. Scheitert eine Seite nach der ersten, werden die zuvor abgerufenen Seiten mit einem
 solchen Hinweis und `next` auf der gescheiterten Seite ausgegeben, danach endet der Befehl
 mit dem Fehler.
 

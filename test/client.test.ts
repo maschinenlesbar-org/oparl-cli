@@ -246,6 +246,7 @@ test("a date filter keeps embedded terms the server left undated, and says so", 
   const result = await c.list(fx.body10.id, "legislative-term", { modifiedSince: "2000-01-01" });
   assert.deepEqual(result.data.map((t) => t["name"]), ["2016-2021", "2021-2026"]);
   assert.match(result.note ?? "", /2 of 2 embedded legislative terms carry no created\/modified/);
+  assert.equal(result.stoppedEarly, undefined);
 
   // An object with a timestamp outside the window is still excluded, undated fields aside.
   const mixed = client({
@@ -318,6 +319,7 @@ test("a next link this client won't follow ends the walk but keeps the pages fet
         `${link} with maxPages ${maxPages}`,
       );
       assert.match(result.note ?? "", /stopped after page 1: (Refusing to follow|The server returned an invalid link)/);
+      assert.equal(result.stoppedEarly, true);
     }
   }
 });
@@ -336,6 +338,7 @@ test("a redirect to another host on a later page ends the walk but keeps the pag
     { ids: [fx.meeting(1).id], pages: 1, next: null, looped: undefined },
   );
   assert.match(result.note ?? "", /^stopped after page 1: Refusing to follow https:\/\/tracker\.example\.com\/page2 /);
+  assert.equal(result.stoppedEarly, true);
   assert.equal(mt.calls.length, 3);
 });
 
@@ -365,6 +368,7 @@ test("a failure on a later page is thrown with the pages fetched and the failing
       name,
     );
     assert.match(partial?.note ?? "", /^stopped after page 1 because page 2 failed; .*next is the page that failed/, name);
+    assert.equal(partial?.stoppedEarly, true, name);
   }
 });
 
@@ -408,6 +412,7 @@ test("a next link pointing back at a fetched page ends the walk", async () => {
   const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 0 });
   assert.deepEqual({ pages: result.pages, next: result.next, looped: result.looped }, { pages: 1, next: null, looped: true });
   assert.match(result.note ?? "", /points back to a page already fetched/);
+  assert.equal(result.stoppedEarly, true);
   assert.equal(mt.calls.length, 2);
 });
 
@@ -437,6 +442,7 @@ test("a run of pages that add nothing ends the walk, with a next link to resume 
     { pages: 4, next: `${fx.MEETINGS_URL}?page=5`, looped: true },
   );
   assert.match(result.note ?? "", /the last 3 pages added no object/);
+  assert.equal(result.stoppedEarly, true);
   assert.equal(mt.calls.length, 5);
 });
 
@@ -468,6 +474,7 @@ test("a walk stopped by the page limit of maxPages 0 says so", async () => {
     { n: MAX_PAGES_HARD_LIMIT, pages: MAX_PAGES_HARD_LIMIT, next: `${fx.MEETINGS_URL}?page=${MAX_PAGES_HARD_LIMIT + 1}`, looped: undefined },
   );
   assert.match(all.note ?? "", /^stopped after page 10000: maxPages 0 \(--max-pages 0\) fetches at most 10000 pages/);
+  assert.equal(all.stoppedEarly, true);
   // An explicit page count that is reached is what the caller asked for: no note.
   const three = await c.list(fx.BODY_URL, "meeting", { maxPages: 3 });
   assert.deepEqual({ pages: three.pages, note: three.note }, { pages: 3, note: undefined });
@@ -485,6 +492,8 @@ test("a last page as long as the limit, without a next link, gets a note", async
   const cut = await c.list(fx.BODY_URL, "meeting", { limit: 3, maxPages: 2 });
   assert.deepEqual({ n: cut.data.length, pages: cut.pages, next: cut.next }, { n: 3, pages: 1, next: null });
   assert.match(cut.note ?? "", /^the last page held exactly 3 objects, .* run it again without the limit/);
+  // the caller's own --limit chose that end: a note, but not an early stop
+  assert.equal(cut.stoppedEarly, undefined);
   // Fewer objects than the limit, or no limit at all: a plain end of the list.
   for (const options of [{ limit: 10 }, {}]) {
     const result = await c.list(fx.BODY_URL, "meeting", options);

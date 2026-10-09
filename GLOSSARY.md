@@ -117,7 +117,7 @@ the list during the walk looks like.
 **Walk note (`note`).** One sentence in a `list`/`bodies` result, also printed on stderr,
 saying why the walk stopped before the end of the list (a paging loop, a `next` link or
 redirect the CLI refuses to follow, or a later page that failed) or which filter it could
-not apply. When a page after the first fails, the pages fetched before it are printed with
+not apply. A walk that stopped for a reason you did not choose (`stoppedEarly` in the result) is logged as `WARN`; the note after your own `--limit` stays `INFO`. When a page after the first fails, the pages fetched before it are printed with
 such a note and `next` at the failing page, and the command then exits with the error.
 
 ## This tool

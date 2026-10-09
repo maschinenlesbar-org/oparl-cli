@@ -45,10 +45,14 @@ function parseOparlVersion(value: string): string {
 
 /**
  * Tell the user on stderr what the walk has to report: why it stopped before the list
- * ended, or which filter it could not apply.
+ * ended, or which filter it could not apply. A walk that stopped for a reason the user
+ * did not choose (`stoppedEarly`) is a WARN; a note that only comments on a result the
+ * user asked for, such as the one after their own `--limit`, stays INFO.
  */
 function noteWalk(deps: CliDeps, result: ListResult<JsonObject>): void {
-  if (result.note !== undefined) logOf(deps).info("api", result.note);
+  if (result.note === undefined) return;
+  if (result.stoppedEarly === true) logOf(deps).warn("api", result.note);
+  else logOf(deps).info("api", result.note);
 }
 
 /**

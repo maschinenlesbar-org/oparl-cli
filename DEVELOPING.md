@@ -178,7 +178,11 @@ when `MAX_UNPRODUCTIVE_PAGES` (3) pages in a row add no object that wasn't alrea
 the same page, or an empty one, under ever-new `?page=n` links. Two such pages are tolerated,
 because an insertion into the list during a walk looks exactly like a repeat. `maxPages: 0`
 fetches at most `MAX_PAGES_HARD_LIMIT` (10,000) pages, in case a server's `next` links never
-end; a walk that stops there adds a `note` (not `looped`). `next` is
+end; a walk that stops there adds a `note` (not `looped`). `stoppedEarly: true` marks every
+stop the caller did not choose (a loop, unproductive pages, a refused link, the 10,000-page limit,
+a failed later page in the error's `partial`) and not the `note` after the caller's own `limit`
+or a filter that could not be applied; the CLI's `noteWalk` logs a note with it as `WARN`, any
+other note as `INFO` (both `oparl.api`). `next` is
 whatever the last page fetched offered, so a walk that gave up on unproductive pages can be
 resumed by hand — except after a `next` leading back to a page already fetched, where it is
 `null` (following it would only go round the loop again); a

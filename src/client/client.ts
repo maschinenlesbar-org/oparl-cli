@@ -540,6 +540,7 @@ export class OparlClient {
     let next: string | null = null;
     let looped = false;
     let note: string | undefined;
+    let stoppedEarly = false;
     let unproductive = 0;
     while (current !== null && pages < limit) {
       let fetched: { page: OparlListPage<T>; url: string };
@@ -558,12 +559,14 @@ export class OparlClient {
         if (err instanceof OparlLinkError) {
           next = null;
           note = `stopped after page ${pages}: ${err.message}`;
+          stoppedEarly = true;
           break;
         }
         err.partial = {
           data,
           pages,
           next: current,
+          stoppedEarly: true,
           note:
             `stopped after page ${pages} because page ${pages + 1} failed; data holds the objects of the pages ` +
             "fetched before it, and next is the page that failed — retry it with `oparl get`, or run the walk again.",
@@ -615,16 +618,19 @@ export class OparlClient {
         if (!(err instanceof OparlLinkError)) throw err;
         next = null; // keep the pages already fetched and say why the walk stopped
         note = `stopped after page ${pages}: ${err.message}`;
+        stoppedEarly = true;
         break;
       }
       if (seenPages.has(next)) {
         next = null; // the server's `next` points back at a page already fetched
         looped = true;
+        stoppedEarly = true;
         note = `stopped after page ${pages}: the server's next link points back to a page already fetched.`;
         break;
       }
       if (unproductive >= MAX_UNPRODUCTIVE_PAGES) {
         looped = true;
+        stoppedEarly = true;
         note =
           `stopped after page ${pages}: the last ${unproductive} pages added no object that wasn't already ` +
           "listed. Pass the returned `next` to `oparl get` if you think the list goes on.";
@@ -633,6 +639,7 @@ export class OparlClient {
       current = next;
     }
     if (maxPages === 0 && pages >= limit && next !== null && note === undefined) {
+      stoppedEarly = true;
       note =
         `stopped after page ${pages}: maxPages 0 (--max-pages 0) fetches at most ${MAX_PAGES_HARD_LIMIT} pages, ` +
         "in case a server's next links never end. The list goes on at next; pass a higher maxPages to fetch more.";
@@ -642,6 +649,7 @@ export class OparlClient {
       pages,
       next,
       ...(looped ? { looped: true as const } : {}),
+      ...(stoppedEarly ? { stoppedEarly: true as const } : {}),
       ...(note !== undefined ? { note } : {}),
     };
   }

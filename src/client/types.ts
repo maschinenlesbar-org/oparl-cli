@@ -57,6 +57,15 @@ export interface ListResult<T extends JsonObject = OparlObject> {
    */
   looped?: true;
   /**
+   * Present (and true) when the walk stopped before the list ended for a reason the
+   * caller did not choose: a refused or invalid `next` link, a link back to a page already
+   * fetched, pages that added nothing, the `maxPages: 0` hard limit, or a later page that
+   * failed (the `partial` result of the error). Absent for a walk that ended where the
+   * caller asked, and for a note that only comments on the result (the `limit` note, a
+   * filter that could not be applied). The CLI logs such a note as a `WARN`.
+   */
+  stoppedEarly?: true;
+  /**
    * Why the walk stopped early, or which filter could not be applied — a sentence for
    * the user (the CLI prints it on stderr). Absent when there is nothing to report.
    */

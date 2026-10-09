@@ -196,12 +196,12 @@ test("bodies notes on stderr when the server's pages repeat, and hands back a ne
   };
   const cli = makeCli(repeating);
   assert.equal(await run(["bodies", fx.SYSTEM_URL], cli.deps), 0);
-  const result = cli.json() as { data: unknown[]; pages: number; next: string | null; looped?: boolean };
+  const result = cli.json() as { data: unknown[]; pages: number; next: string | null; looped?: boolean; stoppedEarly?: boolean };
   assert.deepEqual(
-    { n: result.data.length, pages: result.pages, next: result.next, looped: result.looped },
-    { n: fx.bodyList.data.length, pages: 4, next: `${fx.BODIES_URL}?page=5`, looped: true },
+    { n: result.data.length, pages: result.pages, next: result.next, looped: result.looped, stoppedEarly: result.stoppedEarly },
+    { n: fx.bodyList.data.length, pages: 4, next: `${fx.BODIES_URL}?page=5`, looped: true, stoppedEarly: true },
   );
-  assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] stopped after page 4: the last 3 pages added no object/m);
+  assert.match(untimed(cli.err.join("\n")), /^WARN  \[oparl\.api\] stopped after page 4: the last 3 pages added no object/m);
 });
 
 test("endpoints falls back to the curated list when the registry is unreachable", async () => {
@@ -283,6 +283,27 @@ test("list accepts ISO 8601 timestamps with fractional seconds", async () => {
   assert.equal(queryOf(cli.mt.calls[1]!).get("created_since"), "2026-09-01T10:00:00+00:00");
 });
 
+test("the note after the user's own --limit stays INFO; a walk that stopped on its own is WARN", async () => {
+  // ALLRIS 1.0 answers limit=3 with three objects and no next link.
+  const cli = makeCli((req) => {
+    if (req.url === fx.BODY_URL) return jsonResponse(fx.body);
+    return jsonResponse({ data: [1, 2, 3].map((n) => fx.meeting(n)), links: { first: fx.MEETINGS_URL } });
+  });
+  assert.equal(await run(["list", "meeting", fx.BODY_URL, "--limit", "3"], cli.deps), 0);
+  assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] the last page held exactly 3 objects/m);
+  assert.doesNotMatch(untimed(cli.err.join("\n")), /^WARN /m);
+  assert.equal((cli.json() as { stoppedEarly?: boolean }).stoppedEarly, undefined);
+
+  // the server's next link goes to a host this client refuses: nobody chose that
+  const refused = makeCli((req) => {
+    if (req.url === fx.BODY_URL) return jsonResponse(fx.body);
+    return jsonResponse({ data: [fx.meeting(1)], links: { next: "https://tracker.example.com/page2" } });
+  });
+  assert.equal(await run(["list", "meeting", fx.BODY_URL, "--max-pages", "0"], refused.deps), 0);
+  assert.match(untimed(refused.err.join("\n")), /^WARN  \[oparl\.api\] stopped after page 1: /m);
+  assert.equal((refused.json() as { stoppedEarly?: boolean }).stoppedEarly, true);
+});
+
 test("list prints the pages fetched when a later page fails, and still exits with the error", async () => {
   const cli = makeCli((req) => {
     if (req.url === fx.BODY_URL) return jsonResponse(fx.body);
@@ -295,7 +316,7 @@ test("list prints the pages fetched when a later page fails, and still exits wit
     { ids: result.data.map((m) => m.id), pages: result.pages, next: result.next },
     { ids: fx.meetingPages[1].data.map((m) => m.id), pages: 1, next: `${fx.MEETINGS_URL}?page=2` },
   );
-  assert.match(untimed(cli.err[0] ?? ""), /^INFO  \[oparl\.api\] stopped after page 1 because page 2 failed/);
+  assert.match(untimed(cli.err[0] ?? ""), /^WARN  \[oparl\.api\] stopped after page 1 because page 2 failed/);
   assert.match(untimed(cli.err[1] ?? ""), /^ERROR \[oparl\.api\] HTTP 500 for GET .*\?page=2: boom$/);
 });
 
