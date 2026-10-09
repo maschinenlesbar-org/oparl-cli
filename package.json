@@ -1,6 +1,6 @@
 {
   "name": "@maschinenlesbar.org/oparl-cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "TypeScript API client and CLI for OParl — the open standard for German municipal council information systems (Ratsinformationssysteme)",
   "type": "module",
   "bin": {
