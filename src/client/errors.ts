@@ -171,7 +171,8 @@ export class OparlApiError extends OparlError {
       parts.push(credentialsDroppedHint(dropped));
     }
     const detailPart = parts.length > 0 ? `: ${parts.join("; ")}` : "";
-    super(`HTTP ${args.status} for ${args.method} ${args.url}${detailPart}`);
+    // The URL may be a link the server chose (a `next` link): quoted cut, kept whole in `url`.
+    super(`HTTP ${args.status} for ${args.method} ${cutForMessage(args.url)}${detailPart}`);
     this.status = args.status;
     this.url = args.url;
     this.method = args.method;

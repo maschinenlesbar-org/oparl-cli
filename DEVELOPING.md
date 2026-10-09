@@ -240,8 +240,11 @@ characters are dropped, whitespace (newlines and the Unicode line separators inc
 collapsed to single spaces, and the result is cut to 200 characters, never inside a
 surrogate pair (`cutText`), so the message stays well-formed. A value an own message
 quotes from the user's input (a URL with another scheme, a timestamp, an unknown option
-key) is cut the same way, at `MAX_SERVER_TEXT_LENGTH` (200, `cutForMessage`), so
-`err.message` stays bounded for a library caller. A hostile or
+key) is cut the same way, at `MAX_SERVER_TEXT_LENGTH` (200, `cutForMessage`), and so is
+the request URL a message names (`HTTP 500 for GET <url>`, `Refusing to follow … from
+<page>`), which on page 2 of a walk is a `next` link the server chose: `err.message`
+stays bounded for a library caller, while `OparlApiError.url` and a partial walk's `next`
+keep the whole URL. A hostile or
 man-in-the-middled endpoint would otherwise drive ANSI/OSC escape sequences into the
 terminal, print a log record of its own next to the CLI's, or bury the diagnostic
 under kilobytes of its own text. It applies to every server-derived string, the object

@@ -863,3 +863,35 @@ test("isListType accepts the own keys of LIST_TYPES only", () => {
     assert.equal(isListType(value), false, String(value));
   }
 });
+
+test("a server's long next link is quoted cut in the error and the walk note, and kept whole in next (B01-1)", async () => {
+  const long = `${fx.MEETINGS_URL}/${"y".repeat(11_000)}`;
+  const failures = [
+    { name: "HTTP 431", response: jsonResponse({ error: "too long" }, 431) },
+    { name: "an HTML page", response: rawResponse("<html>down</html>", "text/html") },
+    { name: "not a list", response: jsonResponse({ type: "https://schema.oparl.org/1.1/Meeting" }) },
+  ];
+  for (const { name, response } of failures) {
+    const { c } = client({
+      [fx.BODY_URL]: jsonResponse(fx.body),
+      [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1)], links: { next: long } }),
+      [long]: response,
+    });
+    const err = await c.list(fx.BODY_URL, "meeting", { maxPages: 3 }).then(
+      () => assert.fail(`${name}: expected a rejection`),
+      (e: unknown) => e as OparlError,
+    );
+    assert.ok(err.message.length < 600, `${name}: ${err.message.length} characters`);
+    assert.match(err.message, /y…/, name);
+    assert.equal(err.partial?.next, long, `${name}: next keeps the whole link`);
+  }
+  // The page a refused link came from is server-chosen too.
+  const { c } = client({
+    [fx.BODY_URL]: jsonResponse(fx.body),
+    [fx.MEETINGS_URL]: jsonResponse({ data: [fx.meeting(1)], links: { next: long } }),
+    [long]: jsonResponse({ data: [fx.meeting(2)], links: { next: "https://tracker.example.com/x" } }),
+  });
+  const result = await c.list(fx.BODY_URL, "meeting", { maxPages: 3 });
+  assert.match(result.note ?? "", /^stopped after page 2: Refusing to follow https:\/\/tracker\.example\.com\/x from .*y…: it points to another host/);
+  assert.ok((result.note ?? "").length < 800, `${(result.note ?? "").length} characters`);
+});

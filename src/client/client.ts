@@ -296,7 +296,7 @@ function listItems(url: string, items: readonly JsonValue[]): JsonObject[] {
   for (const item of items) {
     if (!isObject(item)) {
       throw new OparlParseError(
-        `The list at ${url} has an entry in \`data\` that is not an OParl object (${describeJson(item)}).`,
+        `The list at ${cutForMessage(url)} has an entry in \`data\` that is not an OParl object (${describeJson(item)}).`,
       );
     }
   }
@@ -434,11 +434,11 @@ export class OparlClient {
   ): Promise<{ object: T; url: string }> {
     const { value, url: from } = await this.engine.fetchJson<unknown>(url, query);
     if (!isObject(value)) {
-      throw new OparlParseError(`Expected an OParl object from ${url} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
+      throw new OparlParseError(`Expected an OParl object from ${cutForMessage(url)} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
     }
     const message = errorObjectMessage(value, (text) => this.engine.redact(text));
     if (message !== null) {
-      throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
+      throw new OparlParseError(`The server at ${cutForMessage(url)} answered with an error object: ${message}`);
     }
     return { object: value as T, url: from };
   }
@@ -454,13 +454,13 @@ export class OparlClient {
     const type = str(system["type"]) ?? "";
     if (!/\/System$/.test(type)) {
       throw new OparlParseError(
-        `${url} is not an OParl System (type: ${sanitizeServerText(type) || "missing"}). Use the endpoint's System URL, ` +
+        `${cutForMessage(url)} is not an OParl System (type: ${sanitizeServerText(type) || "missing"}). Use the endpoint's System URL, ` +
           "e.g. from `oparl endpoints`.",
       );
     }
     if (typeof system["body"] !== "string") {
       throw new OparlParseError(
-        `${url} is an OParl System, but its \`body\` is ${describeJson(system["body"])} instead of the URL of its list ` +
+        `${cutForMessage(url)} is an OParl System, but its \`body\` is ${describeJson(system["body"])} instead of the URL of its list ` +
           "of bodies, so its bodies cannot be listed. `oparl get` shows the object as the server sent it.",
       );
     }
@@ -490,11 +490,11 @@ export class OparlClient {
     if (!isObject(value) || !Array.isArray(value["data"])) {
       const message = isObject(value) ? errorObjectMessage(value, (text) => this.engine.redact(text)) : null;
       if (message !== null) {
-        throw new OparlParseError(`The server at ${url} answered with an error object: ${message}`);
+        throw new OparlParseError(`The server at ${cutForMessage(url)} answered with an error object: ${message}`);
       }
       const type = isObject(value) ? str(value["type"]) : null;
       throw new OparlParseError(
-        `${url} is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(type)})` : ""}.`,
+        `${cutForMessage(url)} is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(type)})` : ""}.`,
       );
     }
     listItems(url, value["data"]);
@@ -677,7 +677,7 @@ export class OparlClient {
     const bodyType = str(body["type"]) ?? "";
     if (!/\/Body$/.test(bodyType)) {
       throw new OparlParseError(
-        `${bodyUrl} is not an OParl Body (type: ${sanitizeServerText(bodyType) || "missing"}). ` +
+        `${cutForMessage(bodyUrl)} is not an OParl Body (type: ${sanitizeServerText(bodyType) || "missing"}). ` +
           "Use a body URL from `oparl bodies`.",
       );
     }
@@ -810,7 +810,7 @@ export class OparlClient {
       seen.add(carryQuery(parseHttpUrl(url).href, query)); // the URL requested, not the base URL
       seen.add(from); // and the URL a redirect took it to
       if (!isObject(value) || !Array.isArray(value["data"])) {
-        throw new OparlParseError(`${url} is not the OParl endpoint registry (no data array).`);
+        throw new OparlParseError(`${cutForMessage(url)} is not the OParl endpoint registry (no data array).`);
       }
       for (const raw of value["data"]) {
         if (!isObject(raw)) continue;

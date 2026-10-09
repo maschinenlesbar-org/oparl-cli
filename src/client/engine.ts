@@ -309,7 +309,7 @@ export function resolveLink(from: string, link: string): string {
   }
   if (target.hostname.toLowerCase() !== base.hostname.toLowerCase()) {
     throw new OparlLinkError(
-      `Refusing to follow ${sanitizeServerText(target.href)} from ${base.href}: it points to another host. ` +
+      `Refusing to follow ${sanitizeServerText(target.href)} from ${cutForMessage(base.href)}: it points to another host. ` +
         "Links are only followed on the server they came from; fetch it directly with `get` if you trust it.",
     );
   }
@@ -324,7 +324,7 @@ export function resolveLink(from: string, link: string): string {
     base.protocol === "http:" && target.protocol === "https:" && effectivePort(base) === "80" && effectivePort(target) === "443";
   if (!upgradedOnDefaultPorts && effectivePort(target) !== effectivePort(base)) {
     throw new OparlLinkError(
-      `Refusing to follow ${sanitizeServerText(target.href)} from ${base.href}: it points to another port.`,
+      `Refusing to follow ${sanitizeServerText(target.href)} from ${cutForMessage(base.href)}: it points to another port.`,
     );
   }
   return target.href;
@@ -754,7 +754,7 @@ export class RequestEngine {
       // otherwise surface below as a raw TypeError, or — without a status — as a success.
       const invalid = responseProblem(raw);
       if (invalid !== undefined) {
-        throw new OparlNetworkError(`GET ${current} failed: the transport returned an invalid response (${invalid}).`);
+        throw new OparlNetworkError(`GET ${cutForMessage(current)} failed: the transport returned an invalid response (${invalid}).`);
       }
       const response = raw as HttpResponse;
       // A transport that followed a redirect itself (fetch's default) took the request to a
@@ -763,7 +763,7 @@ export class RequestEngine {
       const reported = (response as { url?: unknown }).url;
       if (typeof reported === "string" && reported !== "" && originOf(reported) !== originOf(current)) {
         throw new OparlNetworkError(
-          `GET ${current} failed: the transport followed a redirect to ${originOf(reported) ?? "an unparseable URL"}, ` +
+          `GET ${cutForMessage(current)} failed: the transport followed a redirect to ${originOf(reported) ?? "an unparseable URL"}, ` +
             'another origin. A transport must not follow redirects (HttpRequest.redirect is "manual"); the engine ' +
             "follows them and decides where credential headers may go.",
         );
@@ -774,7 +774,7 @@ export class RequestEngine {
       // The size cap holds whatever the transport did: the built-in one aborts early, a
       // custom one may have read everything.
       if (this.maxResponseBytes > 0 && body.byteLength > this.maxResponseBytes) {
-        throw new OparlNetworkError(`GET ${current} failed: ${sizeLimitMessage(this.maxResponseBytes)}`);
+        throw new OparlNetworkError(`GET ${cutForMessage(current)} failed: ${sizeLimitMessage(this.maxResponseBytes)}`);
       }
 
       if ((status === 429 || status === 503) && attempt < this.maxRetries) {
@@ -864,7 +864,7 @@ export class RequestEngine {
     const body = this.decompress(url, rawBody, headers);
     const text = decodeText(body, headers, url);
     if (text.trim().length === 0) {
-      throw new OparlParseError(`Empty response from ${url} (expected OParl JSON).`);
+      throw new OparlParseError(`Empty response from ${cutForMessage(url)} (expected OParl JSON).`);
     }
     let value: unknown;
     try {
@@ -877,8 +877,8 @@ export class RequestEngine {
       const typePart = type === "" ? "" : ` (content-type: ${type})`;
       throw new OparlParseError(
         what === null
-          ? `Failed to parse JSON response from ${url}${typePart}`
-          : `Expected OParl JSON from ${url} but received ${what}${typePart}` +
+          ? `Failed to parse JSON response from ${cutForMessage(url)}${typePart}`
+          : `Expected OParl JSON from ${cutForMessage(url)} but received ${what}${typePart}` +
             (what === "a PDF file"
               ? " — this CLI prints file metadata, it does not download files."
               : " — is this an OParl URL?"),
@@ -887,7 +887,7 @@ export class RequestEngine {
       );
     }
     if (jsonDepth(value) > MAX_JSON_DEPTH) {
-      throw new OparlParseError(`The response from ${url} is nested too deeply to be OParl JSON.`);
+      throw new OparlParseError(`The response from ${cutForMessage(url)} is nested too deeply to be OParl JSON.`);
     }
     return value as T;
   }
@@ -931,13 +931,13 @@ export class RequestEngine {
     } catch (cause) {
       if ((cause as { code?: string } | null)?.code === "ERR_BUFFER_TOO_LARGE") {
         throw new OparlNetworkError(
-          `The ${coding} response from ${url} exceeded maxResponseBytes (${this.maxResponseBytes}) when decompressed`,
+          `The ${coding} response from ${cutForMessage(url)} exceeded maxResponseBytes (${this.maxResponseBytes}) when decompressed`,
         );
       }
-      throw new OparlParseError(`The ${coding}-compressed response from ${url} could not be decompressed.`, { cause });
+      throw new OparlParseError(`The ${coding}-compressed response from ${cutForMessage(url)} could not be decompressed.`, { cause });
     }
     throw new OparlParseError(
-      `The response from ${url} uses the content encoding "${sanitizeServerText(coding, 40)}", which this client ` +
+      `The response from ${cutForMessage(url)} uses the content encoding "${sanitizeServerText(coding, 40)}", which this client ` +
         "cannot decode (gzip, deflate and br are supported).",
     );
   }
@@ -982,7 +982,7 @@ export class RequestEngine {
   private toNetworkError(url: string, cause: unknown): OparlError {
     if (cause instanceof OparlError) return cause;
     const reason = cause instanceof Error ? cause.message : String(cause);
-    return new OparlNetworkError(`GET ${url} failed: ${sanitizeServerText(this.redact(reason))}`, {
+    return new OparlNetworkError(`GET ${cutForMessage(url)} failed: ${sanitizeServerText(this.redact(reason))}`, {
       cause: this.scrubCause(cause),
     });
   }
@@ -1061,7 +1061,7 @@ function decodeText(body: Buffer, headers: ResponseHeaders, url: string): string
   try {
     decoder = new TextDecoder(charset);
   } catch {
-    throw new OparlParseError(`The response from ${url} declares the charset "${sanitizeServerText(charset, 40)}", which this client cannot decode.`);
+    throw new OparlParseError(`The response from ${cutForMessage(url)} declares the charset "${sanitizeServerText(charset, 40)}", which this client cannot decode.`);
   }
   return decoder.decode(body);
 }
