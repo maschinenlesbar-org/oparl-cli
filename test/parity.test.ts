@@ -249,7 +249,7 @@ test("parity: a URL's credentials never reach the library's error messages", asy
     const message = (lib.error as Error).message;
     assert.doesNotMatch(message, /alice|pw123/, label);
     assert.ok(message.includes(clean), `${label}: ${message}`);
-    assert.equal(cli.err, `Error: ${message}`, label);
+    assert.equal(cli.err, `ERROR [oparl.cli] ${message}`, label);
     assert.deepEqual(cli.requests.map((r) => r.url), lib.requests.map((r) => r.url), label);
     assert.ok(lib.requests.every((r) => !r.url.includes("pw123") && r.headers?.["Authorization"] === undefined), label);
   }
@@ -358,7 +358,7 @@ test("parity: a bad URL argument or User-Agent is rejected with the library's ow
     assert.ok(lib.error instanceof OparlValidationError, label);
     const reason = (lib.error as Error).message.replace(/^Invalid (registryUrl|userAgent): /, "");
     // commander's own usage error, which carries the library's reason.
-    assert.match(cli.err, /^error: .* is invalid/, label);
+    assert.match(cli.err, /^ERROR \[oparl\.cli\] .* is invalid/, label);
     assert.ok(cli.err.includes(reason), `${label}: ${cli.err} / ${reason}`);
     assert.equal(cli.requests.length + lib.requests.length, 0, label);
   }

@@ -9,7 +9,7 @@
 //   get <url>            any OParl object or list page by URL
 
 import { Argument, Option, type Command } from "commander";
-import type { CliDeps } from "../io.js";
+import { logOf, type CliDeps } from "../io.js";
 import {
   DEFAULT_REGISTRY_URL,
   LIST_TYPES,
@@ -46,7 +46,7 @@ function parseOparlVersion(value: string): string {
  * ended, or which filter it could not apply.
  */
 function noteWalk(deps: CliDeps, result: ListResult<JsonObject>): void {
-  if (result.note !== undefined) deps.io.err(`Note: ${result.note}`);
+  if (result.note !== undefined) logOf(deps).info("api", result.note);
 }
 
 /**
@@ -100,10 +100,11 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           // With --source all, a registry that cannot be read leaves the curated list
           // alone; the user is told, since the answer is then only as fresh as this release.
           const { entries, registryError, note } = await client.endpointsReport(options);
-          if (note !== undefined) deps.io.err(`Note: ${note}`);
+          if (note !== undefined) logOf(deps).info("api", note);
           if (registryError !== undefined) {
-            deps.io.err(
-              `Note: the endpoint registry at ${opts["registryUrl"] as string} could not be read (${registryError.message}) — ` +
+            logOf(deps).info(
+              "api",
+              `the endpoint registry at ${opts["registryUrl"] as string} could not be read (${registryError.message}) — ` +
                 "listing only the curated endpoints that ship with this tool, as of their last check (`checked`). " +
                 "Use --source curated to skip the registry, or --source registry to see the error.",
             );

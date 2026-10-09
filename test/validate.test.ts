@@ -6,7 +6,7 @@ import { OparlError, OparlValidationError } from "../src/client/errors.js";
 import { run } from "../src/cli/run.js";
 import type { CliDeps } from "../src/cli/io.js";
 import { OparlClient, listQuery } from "../src/client/client.js";
-import { jsonResponse, parity } from "./helpers.js";
+import { jsonResponse, parity, untimed } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
 const evenProblem: Problem<number> = (n) => (n % 2 === 0 ? undefined : "Expected an even number.");
@@ -37,7 +37,7 @@ test("the library root exports assertValid and OparlValidationError", () => {
   assert.equal(lib.OparlValidationError, OparlValidationError);
 });
 
-test("run() maps an OparlValidationError raised in an action to exit 2 with 'Error: <message>'", async () => {
+test("run() maps an OparlValidationError raised in an action to exit 2 and an ERROR record", async () => {
   const out: string[] = [];
   const err: string[] = [];
   const deps: CliDeps = {
@@ -47,7 +47,7 @@ test("run() maps an OparlValidationError raised in an action to exit 2 with 'Err
     },
   };
   assert.equal(await run(["get", fx.SYSTEM_URL], deps), 2);
-  assert.deepEqual(err, ["Error: Invalid thing: Expected another thing."]);
+  assert.deepEqual(err.map(untimed), ["ERROR [oparl.cli] Invalid thing: Expected another thing."]);
   assert.deepEqual(out, []);
 });
 

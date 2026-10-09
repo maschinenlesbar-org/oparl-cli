@@ -4,7 +4,8 @@
 
 import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
-import type { CliDeps } from "./io.js";
+import { logOf, type CliDeps } from "./io.js";
+import { createLogger, logFormatFromArgv } from "./log.js";
 import { redactUserinfo, stripTerminalControls } from "./shared.js";
 import {
   OparlApiError,
@@ -58,7 +59,15 @@ function configureTree(command: Command, deps: CliDeps): void {
   command.exitOverride();
   command.configureOutput({
     writeOut: (str) => deps.io.out(str.replace(/\n$/, "")),
-    writeErr: (str) => deps.io.err(str.replace(/\n$/, "")),
+    // commander's own messages are log records too: its "error: …" an ERROR, the help it
+    // shows after one an INFO.
+    writeErr: (str) => {
+      const text = str.replace(/\n$/, "");
+      // The blank line commander writes between an error and the help it shows after.
+      if (text === "") return;
+      if (text.startsWith("error: ")) logOf(deps).error("cli", text.slice("error: ".length));
+      else logOf(deps).info("cli", text);
+    },
   });
   for (const child of command.commands) configureTree(child, deps);
 }
@@ -99,7 +108,13 @@ export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliD
 }
 
 export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {
-  const deps = withRedactedOutput(rawDeps, argv);
+  const redacted = withRedactedOutput(rawDeps, argv);
+  // Every record goes through the redacted `io.err`, so a secret is kept out of the
+  // log in either format.
+  const deps: CliDeps = {
+    ...redacted,
+    log: createLogger({ format: logFormatFromArgv(argv), write: (line) => redacted.io.err(line), ...(redacted.now === undefined ? {} : { now: redacted.now }) }),
+  };
   const program = buildProgram(deps);
   configureTree(program, deps);
 
@@ -120,51 +135,55 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
       // the catch-all).
       return err.exitCode === 0 ? 0 : EXIT.USAGE;
     }
+    const log = logOf(deps);
     if (err instanceof OparlValidationError) {
-      deps.io.err(`Error: ${err.message}`);
+      log.error("cli", err.message);
       return EXIT.USAGE;
     }
     if (err instanceof OparlApiError) {
-      deps.io.err(`Error: ${err.message}`);
+      log.error("api", err.message);
       if (err.status === 404) return EXIT.NOT_FOUND;
       if (err.location !== undefined && FOLLOWED_REDIRECTS.includes(err.status)) {
         // A followable redirect is only left unfollowed when --max-redirects ran out
         // (another host is refused with an OparlLinkError before it gets here).
-        deps.io.err(
-          "Hint: the server redirected more often than --max-redirects allows (default 3). " +
+        log.info(
+          "api",
+          "the server redirected more often than --max-redirects allows (default 3). " +
             "Use the final URL directly, or raise --max-redirects.",
         );
       } else if (err.status >= 500) {
-        deps.io.err(
-          "Hint: the council system reported a server error. " +
+        log.info(
+          "api",
+          "the council system reported a server error. " +
             (carriedListFilters(err.url)
               ? "Some servers fail on filters or --limit; retry without them, or later."
               : "Try again later; council systems are often down for a while."),
         );
       } else if (err.status === 400 && carriedListFilters(err.url)) {
-        deps.io.err("Hint: some servers reject --limit or the date filters; retry without them.");
+        log.info("api", "some servers reject --limit or the date filters; retry without them.");
       }
       return EXIT.OTHER;
     }
     if (err instanceof OparlNetworkError) {
-      deps.io.err(`Error: ${err.message}`);
+      log.error("http", err.message);
       if (/maxResponseBytes/.test(err.message)) {
-        deps.io.err("Hint: the response exceeded the size cap. Raise --max-response-bytes <n> (0 = unlimited).");
+        log.info("http", "the response exceeded the size cap. Raise --max-response-bytes <n> (0 = unlimited).");
       } else if (/timed out/.test(err.message)) {
-        deps.io.err("Hint: council systems can be slow. Raise --timeout <ms> (0 = no timeout).");
+        log.info("http", "council systems can be slow. Raise --timeout <ms> (0 = no timeout).");
       }
       return EXIT.NETWORK;
     }
     if (err instanceof OparlLinkError) {
-      deps.io.err(`Error: ${err.message}`);
+      // A link or redirect to another host, or a downgrade to http: the connection policy.
+      log.error("http", err.message);
       return EXIT.OTHER;
     }
     if (err instanceof OparlError) {
       // Includes OparlParseError (not OParl JSON, wrong object type, error object).
-      deps.io.err(`Error: ${err.message}`);
+      log.error("cli", err.message);
       return EXIT.OTHER;
     }
-    deps.io.err(`Unexpected error: ${err instanceof Error ? err.message : String(err)}`);
+    log.error("cli", `Unexpected error: ${err instanceof Error ? err.message : String(err)}`);
     return EXIT.OTHER;
   }
 }

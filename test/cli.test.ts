@@ -7,7 +7,7 @@ import { OparlNetworkError } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
 import type { HttpRequest, HttpResponse } from "../src/client/http.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
-import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, routes } from "./helpers.js";
+import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, routes, untimed } from "./helpers.js";
 import * as fx from "./fixtures.js";
 
 const site = {
@@ -201,7 +201,7 @@ test("bodies notes on stderr when the server's pages repeat, and hands back a ne
     { n: result.data.length, pages: result.pages, next: result.next, looped: result.looped },
     { n: fx.bodyList.data.length, pages: 4, next: `${fx.BODIES_URL}?page=5`, looped: true },
   );
-  assert.match(cli.err.join("\n"), /Note: stopped after page 4: the last 3 pages added no object/);
+  assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] stopped after page 4: the last 3 pages added no object/m);
 });
 
 test("endpoints falls back to the curated list when the registry is unreachable", async () => {
@@ -295,8 +295,8 @@ test("list prints the pages fetched when a later page fails, and still exits wit
     { ids: result.data.map((m) => m.id), pages: result.pages, next: result.next },
     { ids: fx.meetingPages[1].data.map((m) => m.id), pages: 1, next: `${fx.MEETINGS_URL}?page=2` },
   );
-  assert.match(cli.err[0] ?? "", /^Note: stopped after page 1 because page 2 failed/);
-  assert.match(cli.err[1] ?? "", /^Error: HTTP 500 for GET .*\?page=2: boom$/);
+  assert.match(untimed(cli.err[0] ?? ""), /^INFO  \[oparl\.api\] stopped after page 1 because page 2 failed/);
+  assert.match(untimed(cli.err[1] ?? ""), /^ERROR \[oparl\.api\] HTTP 500 for GET .*\?page=2: boom$/);
 });
 
 test("list --max-pages 0 walks every page", async () => {
@@ -355,18 +355,18 @@ test("a 500 exits 1 with a hint about filters only when the request carried some
   for (const argv of [["get", fx.SYSTEM_URL], ["system", fx.SYSTEM_URL]]) {
     const cli = makeCli(fail(500));
     assert.equal(await run(["--max-retries", "0", ...argv], cli.deps), 1);
-    assert.match(cli.err.join("\n"), /Hint: .*server error\. Try again later/);
+    assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] .*server error\. Try again later/m);
     assert.doesNotMatch(cli.err.join("\n"), /--limit/);
 
     const bad = makeCli(fail(400));
     assert.equal(await run(["--max-retries", "0", ...argv], bad.deps), 1);
-    assert.doesNotMatch(bad.err.join("\n"), /Hint:/);
+    assert.doesNotMatch(untimed(bad.err.join("\n")), /^INFO /m);
   }
 
   for (const status of [500, 400]) {
     const cli = makeCli((req) => (req.url === fx.BODY_URL ? jsonResponse(fx.body) : fail(status)()));
     assert.equal(await run(["--max-retries", "0", "list", "meeting", fx.BODY_URL, "--modified-since", "2026-09-01"], cli.deps), 1);
-    assert.match(cli.err.join("\n"), /Hint: .*--limit or the date filters|Hint: .*fail on filters or --limit/);
+    assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] (.*--limit or the date filters|.*fail on filters or --limit)/m);
   }
 });
 
@@ -512,13 +512,13 @@ test("control characters in a URL argument never reach stderr", async () => {
 test("the --max-redirects hint only follows a redirect the limit stopped", async () => {
   const noLocation = makeCli(() => ({ status: 301, headers: {}, body: Buffer.alloc(0) }));
   assert.equal(await run(["get", fx.SYSTEM_URL], noLocation.deps), 1);
-  assert.deepEqual(noLocation.err, [`Error: HTTP 301 for GET ${fx.SYSTEM_URL}: redirect not followed (no Location header)`]);
+  assert.deepEqual(noLocation.err.map(untimed), [`ERROR [oparl.api] HTTP 301 for GET ${fx.SYSTEM_URL}: redirect not followed (no Location header)`]);
 
   let n = 0;
   const loop = makeCli(() => ({ status: 302, headers: { location: `/hop/${(n += 1)}` }, body: Buffer.alloc(0) }));
   assert.equal(await run(["get", fx.SYSTEM_URL], loop.deps), 1);
   assert.match(loop.err[0] ?? "", /: redirect to https:\/\/ris\.example\.de\/hop\/4 not followed \(stopped after 3 redirects\)$/);
-  assert.match(loop.err[1] ?? "", /^Hint: the server redirected more often than --max-redirects allows/);
+  assert.match(untimed(loop.err[1] ?? ""), /^INFO  \[oparl\.api\] the server redirected more often than --max-redirects allows/);
 });
 
 test("endpoints --search finds the municipalities the shipped note names on a shared server", async () => {
@@ -542,7 +542,7 @@ test("list rejects an inverted date window as a usage error", async () => {
     2,
   );
   assert.equal(cli.mt.calls.length, 0);
-  assert.match(cli.err[0] ?? "", /^Error: The modified window is empty: modified_since \(2026-09-10T00:00:00\+00:00\) is after/);
+  assert.match(untimed(cli.err[0] ?? ""), /^ERROR \[oparl\.cli\] The modified window is empty: modified_since \(2026-09-10T00:00:00\+00:00\) is after/);
 });
 
 test("a blank --user-agent is a usage error, not silently replaced", async () => {
@@ -576,7 +576,7 @@ test("a registry walk stopped at its page cap says so on stderr", async () => {
   assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], cli.deps), 0);
   assert.equal(n, MAX_REGISTRY_PAGES);
   assert.equal((cli.json() as unknown[]).length, MAX_REGISTRY_PAGES);
-  assert.match(cli.err.join("\n"), /^Note: the endpoint registry was read up to page 50, .* incomplete/m);
+  assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] the endpoint registry was read up to page 50, .* incomplete/m);
   // A registry that ends says nothing.
   const done = makeCli(() => jsonResponse({ data: [{ title: "Stadt", url: "https://ris.example/oparl/system" }], meta: {} }));
   assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], done.deps), 0);

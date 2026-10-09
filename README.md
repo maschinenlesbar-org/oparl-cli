@@ -126,6 +126,21 @@ the pages already fetched are still printed, with `next` set to the page that fa
 Every command prints **JSON to stdout**; diagnostics go to stderr, so piping into `jq`
 stays clean.
 
+Each line on stderr is a **log record**: a timestamp (UTC), a level (`ERROR`, `WARN`,
+`INFO`) and a topic, the program and the area it comes from (`oparl.cli` for usage
+errors, `oparl.api` for the server's answers and the notes on a walk, `oparl.http` for the
+connection, `oparl.output`). By default it is written log4j style; `--log-format jsonl`
+writes one JSON object per line instead:
+
+```text
+2026-10-09T14:03:12.481Z WARN  [oparl.http] requests to ris.example are sent unencrypted (http:, not https:)
+2026-10-09T14:03:12.902Z ERROR [oparl.api] HTTP 404 for GET http://ris.example/oparl/system: Not found
+```
+
+```bash
+oparl --log-format jsonl get "$URL" 2>log.jsonl   # {"ts":"…","level":"ERROR","topic":"oparl.api","msg":"HTTP 404 …"}
+```
+
 ```bash
 # How many working endpoints per OParl version?
 oparl endpoints --working | jq -r 'group_by(.oparlVersion)[] | "\(.[0].oparlVersion): \(length)"'
@@ -231,6 +246,7 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `-h, --help` | Show help for the program or a command |
 | `--compact` | Print JSON on a single line instead of pretty-printed |
 | `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout) |
+| `--log-format <format>` | How errors, warnings and notes are written to stderr: `text` (default; log4j style, `2026-10-09T14:03:12.481Z WARN  [oparl.http] …`) or `jsonl` (one JSON object per line: `ts`, `level`, `topic`, `msg`). stdout is not affected |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
 | `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji, an en dash or a blank value is rejected with exit `2`) |
 | `--max-retries <n>` | Retries for transient `429`/`503` responses and reset connections (0..10, default `2`); a timeout is not retried. A 429 waits at least 1 s (doubling), a 503 0.5 s (growing linearly); `Retry-After` can only lengthen a wait, up to 30 s |
@@ -240,8 +256,8 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 oparl has no `--base-url`: every command names the URL it starts from. When that start URL
 — the `system`/`bodies`/`list`/`get` URL, or for `endpoints` the registry it reads
 (`--registry-url`) — is plain `http:` to a host other than loopback (`localhost`,
-`127.0.0.0/8`, `::1`), the CLI prints one `warning: requests to <host> are sent unencrypted
-(http:, not https:)` line on stderr before the first request, once per run. stdout and the
+`127.0.0.0/8`, `::1`), the CLI logs one warning on stderr, `WARN  [oparl.http] requests to
+<host> are sent unencrypted (http:, not https:)`, before the first request, once per run. stdout and the
 exit code are unchanged. (A `user:password@` in a URL is dropped, never sent: OParl access
 is anonymous.)
 

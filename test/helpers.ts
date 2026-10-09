@@ -103,6 +103,18 @@ export function queryOf(req: HttpRequest): URLSearchParams {
   return new URL(req.url).searchParams;
 }
 
+// ---- the log on stderr -------------------------------------------------------
+
+/**
+ * stderr with each text record's timestamp taken off: `ERROR [oparl.api] HTTP 404 …`.
+ * The format itself — timestamp, level, topic — is the conformance test's
+ * (conformance-p23-log-format); the other tests check what was said, at which level
+ * and under which topic.
+ */
+export function untimed(text: string): string {
+  return text.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /gm, "");
+}
+
 /** What the CLI did with one input: exit code, output, and the requests it sent. */
 export interface CliOutcome {
   code: number;
@@ -151,7 +163,7 @@ export async function parity(
   };
   const code = await run(argv, deps);
   const cliCalls = mt.calls.length;
-  const cli: CliOutcome = { code, out: out.join("\n"), err: err.join("\n"), requests: mt.calls.slice(0, cliCalls) };
+  const cli: CliOutcome = { code, out: out.join("\n"), err: untimed(err.join("\n")), requests: mt.calls.slice(0, cliCalls) };
   let lib: LibOutcome;
   try {
     const value = await call(mt.transport);

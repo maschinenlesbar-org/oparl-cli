@@ -1,5 +1,5 @@
 // Conformance test P20 (follow-up round 2026-10-06): a base URL on plain `http:` gets one
-// warning line on stderr — always naming the host, and naming what secret travels with it
+// warning record on stderr (a WARN record of `<program>.http`, P23) — always naming the host, and naming what secret travels with it
 // (the base URL's credentials, an API key, a login) without printing it. Loopback hosts are
 // exempt; https: never warns; `--help` never warns; stdout is never touched. Shared across the
 // *-cli repos; only the adapter block below differs per repo.
@@ -83,7 +83,7 @@ test("P20 (oparl): credentials in an http start URL are dropped, never printed o
   // URL, so nothing secret travels — the warning names the host, not credentials.
   const r = await cli(["get", "http://alice:s3cret-pw@mirror.example/oparl/system"]);
   assert.equal(r.warnings.length, 1, r.err.join("\n"));
-  assert.match(r.warnings[0]!, /^warning: requests to mirror\.example are sent unencrypted/);
+  assert.match(r.warnings[0]!, / WARN  \[oparl\.http\] requests to mirror\.example are sent unencrypted/);
   assert.doesNotMatch(r.warnings[0]!, /credentials/i);
   assert.ok(![...r.out, ...r.err].join("\n").includes("s3cret-pw"));
   const help = await cli(["get", "http://alice:pw@mirror.example/oparl/system", "--help"]);
@@ -91,7 +91,8 @@ test("P20 (oparl): credentials in an http start URL are dropped, never printed o
 });
 // --------------------------------------------------------------------------------------
 
-const WARNING = /^warning: .*unencrypted.*\(http:, not https:\)$/;
+// A log record (P23): text format, level WARN, topic `<program>.http`.
+const WARNING = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z WARN  \[[a-z0-9-]+\.http\] .*unencrypted.*\(http:, not https:\)$/;
 /** Skips the cases that pass `--base-url` when the CLI has none (see the adapter's own cases). */
 const NO_BASE_URL = !BASE_URL_OPTION && "this CLI has no --base-url (the adapter's cases check its start URL)";
 

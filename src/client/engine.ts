@@ -128,7 +128,7 @@ export const MAX_SERVER_TEXT_LENGTH = 200;
  *   title changes) into the user's terminal.
  * - Every run of whitespace — newlines and Unicode line separators included — becomes
  *   a single space, so the result is one line and a server cannot forge a second
- *   `Error:` line of its own next to ours.
+ *   log record of its own next to ours.
  * - The result is capped at `maxLength` characters, so a 3 KB "message" cannot bury
  *   the diagnostic the CLI printed.
  *
@@ -186,8 +186,8 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * What travels unencrypted when requests go to `baseUrl`, as one sentence for a
- * `warning: ` line — or `undefined` when nothing does: an `https:` URL, a URL that does
+ * What travels unencrypted when requests go to `baseUrl`, as one sentence for the
+ * cleartext warning (a WARN record of `oparl.http`) — or `undefined` when nothing does: an `https:` URL, a URL that does
  * not parse (the base-URL check reports that), or a loopback host (`localhost`,
  * `127.0.0.0/8`, `::1`). The sentence names the host (`url.host`, host and port) and what
  * is sent with each request: the base URL's own credentials (userinfo) and any other

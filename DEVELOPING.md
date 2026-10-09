@@ -202,7 +202,8 @@ src/
     endpoints-list.ts  # the curated endpoint list (generated, see below)
     index.ts
   cli/
-    io.ts        # injectable I/O seam (CliDeps / CliIO)
+    io.ts        # injectable I/O seam (CliDeps / CliIO), the logger and the clock
+    log.ts       # the stderr log: records with ts, level, topic; --log-format text|jsonl
     shared.ts    # option parsers (URLs, timestamps), global options, JSON rendering
     commands/oparl.ts
     program.ts   # assembles the commander program
@@ -231,13 +232,14 @@ answer for the same input. A rule is a pure, exported `…Problem(value)` functi
 or `undefined`; `assertValid(name, value, problem)` throws an `OparlValidationError`
 reading `Invalid <name>: <reason>` (a method that returns a promise rejects with it). The
 CLI's commander parsers call the same functions and turn the reason into a usage error, and
-`run.ts` maps an `OparlValidationError` raised in an action to exit 2 (`Error: <message>`).
+`run.ts` maps an `OparlValidationError` raised in an action to exit 2 and logs it as an
+`ERROR` record of `oparl.cli`.
 
 Server text that reaches an error message goes through `sanitizeServerText`: control
 characters are dropped, whitespace (newlines and the Unicode line separators included) is
 collapsed to single spaces, and the result is cut to 200 characters. A hostile or
 man-in-the-middled endpoint would otherwise drive ANSI/OSC escape sequences into the
-terminal, print an `Error:` line of its own next to the CLI's, or bury the diagnostic
+terminal, print a log record of its own next to the CLI's, or bury the diagnostic
 under kilobytes of its own text. It applies to every server-derived string, the object
 `type` of the type checks and a response's `Content-Type` included; the JSON output
 escapes the same characters instead (`escapeControlChars`). Messages also quote the
@@ -367,7 +369,7 @@ real 1.1 and 1.0 servers and the registry, moved to example hosts.
   `--base-url`, so the shared cases that pass one are skipped (`BASE_URL_OPTION = false`, a
   flag the body reads) and the adapter's own cases check the start URL instead — the first
   URL argument, or the registry `endpoints` reads (`startUrl()` in `shared.ts`); `action()`
-  prints `warning: <cleartextProblem(start)>` on stderr once, before the client is built.
+  logs `cleartextProblem(start)` as a `WARN` record of `oparl.http` once, before the client is built.
   P21 (`conformance-p21-readme-links`): every relative link in `README.md` points to a file
   `package.json` `files` ships, since npmjs.com shows the README; other documents are linked
   by their GitHub URL.
@@ -413,3 +415,23 @@ npm run serve                        # http://127.0.0.1:4000/oparl-cli/
 ## License
 
 Dual-licensed AGPL-3.0-or-later OR commercial — see [LICENSING.md](LICENSING.md).
+
+## The log on stderr
+
+Every diagnostic line on stderr is a log record (`src/cli/log.ts`): a timestamp, a level
+(`ERROR`, `WARN`, `INFO`) and a topic, `oparl.<area>`. `--log-format text` (the default)
+writes it log4j style, `<ISO 8601 UTC> <LEVEL padded to 5> [<topic>] <message>`;
+`--log-format jsonl` writes one JSON object per line with exactly `ts`, `level`, `topic`
+and `msg`. The areas are `cli` (usage errors, commander's messages, validation errors, a
+response that is not OParl, unexpected errors), `api` (the server's error answers and their
+hints, the notes on a walk that stopped early or on the registry), `http` (the connection:
+network errors and their hints, a refused link or redirect, the cleartext warning) and
+`output` (`-o`). Code logs through `logOf(deps)` and never writes diagnostics with `io.err`
+directly. `run()` builds the logger from argv before commander parses it, so commander's
+own usage errors are records too, and on top of the redacted `io.err`, so a secret is kept
+out of the log in either format. `CliDeps.now` makes the timestamps testable. stdout
+carries data only. Two lines stay raw: `Output error: …` from `handleOutputErrors` and the
+bin shim's last-resort `Unexpected error: …`, both written before or outside `run()`.
+Conformance test P23 checks all of this, and its body is shared across the *-cli repos;
+oparl's adapter turns the shared cases' `--base-url` into the registry URL `endpoints`
+reads.

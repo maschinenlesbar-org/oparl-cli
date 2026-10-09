@@ -3,7 +3,7 @@
 
 import type { Command } from "commander";
 import { InvalidArgumentError } from "commander";
-import type { CliDeps } from "./io.js";
+import { logOf, type CliDeps } from "./io.js";
 import type { OparlClientOptions } from "../client/client.js";
 import { normalizeTimestamp } from "../client/client.js";
 import { OparlError, OparlValidationError } from "../client/errors.js";
@@ -210,7 +210,7 @@ export function renderJson(deps: CliDeps, global: GlobalOptions, value: unknown)
       const reason = err instanceof Error ? err.message.replace(/,\s*open\s+'.*'$/, "") : String(err);
       throw new OparlError(`Could not write to ${global.output}: ${reason}`);
     }
-    deps.io.err(`Wrote ${data.length} bytes to ${global.output}`);
+    logOf(deps).info("output", `Wrote ${data.length} bytes to ${global.output}`);
   } else {
     deps.io.out(text);
   }
@@ -241,8 +241,8 @@ export function startUrl(positionals: readonly string[], opts: Record<string, un
  * client construction. The callback receives a context (client + resolved global
  * options + this command's options) and the command's positional arguments.
  *
- * Before the client is built (so before the first request) it writes one
- * `warning: <sentence>` line to stderr when the run's start URL ({@link startUrl}) is
+ * Before the client is built (so before the first request) it logs one
+ * warning (`oparl.http`) when the run's start URL ({@link startUrl}) is
  * plain `http:` to a host other than loopback (cleartextProblem). oparl has no base URL;
  * the start URL is the one the command names. Help, version and usage errors never reach
  * an action, so they never warn.
@@ -262,7 +262,7 @@ export function action(
     const opts = command.opts();
     const start = startUrl(positionals, opts);
     const cleartext = start === undefined ? undefined : cleartextProblem(start);
-    if (cleartext !== undefined) deps.io.err(`warning: ${cleartext}`);
+    if (cleartext !== undefined) logOf(deps).warn("http", cleartext);
     const client = deps.createClient({ ...toEngineOptions(global), ...clientOptions(opts) });
     await fn({ client, global, opts }, positionals);
   };

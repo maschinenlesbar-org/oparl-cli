@@ -134,7 +134,7 @@ oparl get "<paper id>" --compact | jq '{reference, name, paperType, date, consul
   ("Refusing to follow … another host") means the same: the data so far is good.
 - **A later page failing still prints the pages before it.** Then a `note` ("stopped
   after page N because page N+1 failed"), the JSON with `next` at the failing page, and an
-  `Error:` line with a non-zero exit follow. Use the data you got, say the list is
+  `ERROR` record on stderr (`… ERROR [oparl.api] HTTP 500 …`) with a non-zero exit follow. Use the data you got, say the list is
   incomplete, and retry `next` once with `oparl get`.
 - **1.0 bodies** have no `agenda-item`, `consultation`, `file`, `membership` or
   `location` lists; the error names what exists. `legislative-term` still works: it
