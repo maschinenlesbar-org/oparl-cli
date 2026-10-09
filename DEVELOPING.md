@@ -473,6 +473,9 @@ touched, and a secret is kept out of the log in either format. `CliDeps.now` mak
 carries data only. A stdout write error other than a reader that has gone (EBADF, EIO) is
 an ERROR record of `oparl.output` too, `Could not write to stdout: …` (`handleOutputErrors`,
 with the bin shim's `processLogger(argv)`: the format argv asks for, the run's redaction).
+Node's own process warnings (`NODE_TLS_REJECT_UNAUTHORIZED=0`) are WARN records of
+`oparl.cli` too: the bin shim installs `installWarningLog`, which removes Node's default
+`warning` listener and logs `(node) <name>: <message>` through `processLogger(argv)`.
 One line stays raw: the bin shim's last-resort `Unexpected error: …`, written outside
 `run()`.
 Conformance test P23 checks all of this, and its body is shared across the *-cli repos;
