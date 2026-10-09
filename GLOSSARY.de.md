@@ -150,3 +150,13 @@ JSON-Ausgabe werden dieselben Zeichen stattdessen escaped, sodass nichts verlore
 **`pages` / `next` (Ausgabe von `list`).** Wie viele Seiten abgerufen wurden, und der Link zum
 Weitermachen – vorhanden, wann immer die letzte abgerufene Seite einen anbot, `null` am Ende
 der Liste und dann, wenn der Link in eine Schleife zurückführt.
+
+**Log-Eintrag (log record).** Jede Diagnosezeile, die die CLI nach stderr schreibt: ein
+Zeitstempel, eine Stufe (`ERROR`, `WARN`, `INFO`) und ein Thema `oparl.<Bereich>`, als Text
+(im Stil von log4j) oder mit `--log-format jsonl` als ein JSON-Objekt pro Zeile. Die
+Bereiche: `cli` (Bedienfehler, Meldungen von commander, unerwartete Fehler), `api` (die
+Antworten des Servers: ein Fehlerstatus und eine Antwort, die kein OParl ist – kein JSON,
+eine HTML-Seite, der falsche Objekttyp, ein OParl-Fehlerobjekt; die Hinweise zu einem
+Durchlauf oder zum Verzeichnis), `http` (die Verbindung, ein abgelehnter Link, die
+Klartext-Warnung) und `output` (die `-o`-Datei, Schreibfehler auf stdout). Ein Eintrag ist
+immer eine Zeile; Steuerzeichen darin werden maskiert.

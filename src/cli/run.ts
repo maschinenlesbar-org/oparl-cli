@@ -12,6 +12,7 @@ import {
   OparlError,
   OparlLinkError,
   OparlNetworkError,
+  OparlParseError,
   OparlValidationError,
   credentialsIn,
   redactCredentials,
@@ -240,6 +241,18 @@ export function processLogger(argv: readonly string[]): Logger {
   });
 }
 
+/**
+ * The log area of an `OparlError` that is none of the kinds `run()` maps first: a
+ * malformed answer (`api`: an `OparlParseError` — not OParl JSON, an HTML page, the wrong
+ * object type, an OParl error object, an unknown charset; the server's answer as much as
+ * an error status is), the `-o` file (`output`, like its "Wrote N bytes"), else `cli`.
+ */
+function areaOf(err: OparlError): string {
+  if (err instanceof OparlParseError) return "api";
+  if (err instanceof OutputError) return "output";
+  return "cli";
+}
+
 export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {
   // The log replaces the credentials of the run in every message, in either format.
   const deps = withRedactedOutput(rawDeps, argv);
@@ -319,9 +332,7 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
       return EXIT.OTHER;
     }
     if (err instanceof OparlError) {
-      // Includes OparlParseError (not OParl JSON, wrong object type, error object), and an
-      // -o failure (OutputError), which belongs to oparl.output like its "Wrote N bytes".
-      log.error(err instanceof OutputError ? "output" : "cli", err.message);
+      log.error(areaOf(err), err.message);
       return EXIT.OTHER;
     }
     log.error("cli", `Unexpected error: ${err instanceof Error ? err.message : String(err)}`);

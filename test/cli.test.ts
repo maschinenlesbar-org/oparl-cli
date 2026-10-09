@@ -643,3 +643,16 @@ test("a parse error is logged in the format commander would have parsed (L6)", a
     for (const line of cli.err) assert.equal(line.startsWith("{"), jsonl, `${argv.join(" ")}: ${line}`);
   }
 });
+
+test("a non-OParl answer or an error object is an ERROR record of oparl.api (L9)", async () => {
+  const answers = [
+    rawResponse("<html>down</html>", "text/html"),
+    jsonResponse({ type: "https://schema.oparl.org/1.1/Error", message: "Datenbank nicht erreichbar" }),
+    jsonResponse({ ...fx.body }), // a Body where a System belongs
+  ];
+  for (const answer of answers) {
+    const cli = makeCli(() => answer);
+    assert.equal(await run(["system", fx.SYSTEM_URL], cli.deps), 1);
+    assert.match(untimed(cli.err.join("\n")), /^ERROR \[oparl\.api\] /, cli.err.join("\n"));
+  }
+});

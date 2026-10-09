@@ -449,9 +449,10 @@ controls as `\uXXXX`, so no text that reaches a record, by whatever path, can sp
 forge another one or steer the terminal. Before that a lone surrogate (half a
 character, which jq rejects, stopping the whole stream) becomes U+FFFD (`toWellFormed`),
 and a message longer than `MAX_RECORD_MESSAGE` (4000 characters, exported) is cut at a
-code point and ends in `… (N more characters)`. The areas are `cli` (usage errors, commander's messages, validation errors, a
-response that is not OParl, unexpected errors), `api` (the server's error answers and their
-hints, the notes on a walk that stopped early or on the registry), `http` (the connection:
+code point and ends in `… (N more characters)`. The areas are `cli` (usage errors, commander's messages, validation errors,
+unexpected errors), `api` (the server's answers: an error status and its hints, and a
+malformed answer, an `OparlParseError`: not OParl JSON, an HTML page, the wrong object type,
+an OParl error object; the notes on a walk that stopped early or on the registry), `http` (the connection:
 network errors and their hints, a refused link or redirect, the cleartext warning) and
 `output` (`-o`: "Wrote N bytes", and every failure to write the file, an `OutputError`).
 Code logs through `logOf(deps)` and never writes diagnostics with `io.err`

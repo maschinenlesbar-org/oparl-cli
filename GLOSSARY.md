@@ -140,3 +140,12 @@ output the same characters are escaped instead, so nothing is lost.
 **`pages` / `next` (list output).** How many pages were fetched, and the link to continue —
 present whenever the last page fetched offered one, `null` at the end of the list and when
 the link leads back into a loop.
+
+**Log record.** Every diagnostic line the CLI writes to stderr: a timestamp, a level
+(`ERROR`, `WARN`, `INFO`) and a topic `oparl.<area>`, as text (log4j style) or with
+`--log-format jsonl` as one JSON object per line. The areas: `cli` (usage errors,
+commander's messages, unexpected errors), `api` (the server's answers: an error status, and
+an answer that is not OParl — not JSON, an HTML page, the wrong object type, an OParl error
+object; the notes on a walk or on the registry), `http` (the connection, a refused link,
+the cleartext warning) and `output` (the `-o` file, stdout failures). A record is always
+one line; control characters in it are escaped.

@@ -128,7 +128,7 @@ stays clean.
 
 Each line on stderr is a **log record**: a timestamp (UTC), a level (`ERROR`, `WARN`,
 `INFO`) and a topic, the program and the area it comes from (`oparl.cli` for usage
-errors, `oparl.api` for the server's answers and the notes on a walk, `oparl.http` for the
+errors, `oparl.api` for the server's answers (an answer that is not OParl included) and the notes on a walk, `oparl.http` for the
 connection, `oparl.output` for files written with `-o`, their failures included). By default it is written log4j style; `--log-format jsonl`
 writes one JSON object per line instead. A record is always one line: a line break, a
 control character or a bidi control in a message (a server's text, a value you typed) is

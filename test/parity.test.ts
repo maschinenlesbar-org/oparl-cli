@@ -249,7 +249,7 @@ test("parity: a URL's credentials never reach the library's error messages", asy
     const message = (lib.error as Error).message;
     assert.doesNotMatch(message, /alice|pw123/, label);
     assert.ok(message.includes(clean), `${label}: ${message}`);
-    assert.equal(cli.err, `ERROR [oparl.cli] ${message}`, label);
+    assert.equal(cli.err, `ERROR [oparl.api] ${message}`, label); // a malformed answer is the server's (L9)
     assert.deepEqual(cli.requests.map((r) => r.url), lib.requests.map((r) => r.url), label);
     assert.ok(lib.requests.every((r) => !r.url.includes("pw123") && r.headers?.["Authorization"] === undefined), label);
   }
