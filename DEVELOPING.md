@@ -453,7 +453,12 @@ hints, the notes on a walk that stopped early or on the registry), `http` (the c
 network errors and their hints, a refused link or redirect, the cleartext warning) and
 `output` (`-o`). Code logs through `logOf(deps)` and never writes diagnostics with `io.err`
 directly. `run()` builds the logger from argv before commander parses it, so commander's
-own usage errors are records too, and with the run's redaction (`withRedactedOutput`),
+own usage errors are records too, one per line (`writeCommanderErr`): its `error: …` an
+ERROR of `cli`, with a `(Did you mean …?)` line joined to it, and the help it shows after an
+error an INFO record per non-blank line. A run with options but no command, or `help` for
+an unknown command, logs an ERROR "missing command: `oparl <subcommand>`" before that help,
+so every failed run has an ERROR record (a bare `oparl` prints the help on stdout, exit 0).
+The logger carries the run's redaction (`withRedactedOutput`),
 which replaces a secret in the message only, before it is escaped: the frame is never
 touched, and a secret is kept out of the log in either format. `CliDeps.now` makes the timestamps testable. stdout
 carries data only. Two lines stay raw: `Output error: …` from `handleOutputErrors` and the

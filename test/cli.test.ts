@@ -611,3 +611,14 @@ test("a URL argument typed without its scheme still has its password kept out of
   // The library's URL check knows its value is a URL, scheme or not.
   assert.doesNotMatch(redactUrl("bob:hunter2@ris.example/oparl"), /hunter2/);
 });
+
+test("a run without a command, or help for an unknown one, logs an ERROR before the help (L5)", async () => {
+  for (const argv of [["--log-format", "text"], ["--compact"], ["help", "nonesuch"]]) {
+    const cli = makeCli();
+    assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
+    const err = untimed(cli.err.join("\n")).split("\n");
+    assert.match(err[0] ?? "", /^ERROR \[oparl\.cli\] missing command: `oparl <subcommand>`$/, `${argv.join(" ")}:\n${err.join("\n")}`);
+    assert.ok(err.slice(1).every((line) => line.startsWith("INFO  [oparl.cli] ")), err.join("\n"));
+    assert.ok(err.some((line) => line === "INFO  [oparl.cli] Usage: oparl [options] [command]"), err.join("\n"));
+  }
+});
