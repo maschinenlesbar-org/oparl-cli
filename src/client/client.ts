@@ -750,7 +750,7 @@ export class OparlClient {
    * alone (filtered alike) and `registryError` the error. The curated list ships with the
    * package and needs no request, so one unreachable third-party host does not take down
    * the entry point of every workflow — but the answer is only as fresh as the release,
-   * which is why the error is handed back (the CLI prints it as a note). With `source`
+   * which is why the error is handed back (the CLI logs it as a WARN record). With `source`
    * "registry" the error is thrown, since there would be nothing left to return.
    */
   async endpointsReport(options: EndpointsOptions = {}): Promise<EndpointsReport> {

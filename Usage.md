@@ -39,8 +39,9 @@ checked, it is the registry's own last fetch (`fetched`). A server that moved ha
 ignores case and accents, so `köln` and `koln` match the same entries. Only when nothing
 matches literally does it try the umlaut spellings, so `koeln` still finds `Köln` while an
 ordinary word like `Aue` keeps its own meaning. When dev.oparl.org cannot be reached,
-`endpoints` notes that on stderr and lists the curated servers alone, as of their last
-check — `--source curated` does the same without trying the network.
+`endpoints` warns about that on stderr (a `WARN` record, of `oparl.http` for a network
+failure, with the timeout hint where one applies) and lists the curated servers alone, as
+of their last check — `--source curated` does the same without trying the network.
 
 The search does not cover the names of the bodies on a **shared server**: one System can
 host several municipalities (a data centre, a Verbandsgemeinde and its members), and the

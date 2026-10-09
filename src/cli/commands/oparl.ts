@@ -21,11 +21,13 @@ import {
 } from "../../client/client.js";
 import { MAX_LIST_LIMIT } from "../../client/validate.js";
 import { normalizeOparlVersion, oparlVersionProblem, searchTextProblem } from "../../client/endpoints-search.js";
-import { OparlError } from "../../client/errors.js";
+import { OparlError, OparlNetworkError } from "../../client/errors.js";
 import type { JsonObject, ListResult } from "../../client/types.js";
 import {
   action,
+  failureArea,
   fromProblem,
+  networkHint,
   parseBoundedInt,
   parseIntArg,
   parseTimestamp,
@@ -98,16 +100,22 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           if (opts["oparlVersion"] !== undefined) options.oparlVersion = opts["oparlVersion"] as string;
           if (opts["working"]) options.working = true;
           // With --source all, a registry that cannot be read leaves the curated list
-          // alone; the user is told, since the answer is then only as fresh as this release.
+          // alone; the user is warned, since the answer is then only as fresh as this
+          // release: a WARN of the failure's own area (the connection, or the registry's
+          // answer), with the hint the failure has (Raise --timeout).
           const { entries, registryError, note } = await client.endpointsReport(options);
-          if (note !== undefined) logOf(deps).info("api", note);
+          const log = logOf(deps);
+          if (note !== undefined) log.info("api", note);
           if (registryError !== undefined) {
-            logOf(deps).info(
-              "api",
+            const area = failureArea(registryError);
+            log.warn(
+              area,
               `the endpoint registry at ${opts["registryUrl"] as string} could not be read (${registryError.message}) — ` +
                 "listing only the curated endpoints that ship with this tool, as of their last check (`checked`). " +
                 "Use --source curated to skip the registry, or --source registry to see the error.",
             );
+            const hint = registryError instanceof OparlNetworkError ? networkHint(registryError, "the registry did not answer in time") : undefined;
+            if (hint !== undefined) log.info(area, hint);
           }
           renderJson(deps, global, entries);
         },

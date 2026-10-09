@@ -6,7 +6,7 @@ import { InvalidArgumentError } from "commander";
 import { OutputError, logOf, type CliDeps } from "./io.js";
 import type { OparlClientOptions } from "../client/client.js";
 import { normalizeTimestamp } from "../client/client.js";
-import { OparlValidationError } from "../client/errors.js";
+import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError } from "../client/errors.js";
 import { cleartextProblem, parseHttpUrl, userAgentProblem } from "../client/engine.js";
 import type { Problem } from "../client/validate.js";
 
@@ -215,6 +215,28 @@ export function renderJson(deps: CliDeps, global: GlobalOptions, value: unknown)
   } else {
     deps.io.out(text);
   }
+}
+
+/**
+ * What the user can do about a network failure, or undefined: a size cap or a timeout
+ * they set (or its default). `slow` names who was slow to answer.
+ */
+export function networkHint(err: OparlNetworkError, slow = "council systems can be slow"): string | undefined {
+  if (/maxResponseBytes/.test(err.message)) {
+    return "the response exceeded the size cap. Raise --max-response-bytes <n> (0 = unlimited).";
+  }
+  if (/timed out/.test(err.message)) return `${slow}. Raise --timeout <ms> (0 = no timeout).`;
+  return undefined;
+}
+
+/**
+ * The log area a failure belongs to: the connection (`http`: a network error, a refused
+ * link), the server's answer (`api`: an error status, a malformed answer), else `cli`.
+ */
+export function failureArea(err: unknown): string {
+  if (err instanceof OparlNetworkError || err instanceof OparlLinkError) return "http";
+  if (err instanceof OparlApiError || err instanceof OparlParseError) return "api";
+  return "cli";
 }
 
 export interface ActionContext {

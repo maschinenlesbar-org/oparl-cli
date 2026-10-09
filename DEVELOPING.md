@@ -458,6 +458,10 @@ malformed answer, an `OparlParseError`: not OParl JSON, an HTML page, the wrong 
 an OParl error object; the notes on a walk that stopped early or on the registry), `http` (the connection:
 network errors and their hints, a refused link or redirect, the cleartext warning) and
 `output` (`-o`: "Wrote N bytes", and every failure to write the file, an `OutputError`).
+A registry that cannot be read with `--source all` is a `WARN` of the failure's own area
+(`http` for the connection, `api` for the registry's answer; `failureArea`), followed by
+the failure's hint where it has one (`networkHint`: raise `--timeout` or
+`--max-response-bytes`); the run still exits 0 with the curated list.
 Code logs through `logOf(deps)` and never writes diagnostics with `io.err`
 directly. `run()` builds the logger from argv before commander parses it, so commander's
 own usage errors are records too, one per line (`writeCommanderErr`): its `error: …` an

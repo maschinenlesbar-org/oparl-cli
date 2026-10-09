@@ -6,7 +6,7 @@ import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
 import { OutputError, logOf, type CliDeps } from "./io.js";
 import { DEFAULT_LOG_FORMAT, createLogger, logFormatFromArgv, type LogFormat, type Logger } from "./log.js";
-import { redactUserinfo, stripTerminalControls } from "./shared.js";
+import { networkHint, redactUserinfo, stripTerminalControls } from "./shared.js";
 import {
   OparlApiError,
   OparlError,
@@ -333,11 +333,8 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
     }
     if (err instanceof OparlNetworkError) {
       log.error("http", err.message);
-      if (/maxResponseBytes/.test(err.message)) {
-        log.info("http", "the response exceeded the size cap. Raise --max-response-bytes <n> (0 = unlimited).");
-      } else if (/timed out/.test(err.message)) {
-        log.info("http", "council systems can be slow. Raise --timeout <ms> (0 = no timeout).");
-      }
+      const hint = networkHint(err);
+      if (hint !== undefined) log.info("http", hint);
       return EXIT.NETWORK;
     }
     if (err instanceof OparlLinkError) {

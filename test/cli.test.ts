@@ -667,3 +667,26 @@ test("a registry that fails is not a council system, and its own limit=100 is no
     if (status === 500) assert.match(err, /^INFO  \[oparl\.api\] the endpoint registry reported a server error\. .*--source curated/m, err);
   }
 });
+
+test("a registry that cannot be read is a WARN of the failure's own area, with its hint; exit 0 (B04-3)", async () => {
+  const lists = {
+    curatedEndpoints: [
+      { title: "Stadt Neu", url: "https://ris.neu.example/oparl/system", working: true, checked: "2026-09-16", problem: null, oparlVersion: "1.1", systemName: null, vendor: null, bodyCount: 1, note: null },
+    ],
+  };
+  const cases: { answer: (req: HttpRequest) => HttpResponse; area: string; hint?: RegExp }[] = [
+    { answer: () => { throw new OparlNetworkError("Request timed out after 500ms"); }, area: "http", hint: /Raise --timeout/ },
+    { answer: () => { throw new OparlNetworkError("connect ECONNREFUSED 127.0.0.1:1"); }, area: "http" },
+    { answer: () => rawResponse("<!DOCTYPE html><title>error</title>", "text/html", 500), area: "api" },
+    { answer: () => jsonResponse({ no: "data" }), area: "api" },
+  ];
+  for (const { answer, area, hint } of cases) {
+    const cli = makeCli(answer, lists);
+    assert.equal(await run(["--max-retries", "0", "endpoints", "--registry-url", fx.REGISTRY_URL], cli.deps), 0);
+    assert.deepEqual((cli.json() as Array<{ title: string }>).map((e) => e.title), ["Stadt Neu"]);
+    const err = untimed(cli.err.join("\n")).split("\n");
+    assert.match(err[0] ?? "", new RegExp(`^WARN  \\[oparl\\.${area}\\] the endpoint registry at https://registry\\.example\\.org/api/endpoints could not be read`), err.join("\n"));
+    if (hint !== undefined) assert.ok(err.some((line) => line.startsWith(`INFO  [oparl.${area}] `) && hint.test(line)), err.join("\n"));
+    else assert.equal(err.length, 1, err.join("\n"));
+  }
+});
