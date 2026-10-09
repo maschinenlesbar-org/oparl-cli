@@ -453,7 +453,8 @@ code point and ends in `… (N more characters)`. The areas are `cli` (usage err
 response that is not OParl, unexpected errors), `api` (the server's error answers and their
 hints, the notes on a walk that stopped early or on the registry), `http` (the connection:
 network errors and their hints, a refused link or redirect, the cleartext warning) and
-`output` (`-o`). Code logs through `logOf(deps)` and never writes diagnostics with `io.err`
+`output` (`-o`: "Wrote N bytes", and every failure to write the file, an `OutputError`).
+Code logs through `logOf(deps)` and never writes diagnostics with `io.err`
 directly. `run()` builds the logger from argv before commander parses it, so commander's
 own usage errors are records too, one per line (`writeCommanderErr`): its `error: …` an
 ERROR of `cli`, with a `(Did you mean …?)` line joined to it, and the help it shows after an

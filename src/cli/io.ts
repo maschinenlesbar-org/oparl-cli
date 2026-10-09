@@ -3,7 +3,14 @@
 
 import { writeFileSync } from "node:fs";
 import type { OparlClient, OparlClientOptions } from "../client/client.js";
+import { OparlError } from "../client/errors.js";
 import { createLogger, type Logger } from "./log.js";
+
+/**
+ * Writing the output to the `-o` file failed (a missing directory, a directory, EACCES,
+ * …). Logged as an ERROR of `oparl.output`, exit 1.
+ */
+export class OutputError extends OparlError {}
 
 export interface CliIO {
   out(text: string): void;

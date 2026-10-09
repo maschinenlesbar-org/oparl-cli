@@ -465,6 +465,8 @@ test("a --output write failure reports a clean error (exit 1)", async () => {
   assert.equal(await run(["--output", "/tmp", "system", fx.SYSTEM_URL], deps), 1);
   assert.match(err.join("\n"), /Could not write to \/tmp: EISDIR/);
   assert.doesNotMatch(err.join("\n"), /Unexpected error/);
+  // Like its success ("Wrote N bytes to …"), an -o failure is a record of oparl.output.
+  assert.match(untimed(err.join("\n")), /^ERROR \[oparl\.output\] Could not write to \/tmp: EISDIR/m);
 });
 
 test("global options reach the client", async () => {

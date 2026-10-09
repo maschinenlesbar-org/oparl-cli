@@ -4,7 +4,7 @@
 
 import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
-import { logOf, type CliDeps } from "./io.js";
+import { OutputError, logOf, type CliDeps } from "./io.js";
 import { DEFAULT_LOG_FORMAT, createLogger, logFormatFromArgv, type LogFormat, type Logger } from "./log.js";
 import { redactUserinfo, stripTerminalControls } from "./shared.js";
 import {
@@ -319,8 +319,9 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
       return EXIT.OTHER;
     }
     if (err instanceof OparlError) {
-      // Includes OparlParseError (not OParl JSON, wrong object type, error object).
-      log.error("cli", err.message);
+      // Includes OparlParseError (not OParl JSON, wrong object type, error object), and an
+      // -o failure (OutputError), which belongs to oparl.output like its "Wrote N bytes".
+      log.error(err instanceof OutputError ? "output" : "cli", err.message);
       return EXIT.OTHER;
     }
     log.error("cli", `Unexpected error: ${err instanceof Error ? err.message : String(err)}`);
