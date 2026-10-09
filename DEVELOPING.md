@@ -373,7 +373,8 @@ assert both reject without a request or both send the same requests. Fixtures in
 real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
 - **`io.test.ts`** — `handleOutputErrors` on fake streams: a closed pipe, and a stdout
-  write error as an ERROR record of `oparl.output`.
+  write error as an ERROR record of `oparl.output`; `stderrAfterStdout` holding a record
+  while stdout has a backlog.
 - **`log.test.ts`** — the record helpers of `src/cli/log.ts` on their own
   (`escapeForRecord`, `formatLogRecord`); the CLI-level checks are P23's.
 - **`conformance-p*.test.ts`** — the checks shared across the `*-cli` repos (fix plan
@@ -476,6 +477,9 @@ with the bin shim's `processLogger(argv)`: the format argv asks for, the run's r
 Node's own process warnings (`NODE_TLS_REJECT_UNAUTHORIZED=0`) are WARN records of
 `oparl.cli` too: the bin shim installs `installWarningLog`, which removes Node's default
 `warning` listener and logs `(node) <name>: <message>` through `processLogger(argv)`.
+In `defaultDeps` a record waits for stdout (`stderrAfterStdout`): it is held while stdout
+has a backlog and written, in order, once it is gone, so with `2>&1 |` and a slow reader
+it never lands inside the data.
 One line stays raw: the bin shim's last-resort `Unexpected error: …`, written outside
 `run()`.
 Conformance test P23 checks all of this, and its body is shared across the *-cli repos;
