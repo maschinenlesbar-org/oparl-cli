@@ -458,6 +458,11 @@ ERROR of `cli`, with a `(Did you mean …?)` line joined to it, and the help it 
 error an INFO record per non-blank line. A run with options but no command, or `help` for
 an unknown command, logs an ERROR "missing command: `oparl <subcommand>`" before that help,
 so every failed run has an ERROR record (a bare `oparl` prints the help on stdout, exit 0).
+Once commander has parsed argv, a `preAction` hook sets the format from its value, so an
+option's value that looks like `--log-format` (`--user-agent --log-format=jsonl`) never
+switches it; the scan of argv before parsing (`logFormatFromArgv`, which skips the values
+of the program's own options and takes the first `--log-format`) is only for the records
+of a parse error.
 The logger carries the run's redaction (`withRedactedOutput`),
 which replaces a secret in the message only, before it is escaped: the frame is never
 touched, and a secret is kept out of the log in either format. `CliDeps.now` makes the timestamps testable. stdout

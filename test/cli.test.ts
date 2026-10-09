@@ -622,3 +622,22 @@ test("a run without a command, or help for an unknown one, logs an ERROR before 
     assert.ok(err.some((line) => line === "INFO  [oparl.cli] Usage: oparl [options] [command]"), err.join("\n"));
   }
 });
+
+test("a parse error is logged in the format commander would have parsed (L6)", async () => {
+  const cases: { argv: string[]; jsonl: boolean }[] = [
+    // -o takes "--log-format" as the file name; "jsonl" is then an unknown command.
+    { argv: ["-o", "--log-format", "jsonl", "get", fx.SYSTEM_URL], jsonl: false },
+    // --user-agent takes "--log-format" as its value.
+    { argv: ["--user-agent", "--log-format", "jsonl", "get", "--bogus"], jsonl: false },
+    { argv: ["--user-agent", "--", "--log-format", "jsonl", "get", "--bogus"], jsonl: true },
+    // The first one counts, as commander keeps it and rejects the second.
+    { argv: ["--log-format", "jsonl", "--log-format", "text", "get", fx.SYSTEM_URL], jsonl: true },
+    { argv: ["--log-format", "text", "--log-format", "jsonl", "get", fx.SYSTEM_URL], jsonl: false },
+  ];
+  for (const { argv, jsonl } of cases) {
+    const cli = makeCli();
+    assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
+    assert.ok(cli.err.length > 0, argv.join(" "));
+    for (const line of cli.err) assert.equal(line.startsWith("{"), jsonl, `${argv.join(" ")}: ${line}`);
+  }
+});
