@@ -147,5 +147,5 @@ the link leads back into a loop.
 commander's messages, unexpected errors), `api` (the server's answers: an error status, and
 an answer that is not OParl — not JSON, an HTML page, the wrong object type, an OParl error
 object; the notes on a walk or on the registry), `http` (the connection, a refused link,
-the cleartext warning) and `output` (the `-o` file, stdout failures). A record is always
+the cleartext warning, and one WARN per retry before it waits) and `output` (the `-o` file, stdout failures). A record is always
 one line; control characters in it are escaped.

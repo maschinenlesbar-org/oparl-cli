@@ -584,3 +584,81 @@ test("own messages quote a user value at most 200 characters long (L3)", async (
   const client = new OparlClient({ transport: async () => jsonResponse({}) });
   await assert.rejects(client.list(URL_1, "meeting", { [`k${long}`]: 1 } as never), (err: Error) => err.message.length < 400 && /Unknown list option "kx+…"/.test(err.message));
 });
+
+test("onRetry is called once per retry, with the event fields, right before the sleep", async () => {
+  const log: string[] = [];
+  const events: unknown[] = [];
+  let n = 0;
+  const mt = makeMockTransport(() =>
+    n++ < 2 ? rawResponse("{}", "application/json", 503, n === 1 ? { "retry-after": "2" } : {}) : jsonResponse({ id: URL_1 }),
+  );
+  const e = new RequestEngine({
+    transport: mt.transport,
+    maxRetries: 3,
+    sleep: async (ms) => void log.push(`sleep ${ms}`),
+    onRetry: (ev) => {
+      events.push(ev);
+      log.push("retry");
+    },
+  });
+  await e.getJson("https://user:pw@ris.example.de/oparl/system");
+  assert.deepEqual(log, ["retry", "sleep 2000", "retry", "sleep 1000"]);
+  assert.deepEqual(events, [
+    { retry: 1, maxRetries: 3, delayMs: 2000, status: 503, url: "https://ris.example.de/oparl/system" },
+    { retry: 2, maxRetries: 3, delayMs: 1000, status: 503, url: "https://ris.example.de/oparl/system" },
+  ]);
+});
+
+test("onRetry reports a reset connection without a status", async () => {
+  let n = 0;
+  const events: unknown[] = [];
+  const mt = makeMockTransport(() => {
+    if (n++ === 0) throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+    return jsonResponse({ id: URL_1 });
+  });
+  const e = new RequestEngine({ transport: mt.transport, sleep: async () => {}, onRetry: (ev) => void events.push(ev) });
+  await e.getJson(URL_1);
+  assert.equal(events.length, 1);
+  assert.equal((events[0] as { status?: number }).status, undefined);
+  assert.equal((events[0] as { retry: number }).retry, 1);
+  assert.equal((events[0] as { delayMs: number }).delayMs, 500);
+});
+
+test("onRetry is never called without a retry", async () => {
+  const events: unknown[] = [];
+  const onRetry = (ev: unknown) => void events.push(ev);
+  const ok = new RequestEngine({ transport: makeMockTransport(() => jsonResponse({})).transport, sleep: async () => {}, onRetry });
+  await ok.getJson(URL_1);
+  const notFound = new RequestEngine({
+    transport: makeMockTransport(() => jsonResponse({ error: "no" }, 404)).transport,
+    sleep: async () => {},
+    onRetry,
+  });
+  await assert.rejects(notFound.getJson(URL_1), OparlApiError);
+  // retries exhausted: the last 503 is an error, not a retry
+  const down = new RequestEngine({
+    transport: makeMockTransport(() => rawResponse("{}", "application/json", 503)).transport,
+    maxRetries: 1,
+    sleep: async () => {},
+    onRetry,
+  });
+  await assert.rejects(down.getJson(URL_1), OparlApiError);
+  assert.equal(events.length, 1);
+});
+
+test("a throw in onRetry is swallowed", async () => {
+  let n = 0;
+  const e = new RequestEngine({
+    transport: makeMockTransport(() => (n++ === 0 ? rawResponse("{}", "application/json", 503) : jsonResponse({}))).transport,
+    sleep: async () => {},
+    onRetry: () => {
+      throw new Error("boom");
+    },
+  });
+  await e.getJson(URL_1);
+});
+
+test("onRetry must be a function", () => {
+  assert.throws(() => new RequestEngine({ onRetry: 5 as never }), OparlValidationError);
+  assert.throws(() => new OparlClient({ onRetry: 5 as never }), OparlValidationError);
+});

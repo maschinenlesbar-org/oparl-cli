@@ -147,6 +147,7 @@ const CLIENT_OPTION_NAMES = [
   "maxRedirects",
   "maxResponseBytes",
   "sleep",
+  "onRetry",
 ] as const satisfies ReadonlyArray<keyof OparlClientOptions>;
 
 export interface ListOptions {
