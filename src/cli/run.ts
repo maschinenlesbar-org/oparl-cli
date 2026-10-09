@@ -72,6 +72,57 @@ function configureTree(command: Command, deps: CliDeps): void {
   for (const child of command.commands) configureTree(child, deps);
 }
 
+/**
+ * The options whose value is a URL: there, as in a positional argument (the URL `system`,
+ * `bodies`, `list` and `get` take), a `user:password@host` typed without its scheme is
+ * still a credential. Anywhere else a bare `a:b@c` is not: it is a file name (`-o
+ * run:2026-10-09@x.json`), a search text or a User-Agent as often as a credential.
+ */
+const URL_FLAGS = ["--registry-url"];
+
+/** The names (long and short) of the options in the whole command tree that take a value. */
+function valueOptionsOf(command: Command, names: Set<string> = new Set()): Set<string> {
+  for (const option of command.options) {
+    if (!option.required && !option.optional) continue;
+    if (option.long !== undefined) names.add(option.long);
+    if (option.short !== undefined) names.add(option.short);
+  }
+  for (const child of command.commands) valueOptionsOf(child, names);
+  return names;
+}
+
+/**
+ * The URL arguments of `argv`: the values of `URL_FLAGS` and every positional — a token
+ * that is no option and not the value of another option that takes one (`-o`,
+ * `--user-agent`, `--search`, …), everything after `--` included. The value of an unknown
+ * option (`--base-url=…`) counts too: nothing says it is not a URL.
+ */
+function urlArguments(argv: readonly string[], valueOptions: ReadonlySet<string>): string[] {
+  const found: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i] as string;
+    if (token === "--") {
+      found.push(...argv.slice(i + 1));
+      break;
+    }
+    if (!token.startsWith("-") || token === "-") {
+      found.push(token);
+      continue;
+    }
+    const eq = token.indexOf("=");
+    if (eq > 0) {
+      const name = token.slice(0, eq);
+      if (URL_FLAGS.includes(name) || !valueOptions.has(name)) found.push(token.slice(eq + 1));
+      continue;
+    }
+    if (!valueOptions.has(token)) continue;
+    const value = argv[i + 1];
+    if (URL_FLAGS.includes(token) && value !== undefined) found.push(value);
+    i++;
+  }
+  return found;
+}
+
 /** The secrets of a run, and the two ways they are replaced. */
 export interface Redaction {
   /** stdout text: the exact userinfo of every argument replaced (`***@`). */
@@ -85,15 +136,20 @@ export interface Redaction {
  * ("argument '…' is invalid"), and the CLI's own messages name URLs: whatever path a
  * credential takes, the exact userinfo of each argument (as `credentialsIn` finds it, also
  * in an `--option=value` token, plus its terminal-stripped and JSON-escaped forms) is
- * replaced by `***`. A pattern alone can't delimit a password holding a space, `/`, `#` or
- * `@`; the exact strings can. On stderr any other `scheme://user@` is redacted by pattern
- * too. stdout otherwise passes unchanged: it carries the server's data as escaped JSON.
+ * replaced by `***`. Only a value with a scheme is a URL anywhere in argv; a URL argument
+ * (`urlArguments`) typed without its scheme is read as if it had one. A pattern alone
+ * can't delimit a password holding a space, `/`, `#` or `@`; the exact strings can. On
+ * stderr any other `scheme://user@` is redacted by pattern too. stdout otherwise passes
+ * unchanged: it carries the server's data as escaped JSON. `valueOptions` names the
+ * options that take a value (`valueOptionsOf`).
  */
-export function redactionFor(argv: readonly string[]): Redaction {
+export function redactionFor(argv: readonly string[], valueOptions: ReadonlySet<string> = new Set()): Redaction {
   // An `--option=value` token is echoed as its value alone.
   const values = argv.map((token) => (token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token));
+  // A URL argument typed without its scheme is read as if it had one.
+  const urls = urlArguments(argv, valueOptions).map((value) => (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value) ? value : `http://${value}`));
   const secrets = new Set<string>();
-  for (const source of [...argv, ...values]) {
+  for (const source of [...values, ...urls]) {
     for (const secret of credentialsIn(source)) {
       secrets.add(secret);
       secrets.add(stripTerminalControls(secret));
@@ -114,7 +170,8 @@ export function redactionFor(argv: readonly string[]): Redaction {
  * anything that writes to stderr without the log.
  */
 export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliDeps {
-  const redaction = redactionFor(argv);
+  // The command tree only names the options here; this program never runs.
+  const redaction = redactionFor(argv, valueOptionsOf(buildProgram(deps)));
   const { out, err } = deps.io;
   return {
     ...deps,

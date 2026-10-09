@@ -36,11 +36,16 @@ anyway. The transport is told `redirect: "manual"`; a response whose `url` shows
 transport followed a redirect to another origin itself fails as an `OparlNetworkError`.
 A URL typed without its scheme (`bob:hunter2@ris.example/oparl`) parses with the scheme
 `bob:` and keeps its password in the path; `redactUrl` cuts it out by text, using
-`credentialsIn`, which finds the exact userinfo of a URL-like value whether it parses or
-not. The CLI goes further, because commander quotes rejected arguments raw: `run()` wraps
-its output and builds the log (`redactionFor`, `withRedactedOutput`) so that the exact
-userinfo of every argument — also in an `--option=value` token, and in its terminal-stripped
-and JSON-escaped forms — is printed as `***` on stdout and stderr. The log replaces it in each
+`credentialsIn`, which finds the exact userinfo of a URL whether it parses or not. Only a
+value that starts with a scheme counts for `credentialsIn` (a bare `a:b@c` is a file name,
+a search text or a User-Agent as often as a credential); `redactUrl`, whose value is a URL
+by definition, reads one without a scheme as if it had one. The CLI goes further, because
+commander quotes rejected arguments raw: `run()` wraps its output and builds the log
+(`redactionFor`, `withRedactedOutput`) so that the exact userinfo of every URL in argv —
+also in an `--option=value` token, and in its terminal-stripped and JSON-escaped forms — is
+printed as `***` on stdout and stderr. A URL argument (a positional, the `--registry-url`
+value) typed without its scheme still counts; the value of any other option
+(`-o run:2026-10-09@x.json`, `--user-agent`) does not. The log replaces it in each
 record's *message*, before the record is cut and escaped, and writes to the raw stderr: the
 frame (time, level, topic) is never touched, and a password with DEL, C1 or bidi characters
 is matched in its raw form. A pattern can't delimit a password holding a space, `/`, `#` or

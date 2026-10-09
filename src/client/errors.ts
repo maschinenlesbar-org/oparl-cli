@@ -3,45 +3,49 @@
 
 import type { JsonObject, ListResult } from "./types.js";
 
+/** A value that starts with a URL scheme (`https://`, `ftp://`, …). */
+const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+
 /**
- * A URL-like value without the credentials it carries: a parsed URL loses its userinfo,
- * and a value that doesn't parse — or parses only with a fake scheme, as `user:pw@host`
- * does (scheme `user:`) — has the exact userinfo `credentialsIn` finds replaced by `***`.
- * OParl access is anonymous: the client drops every `user:password@` before it sends a
- * request, and this keeps it out of messages too.
+ * A URL without the credentials it carries: a parsed URL loses its userinfo, and a value
+ * that doesn't parse — or parses only with a fake scheme, as `user:pw@host` does (scheme
+ * `user:`) — has the exact userinfo replaced by `***`. The value is a URL by definition
+ * here, so one typed without its scheme is read as if it had one (`credentialsIn` alone
+ * takes a bare `a:b@c` for no credential). OParl access is anonymous: the client drops
+ * every `user:password@` before it sends a request, and this keeps it out of messages too.
  */
 export function redactUrl(url: string): string {
+  const found = (): string[] => credentialsIn(SCHEME.test(url) ? url : `http://${url}`);
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
-    return redactCredentials(url, credentialsIn(url));
+    return redactCredentials(url, found());
   }
-  if (parsed.username === "" && parsed.password === "") return redactCredentials(url, credentialsIn(url));
+  if (parsed.username === "" && parsed.password === "") return redactCredentials(url, found());
   parsed.username = "";
   parsed.password = "";
   return parsed.href;
 }
 
 /**
- * The userinfo a URL-like value carries, exactly as written — `["alice:pa#ss"]` for
- * `https://alice:pa#ss@host` — or `[]` when it carries none. It works on values that don't
- * parse as a URL too, and on values with a prefix (`--registry-url=https://u:p@h`): the
- * userinfo is everything between `://` and the last `@` before the host. A value without a
- * scheme counts when it reads `user:password@host`. Used to redact those exact strings
- * from text that echoes the value (usage errors, help), whatever characters the password
- * contains — a pattern can't delimit one holding a space, `/`, `#`, `?` or `@`.
+ * The userinfo a URL carries, exactly as written — `["alice:pa#ss"]` for
+ * `https://alice:pa#ss@host` — or `[]` when it carries none. Only a value that starts
+ * with a scheme (`^[A-Za-z][A-Za-z0-9+.-]*://`) counts: a bare `a:b@c` is a file name
+ * (`-o run:2026-10-09@x.json`), a search text or a User-Agent as often as a credential,
+ * and every URL oparl takes has a scheme (`parseHttpUrl` requires `http:`/`https:`). It
+ * works on URLs that don't parse too: the userinfo is everything between `://` and the
+ * last `@` before the host. Used to redact those exact strings from text that echoes the
+ * value (usage errors, help), whatever characters the password contains — a pattern
+ * can't delimit one holding a space, `/`, `#`, `?` or `@`.
  */
 export function credentialsIn(value: string): string[] {
-  const schemeAt = value.indexOf("://");
-  const rest = schemeAt >= 0 ? value.slice(schemeAt + 3) : value;
-  // Without a scheme only the unmistakable `user:password@host` form counts.
-  if (schemeAt < 0 && !/^[^\s/@:]+:[^@]*@[^@\s/]/.test(rest)) return [];
-  // The URL itself starts at its scheme (`--registry-url=https://…` has a prefix).
-  const scheme = schemeAt >= 0 ? /[a-z][a-z0-9+.-]*$/i.exec(value.slice(0, schemeAt)) : null;
+  const scheme = SCHEME.exec(value);
+  if (scheme === null) return [];
+  const rest = value.slice(scheme[0].length);
   let parses = false;
   try {
-    new URL(schemeAt >= 0 ? value.slice(scheme?.index ?? schemeAt) : `http://${rest}`);
+    new URL(value);
     parses = true;
   } catch {
     // Doesn't parse: the password may hold "/", "?", "#" or spaces.

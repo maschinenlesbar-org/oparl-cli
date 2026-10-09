@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { run } from "../src/cli/run.js";
 import { MAX_REGISTRY_PAGES, OparlClient } from "../src/client/client.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "../src/client/endpoints-list.js";
-import { OparlNetworkError } from "../src/client/errors.js";
+import { OparlNetworkError, credentialsIn, redactUrl } from "../src/client/errors.js";
 import type { CliDeps } from "../src/cli/io.js";
 import type { HttpRequest, HttpResponse } from "../src/client/http.js";
 import type { CuratedEndpoint, RegistryCheck } from "../src/client/types.js";
@@ -581,4 +581,33 @@ test("a registry walk stopped at its page cap says so on stderr", async () => {
   const done = makeCli(() => jsonResponse({ data: [{ title: "Stadt", url: "https://ris.example/oparl/system" }], meta: {} }));
   assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], done.deps), 0);
   assert.deepEqual(done.err, []);
+});
+
+test("an a:b@c value that is no URL is neither a credential in the log nor rewritten in the JSON on stdout (L14)", async () => {
+  const cli = makeCli(() => jsonResponse({ ...fx.system, name: "run:2026-10-09@x" }));
+  assert.equal(await run(["--user-agent", "run:2026-10-09@x", "-o", "run:2026-10-09@x.json", "system", fx.SYSTEM_URL], cli.deps), 0);
+  assert.match(cli.files["run:2026-10-09@x.json"]?.toString() ?? "", /"name": "run:2026-10-09@x"/);
+  assert.match(cli.err.join("\n"), /Wrote \d+ bytes to run:2026-10-09@x\.json/);
+  const out = makeCli(() => jsonResponse({ ...fx.system, name: "ops:team@example.org" }));
+  assert.equal(await run(["--user-agent", "ops:team@example.org", "system", fx.SYSTEM_URL], out.deps), 0);
+  assert.match(out.out.join("\n"), /"name": "ops:team@example.org"/);
+  assert.deepEqual(credentialsIn("run:2026-10-09@x"), []);
+  assert.deepEqual(credentialsIn("https://alice:pw@host"), ["alice:pw"]);
+});
+
+test("a URL argument typed without its scheme still has its password kept out of the log (L14)", async () => {
+  for (const argv of [
+    ["get", "bob:hunter2@ris.example/oparl"],
+    ["system", "bob:hunter2@ris.example/oparl"],
+    ["list", "meeting", "bob:hunter2@ris.example/oparl"],
+    ["endpoints", "--registry-url", "bob:hunter2@ris.example/oparl"],
+    ["endpoints", "--registry-url=bob:hunter2@ris.example/oparl"],
+    ["--timeout", "5", "get", "--", "bob:hunter2@ris.example/oparl"],
+  ]) {
+    const cli = makeCli();
+    assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
+    assert.doesNotMatch(cli.err.join("\n"), /hunter2/, `${argv.join(" ")}:\n${cli.err.join("\n")}`);
+  }
+  // The library's URL check knows its value is a URL, scheme or not.
+  assert.doesNotMatch(redactUrl("bob:hunter2@ris.example/oparl"), /hunter2/);
 });
