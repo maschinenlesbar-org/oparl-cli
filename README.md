@@ -130,7 +130,10 @@ Each line on stderr is a **log record**: a timestamp (UTC), a level (`ERROR`, `W
 `INFO`) and a topic, the program and the area it comes from (`oparl.cli` for usage
 errors, `oparl.api` for the server's answers and the notes on a walk, `oparl.http` for the
 connection, `oparl.output`). By default it is written log4j style; `--log-format jsonl`
-writes one JSON object per line instead:
+writes one JSON object per line instead. A record is always one line: a line break, a
+control character or a bidi control in a message (a server's text, a value you typed) is
+written as an escape (`\n`, `\u001b`, `\u202e`), so it can neither split a record nor
+forge another one, nor steer the terminal:
 
 ```text
 2026-10-09T14:03:12.481Z WARN  [oparl.http] requests to ris.example are sent unencrypted (http:, not https:)

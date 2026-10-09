@@ -356,6 +356,8 @@ through `run()` and through a library call on the same recording transport, so a
 assert both reject without a request or both send the same requests. Fixtures in `test/fixtures.ts` are shaped after
 real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
+- **`log.test.ts`** — the record helpers of `src/cli/log.ts` on their own
+  (`escapeForRecord`, `formatLogRecord`); the CLI-level checks are P23's.
 - **`conformance-p*.test.ts`** — the checks shared across the `*-cli` repos (fix plan
   `.reviews/2026-10-05-exploratory/fix-plan.md` in the workspace), one file per pattern, the
   same code in every repo apart from an adapter block at the top: P1 credential redaction in
@@ -422,7 +424,11 @@ Every diagnostic line on stderr is a log record (`src/cli/log.ts`): a timestamp,
 (`ERROR`, `WARN`, `INFO`) and a topic, `oparl.<area>`. `--log-format text` (the default)
 writes it log4j style, `<ISO 8601 UTC> <LEVEL padded to 5> [<topic>] <message>`;
 `--log-format jsonl` writes one JSON object per line with exactly `ts`, `level`, `topic`
-and `msg`. The areas are `cli` (usage errors, commander's messages, validation errors, a
+and `msg`. A record is always one line: `formatLogRecord` runs `escapeForRecord` over
+the message (text) or the whole JSON object (jsonl), which writes CR and LF as `\r`/`\n`,
+every other C0 control but TAB, DEL and C1 as `\u00XX`, and U+2028, U+2029 and the bidi
+controls as `\uXXXX`, so no text that reaches a record, by whatever path, can split it,
+forge another one or steer the terminal. The areas are `cli` (usage errors, commander's messages, validation errors, a
 response that is not OParl, unexpected errors), `api` (the server's error answers and their
 hints, the notes on a walk that stopped early or on the registry), `http` (the connection:
 network errors and their hints, a refused link or redirect, the cleartext warning) and
