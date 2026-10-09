@@ -134,7 +134,7 @@ not the URL the request started at.
 an object's `type`, an error `message`, a link, a content type — is first stripped of
 control characters, folded onto one line and cut to 200 characters. A hostile or
 man-in-the-middled endpoint could otherwise write terminal escape sequences (window
-title, colours, screen clearing) or fake an `Error:` line of the CLI's own. In JSON
+title, colours, screen clearing) or fake a log record of the CLI's own. In JSON
 output the same characters are escaped instead, so nothing is lost.
 
 **`pages` / `next` (list output).** How many pages were fetched, and the link to continue —

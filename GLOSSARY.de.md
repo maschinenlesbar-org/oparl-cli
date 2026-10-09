@@ -144,7 +144,7 @@ der die Anfrage begann.
 der `type` eines Objekts, eine Fehlermeldung, ein Link, ein Content-Type –, wird zuvor von
 Steuerzeichen befreit, auf eine Zeile gefaltet und auf 200 Zeichen gekürzt. Ein bösartiger
 oder manipulierter Endpoint könnte sonst Terminal-Escape-Sequenzen (Fenstertitel, Farben,
-Bildschirm löschen) ausführen lassen oder eine `Error:`-Zeile der CLI vortäuschen. In der
+Bildschirm löschen) ausführen lassen oder einen Log-Eintrag der CLI vortäuschen. In der
 JSON-Ausgabe werden dieselben Zeichen stattdessen escaped, sodass nichts verloren geht.
 
 **`pages` / `next` (Ausgabe von `list`).** Wie viele Seiten abgerufen wurden, und der Link zum
