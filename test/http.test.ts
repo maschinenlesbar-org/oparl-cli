@@ -154,3 +154,20 @@ test("a connection cut mid-body, or dropped before any byte, is named as such", 
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("a TLS failure (https to a plain-http server) is one line, without OpenSSL's trailing newline (B04-2)", async () => {
+  await withServer(
+    (_req, res) => res.end("{}"),
+    async (baseUrl) => {
+      await assert.rejects(
+        () => nodeHttpTransport({ method: "GET", url: `${baseUrl.replace("http:", "https:")}/oparl/system`, timeoutMs: 4000 }),
+        (err: unknown) => {
+          assert.ok(err instanceof OparlNetworkError, String(err));
+          assert.doesNotMatch(err.message, /[\u0000-\u001f\u007f-\u009f]/, JSON.stringify(err.message));
+          assert.equal(err.message, err.message.trim());
+          return true;
+        },
+      );
+    },
+  );
+});

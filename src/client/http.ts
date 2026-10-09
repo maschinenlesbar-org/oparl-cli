@@ -64,6 +64,24 @@ export function sizeLimitMessage(maxBytes: number): string {
 }
 
 /**
+ * Node's or OpenSSL's text for a failed request on one line: OpenSSL's messages end in a
+ * newline (`write EPROTO …:tlsany_meth.c:78:` and a line break, for https to a plain-http
+ * server), which split a record or a note that quotes it. Whitespace runs become one
+ * space, other control characters are dropped. Checked by char code, so the source stays
+ * free of control bytes.
+ */
+function oneLine(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x09 || (c >= 0x0a && c <= 0x0d)) out += " ";
+    else if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) continue;
+    else out += text[i];
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/**
  * The longest delay Node's timers support (2^31 - 1 ms, about 24.8 days). A longer one
  * prints a TimeoutOverflowWarning and fires after 1 ms, so timeouts are capped here.
  */
@@ -146,7 +164,7 @@ export const nodeHttpTransport: Transport = (request) =>
           });
           res.on("error", (err) => {
             if (aborted) return;
-            fail(new OparlNetworkError(`Response stream error: ${err.message}`, { cause: err }));
+            fail(new OparlNetworkError(`Response stream error: ${oneLine(err.message)}`, { cause: err }));
           });
         },
       );
@@ -154,7 +172,7 @@ export const nodeHttpTransport: Transport = (request) =>
       // Node validates the URL, the method and the headers synchronously and throws
       // (ERR_INVALID_CHAR, ERR_INVALID_HTTP_TOKEN, ERR_UNESCAPED_CHARACTERS). A throw
       // here would escape the promise and reach the caller as an internal fault.
-      fail(new OparlNetworkError(err instanceof Error ? err.message : String(err), { cause: err }));
+      fail(new OparlNetworkError(oneLine(err instanceof Error ? err.message : String(err)), { cause: err }));
       return;
     }
 
@@ -184,12 +202,12 @@ export const nodeHttpTransport: Transport = (request) =>
       // (ECONNRESET); say what happened, in the words used for the other cases.
       if (err.code === "ECONNRESET" && responseBytes === undefined) {
         return fail(
-          new OparlNetworkError(`The server at ${url.host} closed the connection without sending a response (${err.message})`, {
+          new OparlNetworkError(`The server at ${url.host} closed the connection without sending a response (${oneLine(err.message)})`, {
             cause: err,
           }),
         );
       }
-      fail(new OparlNetworkError(err.message, { cause: err }));
+      fail(new OparlNetworkError(oneLine(err.message), { cause: err }));
     });
 
     // A server that answers with 101 Switching Protocols sends no response body, and
