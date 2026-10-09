@@ -72,19 +72,24 @@ function configureTree(command: Command, deps: CliDeps): void {
   for (const child of command.commands) configureTree(child, deps);
 }
 
+/** The secrets of a run, and the two ways they are replaced. */
+export interface Redaction {
+  /** stdout text: the exact userinfo of every argument replaced (`***@`). */
+  out(text: string): string;
+  /** stderr text, a record's message: that, and any other `scheme://user@` (by pattern). */
+  err(text: string): string;
+}
+
 /**
- * `deps` with an `io` that keeps the credentials of every argument out of everything it
- * prints, on stdout and stderr alike. Commander echoes rejected values in its errors
+ * The credentials of the run in `argv`. Commander echoes rejected values in its errors
  * ("argument '…' is invalid"), and the CLI's own messages name URLs: whatever path a
  * credential takes, the exact userinfo of each argument (as `credentialsIn` finds it, also
  * in an `--option=value` token, plus its terminal-stripped and JSON-escaped forms) is
  * replaced by `***`. A pattern alone can't delimit a password holding a space, `/`, `#` or
- * `@`; the exact strings can. Any other `scheme://user@` left in stderr is redacted by
- * pattern, and terminal control characters are removed there (an argument such as a URL
- * is echoed as typed). stdout otherwise passes unchanged: it carries the server's data as
- * escaped JSON.
+ * `@`; the exact strings can. On stderr any other `scheme://user@` is redacted by pattern
+ * too. stdout otherwise passes unchanged: it carries the server's data as escaped JSON.
  */
-export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliDeps {
+export function redactionFor(argv: readonly string[]): Redaction {
   // An `--option=value` token is echoed as its value alone.
   const values = argv.map((token) => (token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token));
   const secrets = new Set<string>();
@@ -96,25 +101,36 @@ export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliD
     }
   }
   const list = [...secrets];
-  const exact = (text: string): string => (list.length === 0 ? text : redactCredentials(text, list));
+  const out = (text: string): string => (list.length === 0 ? text : redactCredentials(text, list));
+  return { out, err: (text) => redactUserinfo(out(text)) };
+}
+
+/**
+ * `deps` that keep the credentials of this run (`redactionFor`) out of everything they
+ * print: `io.out` is redacted, and the log (`deps.log`) replaces them in each record's
+ * message before formatting it, then writes to the raw `io.err`, so the frame is never
+ * touched and a password holding DEL, C1 or bidi characters is matched in its raw form.
+ * `io.err` itself is redacted too, and terminal control characters are removed there, for
+ * anything that writes to stderr without the log.
+ */
+export function withRedactedOutput(deps: CliDeps, argv: readonly string[]): CliDeps {
+  const redaction = redactionFor(argv);
+  const { out, err } = deps.io;
   return {
     ...deps,
-    io: {
-      ...deps.io,
-      out: (text) => deps.io.out(exact(text)),
-      err: (text) => deps.io.err(stripTerminalControls(redactUserinfo(exact(text)))),
-    },
+    io: { ...deps.io, out: (text) => out(redaction.out(text)), err: (text) => err(stripTerminalControls(redaction.err(text))) },
+    log: createLogger({
+      format: logFormatFromArgv(argv),
+      write: err,
+      redact: redaction.err,
+      ...(deps.now === undefined ? {} : { now: deps.now }),
+    }),
   };
 }
 
 export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promise<number> {
-  const redacted = withRedactedOutput(rawDeps, argv);
-  // Every record goes through the redacted `io.err`, so a secret is kept out of the
-  // log in either format.
-  const deps: CliDeps = {
-    ...redacted,
-    log: createLogger({ format: logFormatFromArgv(argv), write: (line) => redacted.io.err(line), ...(redacted.now === undefined ? {} : { now: redacted.now }) }),
-  };
+  // The log replaces the credentials of the run in every message, in either format.
+  const deps = withRedactedOutput(rawDeps, argv);
   const program = buildProgram(deps);
   configureTree(program, deps);
 

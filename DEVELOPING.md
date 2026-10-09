@@ -38,9 +38,12 @@ A URL typed without its scheme (`bob:hunter2@ris.example/oparl`) parses with the
 `bob:` and keeps its password in the path; `redactUrl` cuts it out by text, using
 `credentialsIn`, which finds the exact userinfo of a URL-like value whether it parses or
 not. The CLI goes further, because commander quotes rejected arguments raw: `run()` wraps
-its output (`withRedactedOutput`) so that the exact userinfo of every argument — also in an
-`--option=value` token, and in its terminal-stripped and JSON-escaped forms — is printed as
-`***` on stdout and stderr. A pattern can't delimit a password holding a space, `/`, `#` or
+its output and builds the log (`redactionFor`, `withRedactedOutput`) so that the exact
+userinfo of every argument — also in an `--option=value` token, and in its terminal-stripped
+and JSON-escaped forms — is printed as `***` on stdout and stderr. The log replaces it in each
+record's *message*, before the record is cut and escaped, and writes to the raw stderr: the
+frame (time, level, topic) is never touched, and a password with DEL, C1 or bidi characters
+is matched in its raw form. A pattern can't delimit a password holding a space, `/`, `#` or
 `@`; the exact strings can. Anything else shaped `scheme://user@` on stderr is redacted by
 pattern (`redactUserinfo`).
 
@@ -251,9 +254,10 @@ under kilobytes of its own text. It applies to every server-derived string, the 
 `type` of the type checks and a response's `Content-Type` included; the JSON output
 escapes the same characters instead (`escapeControlChars`). Messages also quote the
 user's own arguments as typed (`<url> is not an OParl System`), and the documented
-workflows feed server data into those (`oparl get "$(jq -r .data[0].id)"`), so the CLI
-additionally drops terminal control characters from everything it writes to stderr
-(`stripTerminalControls`, applied in `run.ts` next to the userinfo redaction). JSON deeper than 256
+workflows feed server data into those (`oparl get "$(jq -r .data[0].id)"`), so a log
+record escapes every control and bidi character in its message (`escapeForRecord`, see
+[The log on stderr](#the-log-on-stderr)), and anything else written to stderr has them
+dropped (`stripTerminalControls`, in `run.ts`). JSON deeper than 256
 levels is rejected before it can blow the stack.
 
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
@@ -444,8 +448,9 @@ hints, the notes on a walk that stopped early or on the registry), `http` (the c
 network errors and their hints, a refused link or redirect, the cleartext warning) and
 `output` (`-o`). Code logs through `logOf(deps)` and never writes diagnostics with `io.err`
 directly. `run()` builds the logger from argv before commander parses it, so commander's
-own usage errors are records too, and on top of the redacted `io.err`, so a secret is kept
-out of the log in either format. `CliDeps.now` makes the timestamps testable. stdout
+own usage errors are records too, and with the run's redaction (`withRedactedOutput`),
+which replaces a secret in the message only, before it is escaped: the frame is never
+touched, and a secret is kept out of the log in either format. `CliDeps.now` makes the timestamps testable. stdout
 carries data only. Two lines stay raw: `Output error: …` from `handleOutputErrors` and the
 bin shim's last-resort `Unexpected error: …`, both written before or outside `run()`.
 Conformance test P23 checks all of this, and its body is shared across the *-cli repos;
