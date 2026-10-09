@@ -26,6 +26,7 @@ import {
   cutText,
   toWellFormed,
 } from "../src/client/errors.js";
+import { OparlClient, normalizeTimestamp } from "../src/client/client.js";
 import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, redirect } from "./helpers.js";
 
 const URL_1 = "https://ris.example.de/oparl/system";
@@ -574,4 +575,12 @@ test("server text cut at 200 characters keeps the message well-formed (sanitizeS
       return true;
     });
   }
+});
+
+test("own messages quote a user value at most 200 characters long (L3)", async () => {
+  const long = "x".repeat(5000);
+  assert.throws(() => parseHttpUrl(`ftp://ris.example/${long}`), (err: Error) => err.message.length < 400 && /ftp:\/\/ris\.example\/x+…\./.test(err.message));
+  assert.throws(() => normalizeTimestamp(`2026-${long}`), (err: Error) => err.message.length < 400 && /^Invalid timestamp "2026-x+…": /.test(err.message));
+  const client = new OparlClient({ transport: async () => jsonResponse({}) });
+  await assert.rejects(client.list(URL_1, "meeting", { [`k${long}`]: 1 } as never), (err: Error) => err.message.length < 400 && /Unknown list option "kx+…"/.test(err.message));
 });

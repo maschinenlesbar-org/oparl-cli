@@ -238,7 +238,10 @@ CLI's commander parsers call the same functions and turn the reason into a usage
 Server text that reaches an error message goes through `sanitizeServerText`: control
 characters are dropped, whitespace (newlines and the Unicode line separators included) is
 collapsed to single spaces, and the result is cut to 200 characters, never inside a
-surrogate pair (`cutText`), so the message stays well-formed. A hostile or
+surrogate pair (`cutText`), so the message stays well-formed. A value an own message
+quotes from the user's input (a URL with another scheme, a timestamp, an unknown option
+key) is cut the same way, at `MAX_SERVER_TEXT_LENGTH` (200, `cutForMessage`), so
+`err.message` stays bounded for a library caller. A hostile or
 man-in-the-middled endpoint would otherwise drive ANSI/OSC escape sequences into the
 terminal, print a log record of its own next to the CLI's, or bury the diagnostic
 under kilobytes of its own text. It applies to every server-derived string, the object
@@ -430,8 +433,9 @@ the message (text) or the whole JSON object (jsonl), which writes CR and LF as `
 every other C0 control but TAB, DEL and C1 as `\u00XX`, and U+2028, U+2029 and the bidi
 controls as `\uXXXX`, so no text that reaches a record, by whatever path, can split it,
 forge another one or steer the terminal. Before that a lone surrogate (half a
-character, which jq rejects, stopping the whole stream) becomes U+FFFD (`toWellFormed`).
-The areas are `cli` (usage errors, commander's messages, validation errors, a
+character, which jq rejects, stopping the whole stream) becomes U+FFFD (`toWellFormed`),
+and a message longer than `MAX_RECORD_MESSAGE` (4000 characters, exported) is cut at a
+code point and ends in `… (N more characters)`. The areas are `cli` (usage errors, commander's messages, validation errors, a
 response that is not OParl, unexpected errors), `api` (the server's error answers and their
 hints, the notes on a walk that stopped early or on the registry), `http` (the connection:
 network errors and their hints, a refused link or redirect, the cleartext warning) and

@@ -4,7 +4,7 @@
 // calls the same functions from its commander value parsers, so a rule is written once
 // and a library caller gets the same answer as a CLI user.
 
-import { OparlValidationError } from "./errors.js";
+import { OparlValidationError, cutForMessage } from "./errors.js";
 
 /** A rule: the reason `value` is invalid (one sentence), or undefined when it is valid. */
 export type Problem<T = unknown> = (value: T) => string | undefined;
@@ -63,7 +63,7 @@ export function assertKnownKeys(what: string, options: object, known: readonly s
     const folded = key.toLowerCase().replace(/[_-]/g, "");
     const hint = known.find((name) => name.toLowerCase() === folded);
     throw new OparlValidationError(
-      `Unknown ${what} ${JSON.stringify(key.slice(0, 60))}` +
+      `Unknown ${what} ${JSON.stringify(cutForMessage(key, 60))}` +
         (hint !== undefined ? ` (did you mean ${hint}?).` : `; use ${known.join(", ")}.`),
     );
   }

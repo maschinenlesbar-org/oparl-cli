@@ -19,7 +19,8 @@ import {
   OparlNetworkError,
   OparlParseError,
   OparlValidationError,
-  cutText,
+  MAX_SERVER_TEXT_LENGTH,
+  cutForMessage,
   redactUrl,
 } from "./errors.js";
 import { assertValid, intRangeProblem } from "./validate.js";
@@ -117,7 +118,7 @@ export function parseRetryAfter(value: string | string[] | undefined): number | 
 const MAX_JSON_DEPTH = 256;
 
 /** Characters of server text kept in one error message; the rest is cut with an ellipsis. */
-export const MAX_SERVER_TEXT_LENGTH = 200;
+export { MAX_SERVER_TEXT_LENGTH };
 
 /**
  * Make a string that originates in an attacker-controlled response body safe to put
@@ -152,7 +153,7 @@ export function sanitizeServerText(text: string, maxLength: number = MAX_SERVER_
   }
   out = out.replace(/\s+/g, " ").trim();
   // Never cut inside a surrogate pair: half a character makes the message ill-formed.
-  return out.length > maxLength ? `${cutText(out, maxLength)}…` : out;
+  return cutForMessage(out, maxLength);
 }
 
 /** HTTP header field name grammar (RFC 9110 token). */
@@ -276,7 +277,7 @@ export function parseHttpUrl(value: string): URL {
     // `href` keeps control characters percent-encoded.
     const shown = redactUrl(url.href);
     const hint = typeof value === "string" && !value.includes("://") ? " Is the https:// missing?" : "";
-    throw new OparlValidationError(`Only http: and https: URLs are supported: ${shown}.${hint}`);
+    throw new OparlValidationError(`Only http: and https: URLs are supported: ${cutForMessage(shown)}.${hint}`);
   }
   return url;
 }

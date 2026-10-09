@@ -79,6 +79,20 @@ export function cutText(text: string, max: number): string {
   return text.slice(0, end);
 }
 
+/**
+ * The longest piece of a server answer or of the user's input (in characters) an own
+ * message quotes: an error detail, an object `type`, a link, a redirect target, a URL or
+ * a key. A longer one is cut (`cutText`) and ends in "…", so a library caller's
+ * `err.message` stays bounded too.
+ */
+export const MAX_SERVER_TEXT_LENGTH = 200;
+
+/** `text` cut to `max` characters (default `MAX_SERVER_TEXT_LENGTH`), a cut marked with "…". */
+export function cutForMessage(text: string, max = MAX_SERVER_TEXT_LENGTH): string {
+  const cut = cutText(text, max);
+  return cut.length < text.length ? `${cut}…` : text;
+}
+
 function isHighSurrogate(c: number): boolean {
   return c >= 0xd800 && c <= 0xdbff;
 }
