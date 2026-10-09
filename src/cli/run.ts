@@ -38,8 +38,10 @@ const FOLLOWED_REDIRECTS: readonly number[] = [301, 302, 303, 307, 308];
 
 /**
  * Whether the failing request carried a date filter or `limit` — only `list` sends
- * those, so the "retry without the filters" hint is pointless for `get`, `system`,
- * `bodies` and `endpoints`.
+ * those (and a `get` of a page it handed out), so the "retry without the filters" hint is
+ * pointless for `get`, `system` and `bodies`. `endpoints` sends `limit=100` to the
+ * registry itself, which no option of the user's can drop: `run()` gives it a hint of its
+ * own.
  */
 function carriedListFilters(url: string): boolean {
   let params: URLSearchParams;
@@ -266,9 +268,12 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
   // of argv (an option's value can look like --log-format; `--` ends the scan, not
   // commander's parse of a value). Ancestors' hooks run first, so this precedes every
   // other preAction check.
+  // The command that ran, for its hints: `endpoints` reads the registry, no council system.
+  let ran: string | undefined;
   program.hook("preAction", (_program, actionCommand) => {
     const format = (actionCommand.optsWithGlobals() as { logFormat?: LogFormat }).logFormat;
     if (log !== undefined) log.format = format ?? DEFAULT_LOG_FORMAT;
+    ran = actionCommand.name();
   });
 
   // A bare invocation (no command) is a help request, not an error: print help
@@ -295,6 +300,7 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
     }
     if (err instanceof OparlApiError) {
       log.error("api", err.message);
+      const registry = ran === "endpoints";
       if (err.status === 404) return EXIT.NOT_FOUND;
       if (err.location !== undefined && FOLLOWED_REDIRECTS.includes(err.status)) {
         // A followable redirect is only left unfollowed when --max-redirects ran out
@@ -304,6 +310,14 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
           "the server redirected more often than --max-redirects allows (default 3). " +
             "Use the final URL directly, or raise --max-redirects.",
         );
+      } else if (registry && err.status >= 500) {
+        // The registry is no council system, and the `limit=100` its first request
+        // carries is the client's own, no filter the user could drop.
+        log.info(
+          "api",
+          "the endpoint registry reported a server error. Try again later, or use --source curated " +
+            "for the endpoints that ship with this tool.",
+        );
       } else if (err.status >= 500) {
         log.info(
           "api",
@@ -312,7 +326,7 @@ export async function run(argv: string[], rawDeps: CliDeps = defaultDeps): Promi
               ? "Some servers fail on filters or --limit; retry without them, or later."
               : "Try again later; council systems are often down for a while."),
         );
-      } else if (err.status === 400 && carriedListFilters(err.url)) {
+      } else if (err.status === 400 && !registry && carriedListFilters(err.url)) {
         log.info("api", "some servers reject --limit or the date filters; retry without them.");
       }
       return EXIT.OTHER;

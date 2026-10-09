@@ -86,7 +86,9 @@ What we found probing real servers (September 2026) and designed around:
 Hence: a 120 s default timeout, filters passed through with a clear caveat, type checks on
 every object (`system` must be a System, `list` needs a Body, pages need a `data` array of
 objects), and exit-1 hints for 400/5xx answers — the "retry without the filters" one only
-when the failing request actually carried filters or `limit`.
+when the failing request actually carried filters or `limit`, and never for the endpoint
+registry (`endpoints --source registry`), whose `limit=100` is the client's own and which
+gets a hint of its own on a 5xx.
 
 ## Build from source
 

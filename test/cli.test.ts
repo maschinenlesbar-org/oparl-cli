@@ -656,3 +656,14 @@ test("a non-OParl answer or an error object is an ERROR record of oparl.api (L9)
     assert.match(untimed(cli.err.join("\n")), /^ERROR \[oparl\.api\] /, cli.err.join("\n"));
   }
 });
+
+test("a registry that fails is not a council system, and its own limit=100 is no filter of the user's (B04-1)", async () => {
+  for (const status of [500, 400]) {
+    const cli = makeCli(() => rawResponse("<!DOCTYPE html><title>error</title>", "text/html", status));
+    assert.equal(await run(["--max-retries", "0", "endpoints", "--source", "registry"], cli.deps), 1);
+    const err = untimed(cli.err.join("\n"));
+    assert.match(err, /^ERROR \[oparl\.api\] HTTP \d+ for GET https:\/\/dev\.oparl\.org\/api\/endpoints\?page=1&limit=100/m, err);
+    assert.doesNotMatch(err, /--limit|filters|council system/, err);
+    if (status === 500) assert.match(err, /^INFO  \[oparl\.api\] the endpoint registry reported a server error\. .*--source curated/m, err);
+  }
+});
