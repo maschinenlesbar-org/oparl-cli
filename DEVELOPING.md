@@ -484,4 +484,7 @@ One line stays raw: the bin shim's last-resort `Unexpected error: …`, written 
 `run()`.
 Conformance test P23 checks all of this, and its body is shared across the *-cli repos;
 oparl's adapter turns the shared cases' `--base-url` into the registry URL `endpoints`
-reads.
+reads; its secret (`secretArgv`) is the password of a rejected URL that commander echoes,
+and the check of credentials a server echoes back is skipped (`BASE_URL_USERINFO =
+false`): oparl drops a URL's userinfo before any request, so nothing is sent that a
+server could echo.
