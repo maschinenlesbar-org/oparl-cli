@@ -105,7 +105,8 @@ export function registerCommands(program: Command, deps: CliDeps): void {
           // answer), with the hint the failure has (Raise --timeout).
           const { entries, registryError, note } = await client.endpointsReport(options);
           const log = logOf(deps);
-          if (note !== undefined) log.info("api", note);
+          // The registry listing stopped at the page limit: the result is incomplete.
+          if (note !== undefined) log.warn("api", note);
           if (registryError !== undefined) {
             const area = failureArea(registryError);
             log.warn(

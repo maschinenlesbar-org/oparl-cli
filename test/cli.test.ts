@@ -578,7 +578,7 @@ test("a registry walk stopped at its page cap says so on stderr", async () => {
   assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], cli.deps), 0);
   assert.equal(n, MAX_REGISTRY_PAGES);
   assert.equal((cli.json() as unknown[]).length, MAX_REGISTRY_PAGES);
-  assert.match(untimed(cli.err.join("\n")), /^INFO  \[oparl\.api\] the endpoint registry was read up to page 50, .* incomplete/m);
+  assert.match(untimed(cli.err.join("\n")), /^WARN  \[oparl\.api\] the endpoint registry was read up to page 50, .* incomplete/m);
   // A registry that ends says nothing.
   const done = makeCli(() => jsonResponse({ data: [{ title: "Stadt", url: "https://ris.example/oparl/system" }], meta: {} }));
   assert.equal(await run(["endpoints", "--source", "registry", "--registry-url", fx.REGISTRY_URL], done.deps), 0);
