@@ -23,6 +23,8 @@ import {
   OparlNetworkError,
   OparlParseError,
   OparlValidationError,
+  cutText,
+  toWellFormed,
 } from "../src/client/errors.js";
 import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, redirect } from "./helpers.js";
 
@@ -551,4 +553,25 @@ test("cleartextProblem: exact wording, host with port, loopback range, never the
     assert.equal(cleartextProblem(url), undefined, url);
   }
   assert.notEqual(cleartextProblem("http://128.0.0.1"), undefined);
+});
+
+test("cutText never cuts inside a surrogate pair; toWellFormed replaces half a character", () => {
+  assert.equal(cutText("ab\u{1f600}cd", 3), "ab");
+  assert.equal(cutText("ab\u{1f600}cd", 4), "ab\u{1f600}");
+  assert.equal(cutText("short", 10), "short");
+  assert.equal(toWellFormed("a\ud83d b\ude00 \u{1f600}"), "a\ufffd b\ufffd \u{1f600}");
+});
+
+test("server text cut at 200 characters keeps the message well-formed (sanitizeServerText)", async () => {
+  // At 199 "a"s the emoji's high half is unit 200: the cut must not keep it alone.
+  for (const message of ["a".repeat(199) + "\u{1f600}", "\u{1f600}".repeat(150)]) {
+    const clean = sanitizeServerText(message);
+    assert.equal(toWellFormed(clean), clean, JSON.stringify(clean.slice(-4)));
+    assert.match(clean, /…$/);
+    const e = new RequestEngine({ transport: async () => jsonResponse({ message }, 500) });
+    await assert.rejects(e.getJson(URL_1), (err: Error) => {
+      assert.equal(toWellFormed(err.message), err.message);
+      return true;
+    });
+  }
 });

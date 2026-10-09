@@ -19,6 +19,7 @@ import {
   OparlNetworkError,
   OparlParseError,
   OparlValidationError,
+  cutText,
   redactUrl,
 } from "./errors.js";
 import { assertValid, intRangeProblem } from "./validate.js";
@@ -130,7 +131,8 @@ export const MAX_SERVER_TEXT_LENGTH = 200;
  *   a single space, so the result is one line and a server cannot forge a second
  *   log record of its own next to ours.
  * - The result is capped at `maxLength` characters, so a 3 KB "message" cannot bury
- *   the diagnostic the CLI printed.
+ *   the diagnostic the CLI printed. The cut never splits a surrogate pair (`cutText`),
+ *   so the message stays well-formed.
  *
  * Every server-supplied string that reaches a message goes through here. The CLI's
  * JSON output is escaped separately (escapeControlChars in cli/shared.ts):
@@ -149,7 +151,8 @@ export function sanitizeServerText(text: string, maxLength: number = MAX_SERVER_
     else out += ch;
   }
   out = out.replace(/\s+/g, " ").trim();
-  return out.length > maxLength ? `${out.slice(0, maxLength)}…` : out;
+  // Never cut inside a surrogate pair: half a character makes the message ill-formed.
+  return out.length > maxLength ? `${cutText(out, maxLength)}…` : out;
 }
 
 /** HTTP header field name grammar (RFC 9110 token). */
