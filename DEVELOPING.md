@@ -17,7 +17,7 @@ throughout:
   `links.next` of each list page.
 
 Following server-supplied URLs is the security-relevant part. `resolveLink` in
-`src/client/engine.ts` resolves every such link (and every redirect `Location`) against
+`packages/client/src/engine.ts` resolves every such link (and every redirect `Location`) against
 the URL it came from and only follows it on the **same host and port**, upgrading
 `http:` to `https:` on that host and never downgrading. A link it refuses ends the walk
 with a note rather than an error, so the pages already fetched are not lost, and the
@@ -62,7 +62,7 @@ server that redirects a filtered list URL to a path without the query cannot ans
 unfiltered list unnoticed; `walk()` hands it the query for every page, not only the
 first (a page-2 redirect used to lose the filters, or send the server's stale ones), and
 `get()`/`page()` hand it the OParl filters the URL itself carries, so `oparl get <next>`
-stays filtered too (`test/redirect-filters.test.ts`, on two local servers). One rule for all of it: `carryQuery` **sets** the caller's
+stays filtered too (`apps/cli/test/redirect-filters.test.ts`, on two local servers). One rule for all of it: `carryQuery` **sets** the caller's
 parameters, replacing whatever copy the URL carried — the requested URL, a redirect
 target and a `next` link alike — and leaves the server's other parameters exactly as it
 wrote them (no `%20` → `+`, no `flag` → `flag=`) (`withQuery`, which appends, is no longer used for
@@ -96,9 +96,9 @@ gets a hint of its own on a 5xx.
 git clone https://github.com/maschinenlesbar-org/oparl-cli
 cd oparl-cli
 npm install
-npm run build        # tsc -> dist/
-npm test             # builds, then runs node --test --test-timeout=5000 dist/test/*.test.js
-node dist/src/cli/index.js endpoints --search köln
+npm run build        # compiles every workspace (tsc -b) to its dist/
+npm test             # builds, then runs node --test over each workspace's dist/test
+node apps/cli/dist/src/cli/index.js endpoints --search köln    # or: npm start -- endpoints --search köln
 ```
 
 ## Library usage
@@ -135,7 +135,7 @@ const one = await client.get(papers.data[0]!.id);
 | `retryDelayMs` | `500` | Backoff base, 0 to 30 000: linear per attempt for a 503 or a reset; a 429 waits at least 1 s, doubling per attempt. A `Retry-After` (seconds or an HTTP date) can lengthen a wait, never shorten it — `Retry-After: 0` or a past date doesn't make a burst — and every wait is capped at 30 s |
 | `maxRedirects` | `3` | 0 to `MAX_REDIRECTS` (10). Same-host redirects (301/302/303/307/308 with a `Location`) followed per request; any other 3xx is an `OparlApiError` naming the target (`redirect to … not followed`, `… (no Location header)`, and `(stopped after n redirects)` at the limit) |
 | `maxResponseBytes` | 100 MiB | Response size cap (0 = unlimited), applied to the decompressed body too, and checked by the engine on the body any transport returns |
-| `onRetry` | none | `(event: RetryEvent) => void`, called once per retry right before the sleep (for a 429/503 and for a reset), never when there is none; a throw in it is swallowed, a non-function is an `OparlValidationError`. `RetryEvent` is `{ retry` (1-based), `maxRetries`, `delayMs`, `status?` (absent for a reset), `url` (userinfo redacted) `}`. The CLI's `action()` sets it to log one `WARN` record of `oparl.http`, `HTTP 503 from <host>: retry 1 of 3 in 2 s` (`retryMessage`: host only, whole seconds, ms under 1 s); tests in `test/engine.test.ts`, `test/retry-log.test.ts` |
+| `onRetry` | none | `(event: RetryEvent) => void`, called once per retry right before the sleep (for a 429/503 and for a reset), never when there is none; a throw in it is swallowed, a non-function is an `OparlValidationError`. `RetryEvent` is `{ retry` (1-based), `maxRetries`, `delayMs`, `status?` (absent for a reset), `url` (userinfo redacted) `}`. The CLI's `action()` sets it to log one `WARN` record of `oparl.http`, `HTTP 503 from <host>: retry 1 of 3 in 2 s` (`retryMessage`: host only, whole seconds, ms under 1 s); tests in `packages/client/test/engine.test.ts`, `apps/cli/test/retry-log.test.ts` |
 | `userAgent` | `oparl-cli` | `User-Agent` header; ASCII or Latin-1 and not blank, else an `OparlValidationError` (`Invalid userAgent: …`). Only an absent `userAgent` selects the default; `""` or whitespace is rejected, as `--user-agent` rejects it |
 | `defaultHeaders` | none | Extra headers on every request. OParl is anonymous; a credential header (`Authorization`, `Proxy-Authorization`, `X-API-Key`, `Cookie`) is kept in a private field — `util.inspect`, `console.log` and `JSON.stringify` of a client don't show it — and its value is scrubbed (`***`) from error bodies, details, messages and `cause` chains that echo the request |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock); see *Custom transports* below |
@@ -200,9 +200,47 @@ fractional seconds are dropped. A date-time without an offset is rejected.
 
 ## Architecture
 
+The repository is an **npm workspace** with two folders: `apps/` holds the programs it
+publishes, `packages/` the libraries they are built from.
+
 ```
-src/
-  client/
+package.json         # private workspace manifest: no version, never packed
+apps/cli/            # @maschinenlesbar.org/oparl-cli — the published package
+  package.json       # its version, bin, files, bundleDependencies
+  src/index.ts       # library entry: re-exports @maschinenlesbar.org/oparl-client
+  src/cli/           # the CLI (below)
+  test/              # CLI tests and every conformance-*.test.ts
+packages/client/     # @maschinenlesbar.org/oparl-client — private, bundled into the CLI
+  src/               # the API client (below)
+  scripts/           # check-endpoints.mjs: re-checks the endpoint list (not shipped)
+  test/              # tests that only touch the client, + the transport helpers and fixtures
+tools/pack/          # prepack/postpack: bundle the client and commander into the tarball
+tools/bump.mjs       # version bump + commit + tag (npm run bump)
+tsconfig.docs.json   # TypeDoc only: the package entry, with the client read from its sources
+```
+
+- **The client is its own package** so a later MCP app can share it with the CLI. It is
+  never published on its own: `apps/cli`'s `prepack` copies it (and commander) into the
+  app's `node_modules`, and `bundleDependencies` ships it inside the tarball. The library
+  entry re-exports the client's `"."`, so `import { OparlClient } from
+  "@maschinenlesbar.org/oparl-cli"` is unchanged.
+- **The client's exports:** `"."` is the public library surface (`src/index.ts`);
+  `"./internal/*"` maps to any module (`…/oparl-client/internal/engine`) for what the
+  CLI needs beyond that; `"./test/*"` reaches the client's test helpers and fixtures from
+  the CLI's tests (not bundled). Only `"."` is part of the library.
+- **Dependencies point one way:** the app depends on the client, the client on nothing
+  in the workspace.
+- **The version lives in `apps/cli/package.json`.** The root has none; a plain
+  `npm version` at the root is refused. Release with `npm run bump -- <patch|minor|major>`,
+  which bumps the app, commits (the bare version as the message) and tags `vX.Y.Z`.
+- **TypeScript:** `tsconfig.base.json` holds the compiler options; every workspace has a
+  `tsconfig.json` (`src/`) and a `tsconfig.test.json` (`test/`), and the root
+  `tsconfig.json`/`tsconfig.test.json` reference them, built with `tsc -b`.
+
+The client (`packages/client/src/`) and the CLI (`apps/cli/src/`):
+
+```
+packages/client/src/
     types.ts     # OParl object, list page, registry entry types (open records)
     query.ts     # dependency-free query-string builder
     http.ts      # Transport interface + default node:http/https transport
@@ -215,8 +253,8 @@ src/
     client.ts    # OparlClient — endpoints, System, bodies, lists, get
     endpoints-search.ts  # endpoints() filters: accent/umlaut search, OParl version, working
     endpoints-list.ts  # the curated endpoint list (generated, see below)
-    index.ts
-  cli/
+    index.ts     # the client's public surface (the library entry re-exports it)
+apps/cli/src/cli/
     io.ts        # injectable I/O seam (CliDeps / CliIO), the logger and the clock
     log.ts       # the stderr log: records with ts, level, topic; --log-format text|jsonl
     shared.ts    # option parsers (URLs, timestamps), global options, JSON rendering
@@ -224,7 +262,6 @@ src/
     program.ts   # assembles the commander program
     run.ts       # argv -> exit code (no process.exit; testable)
     index.ts     # bin shim
-  index.ts       # library entry
 ```
 
 Zero runtime HTTP dependencies: built on `node:http`/`https`; the CLI's only runtime
@@ -241,7 +278,7 @@ dependency is `commander`.
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
 
 **The library owns the input rules.** Every check on what a request may contain lives in
-`src/client` and runs before any request, so a library caller and a CLI user get the same
+`packages/client/src` and runs before any request, so a library caller and a CLI user get the same
 answer for the same input. A rule is a pure, exported `…Problem(value)` function (in
 `validate.ts` or next to the parameter it checks) returning the reason a value is invalid
 or `undefined`; `assertValid(name, value, problem)` throws an `OparlValidationError`
@@ -315,7 +352,7 @@ The registry at dev.oparl.org is fed by
 [OParl/resources](https://github.com/OParl/resources/blob/main/endpoints.yml) and is rarely
 updated: in September 2026 it had 127 entries (3 duplicates), 103 of them working, while
 many working servers weren't listed at all. So the package ships
-`src/client/endpoints-list.ts`:
+`packages/client/src/endpoints-list.ts`:
 
 - `CURATED_ENDPOINTS` — servers the registry lacks, each with the result of its last live
   check (`working`, `checked`, `problem`) and the System's version, vendor and body count;
@@ -332,7 +369,7 @@ always answer alike. Where both lists hold a System — the registry can catch u
 curated server — it is listed once, under the registry's entry, reporting whichever of the
 two live checks is newer.
 
-**Refreshing it.** `npm run check-endpoints` builds, then runs `scripts/check-endpoints.mjs`.
+**Refreshing it.** `npm run check-endpoints` builds, then runs `packages/client/scripts/check-endpoints.mjs`.
 The script checks every registry and curated endpoint live: an endpoint works when its
 System and the first 20 pages of its bodies list load. It then rewrites the file. `title`,
 `url`, `note` and `replacedBy` are kept as written, and `working`, `checked` and `problem`
@@ -342,7 +379,7 @@ an endpoint that is down still shows what it last served. A failing endpoint is 
 second time after a short pause, so that one timeout doesn't record a healthy server as
 down — the list ships to every user. It takes a few minutes, since some servers need 40
 seconds for a page. The lists it starts from are read
-from `src/client/endpoints-list.ts` itself, not from `dist/`, so a hand-added entry is
+from `packages/client/src/endpoints-list.ts` itself, not from `dist/`, so a hand-added entry is
 checked and kept (keep such an edit in the same plain JSON as the rest of the file).
 Options: `--dry-run` (report only), `--concurrency <n>` (default 4), `--timeout <ms>`
 (default 60000), `--only registry|curated`, `--allow-shrink` (write even when the registry
@@ -368,21 +405,28 @@ portal of the municipality itself.
 ## Testing
 
 ```bash
-npm test
-node --test dist/test/client.test.js   # one file, after a build
+npm test          # builds, then runs `node --test` over each workspace's dist/test
+npm run coverage  # the same tests in one run, with a coverage report
+node --test packages/client/dist/test/client.test.js   # one file, after a build
 ```
 
+The client's tests are in `packages/client/test/` (`query`, `http`, `engine`, `client`,
+`endpoints-search`), with the transport helpers (`helpers.ts`, which
+`apps/cli/test/helpers.ts` re-exports next to the CLI's own helpers) and the fixtures
+(`fixtures.ts`); everything that drives the CLI is in `apps/cli/test/`.
+
 The suite runs in-process on Node's test runner with a mock `Transport`
-(`test/helpers.ts`, `routes()` serves fixtures by URL); `test/http.test.ts` exercises the
-real transport against a loopback server. `parity()` in `test/helpers.ts` drives one input
-through `run()` and through a library call on the same recording transport, so a test can
-assert both reject without a request or both send the same requests. Fixtures in `test/fixtures.ts` are shaped after
-real 1.1 and 1.0 servers and the registry, moved to example hosts.
+(`packages/client/test/helpers.ts`, `routes()` serves fixtures by URL);
+`packages/client/test/http.test.ts` exercises the real transport against a loopback server.
+`parity()` in `apps/cli/test/helpers.ts` drives one input through `run()` and through a
+library call on the same recording transport, so a test can assert both reject without a
+request or both send the same requests. Fixtures in `packages/client/test/fixtures.ts` are
+shaped after real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
 - **`io.test.ts`** — `handleOutputErrors` on fake streams: a closed pipe, and a stdout
   write error as an ERROR record of `oparl.output`; `stderrAfterStdout` holding a record
   while stdout has a backlog.
-- **`log.test.ts`** — the record helpers of `src/cli/log.ts` on their own
+- **`log.test.ts`** — the record helpers of `apps/cli/src/cli/log.ts` on their own
   (`escapeForRecord`, `formatLogRecord`); the CLI-level checks are P23's.
 - **`conformance-p*.test.ts`** — the checks shared across the `*-cli` repos (fix plan
   `.reviews/2026-10-05-exploratory/fix-plan.md` in the workspace), one file per pattern, the
@@ -399,7 +443,7 @@ real 1.1 and 1.0 servers and the registry, moved to example hosts.
   URL argument, or the registry `endpoints` reads (`startUrl()` in `shared.ts`); `action()`
   logs `cleartextProblem(start)` as a `WARN` record of `oparl.http` once, before the client is built.
   P21 (`conformance-p21-readme-links`): every relative link in `README.md` points to a file
-  `package.json` `files` ships, since npmjs.com shows the README; other documents are linked
+  `apps/cli/package.json` `files` ships, since npmjs.com shows the README; other documents are linked
   by their GitHub URL.
 - **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
   real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
@@ -409,10 +453,13 @@ real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- **ci.yml** — typecheck, build and test on Node 22/24 for every push and PR.
-- **release.yml** — on a `v*` tag: test, `npm pack`, CycloneDX SBOMs, a changelog, and a
-  GitHub Release.
-- **publish.yml** — manual dispatch from the release tag (`gh workflow run publish.yml --ref vX.Y.Z`; the version is the tag's): publish to npm via OIDC **Trusted Publishing** (no
+- **ci.yml** — typecheck, build and test on Node 22/24 for every push and PR; then pack the
+  real tarball, check the pack left nothing behind, install it globally with the registry out
+  of reach and run the bin.
+- **release.yml** — on a `v*` tag (made by `npm run bump`): verify the tag matches
+  `apps/cli/package.json`, test, CycloneDX SBOMs (scoped to the `apps/cli` workspace), then
+  `npm pack --workspace apps/cli`, a changelog, and a GitHub Release.
+- **publish.yml** — manual dispatch from the release tag (`gh workflow run publish.yml --ref vX.Y.Z`; the version is the tag's): `npm publish --workspace apps/cli` via OIDC **Trusted Publishing** (no
   stored `NPM_TOKEN`) with provenance.
 - **docs.yml** — build the project website (`site/`, English and German) with the TypeDoc API docs
   under `/api/`, and deploy both to GitHub Pages on each `v*` tag.
@@ -429,7 +476,9 @@ The project website — <https://maschinenlesbar-org.github.io/oparl-cli/> in En
 reference under `/api/`. Its content comes from this repository: the README intro and quick
 start, the command tree of the built CLI (`site/scripts/cli-reference.mjs`), `Usage.md`,
 `GLOSSARY.md` and its German version `GLOSSARY.de.md`, the skills, and the skill examples in
-`EXAMPLE.md` and `EXAMPLE.de.md`. The only repo-specific files are `site/_config.yml` and
+`EXAMPLE.md` and `EXAMPLE.de.md`. The only repo-specific files are `site/_config.yml` (which
+also says where the published manifest and the built program are: `manifest:
+apps/cli/package.json`, `program: apps/cli/dist/src/cli/program.js`) and
 `site/_data/project.yml` (the German intro and the access requirements); the rest of `site/` is
 identical in every maschinenlesbar.org CLI, so change it in all of them together. When the
 README intro changes, update the German intro in `site/_data/project.yml`.
@@ -446,7 +495,7 @@ Dual-licensed AGPL-3.0-or-later OR commercial — see [LICENSING.md](LICENSING.m
 
 ## The log on stderr
 
-Every diagnostic line on stderr is a log record (`src/cli/log.ts`): a timestamp, a level
+Every diagnostic line on stderr is a log record (`apps/cli/src/cli/log.ts`): a timestamp, a level
 (`ERROR`, `WARN`, `INFO`) and a topic, `oparl.<area>`. `--log-format text` (the default)
 writes it log4j style, `<ISO 8601 UTC> <LEVEL padded to 5> [<topic>] <message>`;
 `--log-format jsonl` writes one JSON object per line with exactly `ts`, `level`, `topic`

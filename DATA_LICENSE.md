@@ -11,7 +11,7 @@
 | | |
 |---|---|
 | **Data providers** | Each municipality, district, association or parliament running an OParl server (about 150 working in September 2026) |
-| **API / source** | The OParl standard (https://oparl.org/), one server per operator; registry: `https://dev.oparl.org/api/endpoints`, plus the curated list in `src/client/endpoints-list.ts` |
+| **API / source** | The OParl standard (https://oparl.org/), one server per operator; registry: `https://dev.oparl.org/api/endpoints`, plus the curated list in `packages/client/src/endpoints-list.ts` |
 | **Data license** | **Set per server — no common license.** The OParl `license` field on System/Body objects states it where set; most servers leave it empty. |
 | **Attribution** | Name the operator (the Body) as the source. |
 | **Personal use** | Reading and analysing is what the servers are published for. |
