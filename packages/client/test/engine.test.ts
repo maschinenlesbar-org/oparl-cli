@@ -1,0 +1,664 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import zlib from "node:zlib";
+import {
+  MAX_REDIRECTS,
+  MAX_RETRIES,
+  RequestEngine,
+  assertHeaderValue,
+  carryQuery,
+  cleartextProblem,
+  encodeTimestampPlus,
+  headerValueProblem,
+  userAgentProblem,
+  parseHttpUrl,
+  resolveLink,
+  sanitizeServerText,
+  withQuery,
+  type EngineOptions,
+} from "../src/engine.js";
+import {
+  OparlApiError,
+  OparlLinkError,
+  OparlNetworkError,
+  OparlParseError,
+  OparlValidationError,
+  cutText,
+  toWellFormed,
+} from "../src/errors.js";
+import { OparlClient, normalizeTimestamp } from "../src/client.js";
+import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, redirect } from "./helpers.js";
+
+const URL_1 = "https://ris.example.de/oparl/system";
+
+test("getJson decodes JSON and sends Accept and User-Agent", async () => {
+  const mt = makeMockTransport(() => jsonResponse({ id: URL_1 }));
+  const e = new RequestEngine({ transport: mt.transport });
+  assert.deepEqual(await e.getJson(URL_1), { id: URL_1 });
+  assert.equal(mt.last().headers?.["Accept"], "application/json");
+  assert.equal(mt.last().headers?.["User-Agent"], "oparl-cli");
+  assert.equal(mt.last().timeoutMs, 120_000);
+});
+
+test("getJson keeps the parameters the URL already has and replaces the ones it sets", async () => {
+  const mt = makeMockTransport(() => jsonResponse({ data: [] }));
+  const e = new RequestEngine({ transport: mt.transport });
+  // limit=5 is the server's own; the caller's 50 replaces it instead of being appended
+  // (which sent limit twice and let the server pick).
+  await e.getJson(`${URL_1}?page=2&limit=5`, { modified_since: "2026-09-01T00:00:00+00:00", limit: 50 });
+  const q = queryOf(mt.last());
+  assert.equal(q.get("page"), "2");
+  assert.equal(q.get("modified_since"), "2026-09-01T00:00:00+00:00");
+  assert.deepEqual(q.getAll("limit"), ["50"]);
+});
+
+test("credentials in a URL are never sent nor echoed in errors", async () => {
+  const mt = makeMockTransport((req) =>
+    req.url.endsWith("/old") ? redirect("https://admin:hunter2@ris.example.de/new", 302) : jsonResponse({ error: "nope" }, 404),
+  );
+  const e = new RequestEngine({ transport: mt.transport });
+  await assert.rejects(
+    () => e.getJson("https://user:s3cret@ris.example.de/old"),
+    (err) => err instanceof OparlApiError && !/s3cret|hunter2|user:|admin:/.test(err.message),
+  );
+  assert.deepEqual(mt.calls.map((c) => c.url), ["https://ris.example.de/old", "https://ris.example.de/new"]);
+  assert.ok(mt.calls.every((c) => c.headers?.["Authorization"] === undefined));
+  assert.equal(resolveLink("https://u:p@a.de/x", "https://v:q@a.de/y"), "https://a.de/y");
+});
+
+test("a non-http URL is rejected before any request", async () => {
+  const mt = makeMockTransport(() => jsonResponse({}));
+  const e = new RequestEngine({ transport: mt.transport });
+  await assert.rejects(() => e.getJson("ftp://ris.example.de/x"), OparlValidationError);
+  await assert.rejects(() => e.getJson("not a url"), OparlValidationError);
+  assert.equal(mt.calls.length, 0);
+});
+
+test("a 503 is retried up to maxRetries, then surfaces as OparlApiError", async () => {
+  const mt = makeMockTransport(() => rawResponse("busy", "text/plain", 503));
+  const e = new RequestEngine({ transport: mt.transport, maxRetries: 2, sleep: async () => {} });
+  await assert.rejects(() => e.getJson(URL_1), (err) => err instanceof OparlApiError && err.status === 503 && err.isRetryable);
+  assert.equal(mt.calls.length, 3);
+});
+
+test("Retry-After (seconds) is honoured and capped at 30 s", async () => {
+  const waits: number[] = [];
+  let n = 0;
+  const mt = makeMockTransport(() => {
+    n += 1;
+    if (n === 1) return rawResponse("", "text/plain", 429, { "retry-after": "2" });
+    if (n === 2) return rawResponse("", "text/plain", 429, { "retry-after": "3600" });
+    return jsonResponse({ ok: true });
+  });
+  const e = new RequestEngine({ transport: mt.transport, maxRetries: 2, sleep: async (ms) => void waits.push(ms) });
+  assert.deepEqual(await e.getJson(URL_1), { ok: true });
+  assert.deepEqual(waits, [2000, 30_000]);
+});
+
+test("a redirect on the same host is followed, including a relative Location", async () => {
+  const mt = makeMockTransport((req) =>
+    req.url === URL_1 ? redirect("/oparl/v2/system", 302) : jsonResponse({ id: req.url }),
+  );
+  const e = new RequestEngine({ transport: mt.transport });
+  assert.deepEqual(await e.getJson(URL_1), { id: "https://ris.example.de/oparl/v2/system" });
+});
+
+test("an http-to-https redirect on the same host is followed", async () => {
+  const mt = makeMockTransport((req) =>
+    req.url.startsWith("http:") ? redirect(req.url.replace("http:", "https:")) : jsonResponse({ ok: true }),
+  );
+  const e = new RequestEngine({ transport: mt.transport });
+  assert.deepEqual(await e.getJson("http://ris.example.de/oparl"), { ok: true });
+  assert.equal(mt.last().url, "https://ris.example.de/oparl");
+});
+
+test("a filtered request keeps its filters when a redirect drops the query", async () => {
+  const mt = makeMockTransport((req) =>
+    req.url.startsWith("https://ris.example.de/meetings?") ? redirect("/meetings/") : jsonResponse({ data: [] }),
+  );
+  const e = new RequestEngine({ transport: mt.transport });
+  await e.getJson("https://ris.example.de/meetings", { modified_since: "2026-09-01T00:00:00+00:00" });
+  // The redirect target used to be requested without the filter, and the unfiltered
+  // list came back presented as the filtered one.
+  assert.equal(mt.last().url, "https://ris.example.de/meetings/?modified_since=2026-09-01T00%3A00%3A00%2B00%3A00");
+});
+
+test("fetchJson reports the URL a request ended on, so relative links resolve against it", async () => {
+  const mt = makeMockTransport((req) => (req.url === URL_1 ? redirect("/oparl/v2/system", 302) : jsonResponse({ body: "bodies" })));
+  const e = new RequestEngine({ transport: mt.transport });
+  const response = await e.fetchJson<{ body: string }>(URL_1);
+  assert.equal(response.url, "https://ris.example.de/oparl/v2/system");
+  assert.equal(resolveLink(response.url, response.value.body), "https://ris.example.de/oparl/v2/bodies");
+});
+
+test("a redirect to another host is refused with OparlLinkError", async () => {
+  const mt = makeMockTransport(() => redirect("https://evil.example.com/oparl"));
+  const e = new RequestEngine({ transport: mt.transport });
+  await assert.rejects(() => e.getJson(URL_1), OparlLinkError);
+  assert.equal(mt.calls.length, 1);
+});
+
+test("redirects stop after maxRedirects with a 3xx OparlApiError", async () => {
+  let n = 0;
+  const mt = makeMockTransport(() => redirect(`/hop/${(n += 1)}`));
+  const e = new RequestEngine({ transport: mt.transport, maxRedirects: 2 });
+  await assert.rejects(
+    () => e.getJson(URL_1),
+    (err) =>
+      err instanceof OparlApiError &&
+      err.status === 301 &&
+      err.location === "https://ris.example.de/hop/3" &&
+      err.message.endsWith(": redirect to https://ris.example.de/hop/3 not followed (stopped after 2 redirects)"),
+  );
+  assert.equal(mt.calls.length, 3);
+});
+
+test("only real redirects with a Location are followed, and the error names what happened", async () => {
+  const cases: Array<[number, Record<string, string>, string]> = [
+    [301, {}, ": redirect not followed (no Location header)"],
+    [302, { location: "  " }, ": redirect not followed (no Location header)"],
+    [304, {}, ": redirect not followed (no Location header)"],
+    // 304 answers a conditional request this client never sends; 300 is a choice.
+    [304, { location: "/system" }, ": redirect to https://ris.example.de/system not followed"],
+    [300, { location: "/system" }, ": redirect to https://ris.example.de/system not followed"],
+  ];
+  for (const [status, headers, tail] of cases) {
+    const mt = makeMockTransport(() => ({ status, headers, body: Buffer.alloc(0) }));
+    const e = new RequestEngine({ transport: mt.transport });
+    await assert.rejects(
+      () => e.getJson(URL_1),
+      (err) => err instanceof OparlApiError && err.status === status && err.message === `HTTP ${status} for GET ${URL_1}${tail}`,
+      `${status} ${JSON.stringify(headers)}`,
+    );
+    assert.equal(mt.calls.length, 1);
+  }
+});
+
+test("a 404 carries the server's error text as detail", async () => {
+  const mt = makeMockTransport(() => jsonResponse({ error: "Die angeforderte Ressource wurde nicht gefunden.", code: 802 }, 404));
+  const e = new RequestEngine({ transport: mt.transport });
+  await assert.rejects(
+    () => e.getJson(URL_1),
+    (err) => err instanceof OparlApiError && err.isNotFound && err.detail === "Die angeforderte Ressource wurde nicht gefunden.",
+  );
+});
+
+test("non-JSON bodies surface as OparlParseError with a pointed message", async () => {
+  const cases: Array<[string, RegExp]> = [
+    ["<!DOCTYPE html><html><body>Portal</body></html>", /HTML page/],
+    ["   ", /Empty response/],
+    ["{not json", /Failed to parse JSON/],
+  ];
+  for (const [body, message] of cases) {
+    const mt = makeMockTransport(() => rawResponse(body, "text/html"));
+    const e = new RequestEngine({ transport: mt.transport });
+    await assert.rejects(() => e.getJson(URL_1), (err) => err instanceof OparlParseError && message.test(err.message));
+  }
+});
+
+test("a non-JSON answer says what the server actually sent", async () => {
+  // All of these were reported as "Failed to parse JSON response": Aachen's error page
+  // starts with an HTML comment and Apache's with an XML declaration, so the prefix test
+  // missed them, and a file URL answers with the file.
+  const cases: Array<[string | Buffer, string, RegExp]> = [
+    ["<!-- ERROR REFERENCE -->\n<!doctype html><html>oops</html>", "text/html; charset=utf-8", /an HTML page \(content-type: text\/html\)/],
+    ['<?xml version="1.0"?>\n<html><body>Bad Gateway!</body></html>', "text/html", /an HTML page/],
+    ['<?xml version="1.0"?><error>no</error>', "application/xml", /an XML document/],
+    [Buffer.from("%PDF-1.4\ntrailer\n"), "application/pdf", /a PDF file .*does not download files/],
+    ["Not found", "text/plain", /Failed to parse JSON response .* \(content-type: text\/plain\)/],
+  ];
+  for (const [body, type, message] of cases) {
+    const mt = makeMockTransport(() => rawResponse(body, type));
+    const e = new RequestEngine({ transport: mt.transport });
+    await assert.rejects(
+      () => e.getJson(URL_1),
+      (err) => err instanceof OparlParseError && message.test(err.message),
+      `${type}: ${message}`,
+    );
+  }
+  // A server serving good OParl JSON under an HTML content type is still accepted.
+  const html = makeMockTransport(() => rawResponse('{"id":"x"}', "text/html"));
+  assert.deepEqual(await new RequestEngine({ transport: html.transport }).getJson(URL_1), { id: "x" });
+});
+
+test("a compressed response is decoded, whatever the coding", async () => {
+  const served = { id: URL_1, name: "Ratsinformationssystem" };
+  const body = Buffer.from(JSON.stringify(served), "utf8");
+  const cases: Array<[string, Buffer]> = [
+    ["gzip", zlib.gzipSync(body)],
+    ["x-gzip", zlib.gzipSync(body)],
+    ["deflate", zlib.deflateSync(body)],
+    ["deflate", zlib.deflateRawSync(body)], // servers that skip the zlib wrapper
+    ["br", zlib.brotliCompressSync(body)],
+    ["identity", body],
+    ["gzip, br", zlib.brotliCompressSync(zlib.gzipSync(body))],
+  ];
+  for (const [coding, compressed] of cases) {
+    const mt = makeMockTransport(() => rawResponse(compressed, "application/json", 200, { "content-encoding": coding }));
+    const e = new RequestEngine({ transport: mt.transport });
+    assert.deepEqual(await e.getJson(URL_1), served, coding);
+  }
+});
+
+test("an undecodable or oversized compressed response says so", async () => {
+  const unknown = makeMockTransport(() => rawResponse("xx", "application/json", 200, { "content-encoding": "exotic" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: unknown.transport }).getJson(URL_1),
+    (err) => err instanceof OparlParseError && /content encoding "exotic"/.test(err.message),
+  );
+
+  const broken = makeMockTransport(() => rawResponse("not gzip at all", "application/json", 200, { "content-encoding": "gzip" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: broken.transport }).getJson(URL_1),
+    (err) => err instanceof OparlParseError && /gzip-compressed response .* could not be decompressed/.test(err.message),
+  );
+
+  // maxResponseBytes has to hold for the decompressed size too: the transport only ever
+  // sees the bytes on the wire, which a compression bomb keeps small on purpose.
+  const bomb = zlib.gzipSync(Buffer.alloc(200_000, 0x20));
+  const big = makeMockTransport(() => rawResponse(bomb, "application/json", 200, { "content-encoding": "gzip" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: big.transport, maxResponseBytes: 1000 }).getJson(URL_1),
+    (err) => err instanceof OparlNetworkError && /maxResponseBytes \(1000\)/.test(err.message),
+  );
+});
+
+test("a compressed error body is decoded before its detail is taken", async () => {
+  const body = zlib.gzipSync(Buffer.from(JSON.stringify({ error: "Ressource nicht gefunden" }), "utf8"));
+  const mt = makeMockTransport(() => rawResponse(body, "application/json", 404, { "content-encoding": "gzip" }));
+  await assert.rejects(
+    () => new RequestEngine({ transport: mt.transport }).getJson(URL_1),
+    (err) => err instanceof OparlApiError && err.detail === "Ressource nicht gefunden",
+  );
+});
+
+test("a header value Node would refuse is a validation error, not an internal fault", async () => {
+  // A --user-agent with an emoji or an en dash used to reach Node's HTTP layer and die
+  // as "Unexpected error" (exit 1) instead of a usage error.
+  for (const userAgent of ["bot \u{1f680}", "oparl-cli/a–b", `bad${String.fromCharCode(0x0d)}${String.fromCharCode(0x0a)}X: y`]) {
+    assert.throws(() => new RequestEngine({ userAgent }), OparlValidationError, userAgent);
+  }
+  assert.throws(() => new RequestEngine({ defaultHeaders: { "X Bad Name": "v" } }), OparlValidationError);
+  // Latin-1 is deprecated in the grammar but Node sends it and servers read it.
+  const mt = makeMockTransport(() => jsonResponse({ ok: true }));
+  const e = new RequestEngine({ transport: mt.transport, userAgent: "oparl-cli/Köln" });
+  assert.deepEqual(await e.getJson(URL_1), { ok: true });
+  assert.equal(mt.last().headers?.["User-Agent"], "oparl-cli/Köln");
+});
+
+test("sanitizeServerText leaves one capped line, whatever the server sent", () => {
+  const clean = sanitizeServerText(hostileText());
+  assert.ok(!hasControlChar(clean), clean);
+  assert.equal(clean.includes("\n"), false);
+  assert.ok(clean.length <= 201, `${clean.length} characters`);
+  assert.ok(clean.endsWith("…"));
+  // Unicode line and paragraph separators count as whitespace, too.
+  assert.equal(sanitizeServerText("a b  \tc"), "a b c");
+  assert.equal(sanitizeServerText("", 10), "");
+  assert.equal(sanitizeServerText("kurz und gut"), "kurz und gut");
+});
+
+test("a UTF-8 byte order mark is tolerated", async () => {
+  const mt = makeMockTransport(() => rawResponse(`﻿{"id":"x"}`, "application/json"));
+  const e = new RequestEngine({ transport: mt.transport });
+  assert.deepEqual(await e.getJson(URL_1), { id: "x" });
+});
+
+test("pathologically deep JSON is rejected as OparlParseError", async () => {
+  const deep = "[".repeat(1000) + "]".repeat(1000);
+  const mt = makeMockTransport(() => rawResponse(deep, "application/json"));
+  const e = new RequestEngine({ transport: mt.transport });
+  await assert.rejects(() => e.getJson(URL_1), (err) => err instanceof OparlParseError && /nested too deeply/.test(err.message));
+});
+
+test("error detail is stripped of terminal control characters", async () => {
+  const ESC = String.fromCharCode(0x1b);
+  const BEL = String.fromCharCode(0x07);
+  const CSI = String.fromCharCode(0x9b);
+  const mt = makeMockTransport(() => jsonResponse({ error: `boom${ESC}[31mred${BEL}${CSI}2J` }, 500));
+  const e = new RequestEngine({ transport: mt.transport, maxRetries: 0 });
+  await assert.rejects(
+    () => e.getJson(URL_1),
+    (err) => {
+      assert.ok(err instanceof OparlApiError);
+      const hasControl = (s: string): boolean =>
+        [...s].some((c) => {
+          const n = c.charCodeAt(0);
+          return n <= 8 || (n >= 0x0b && n <= 0x1f) || (n >= 0x7f && n <= 0x9f);
+        });
+      assert.ok(!hasControl(err.message));
+      assert.equal(err.detail, "boom[31mred2J");
+      return true;
+    },
+  );
+});
+
+test("resolveLink keeps links on the same host and upgrades http to https", () => {
+  assert.equal(resolveLink("https://a.de/x", "/list?page=2"), "https://a.de/list?page=2");
+  assert.equal(resolveLink("https://a.de/x", "http://a.de/y"), "https://a.de/y");
+  assert.equal(resolveLink("http://a.de/x", "https://a.de/y"), "https://a.de/y");
+  assert.equal(resolveLink("https://A.de/x", "https://a.DE/y"), "https://a.de/y");
+  for (const [from, to] of [
+    ["https://a.de/x", "https://b.de/y"],
+    ["https://a.de/x", "https://a.de:8443/y"],
+    ["http://a.de:8080/x", "https://a.de/y"],
+    ["https://a.de/x", "javascript:alert(1)"],
+    ["https://a.de/x", "file:///etc/passwd"],
+  ] as const) {
+    assert.throws(() => resolveLink(from, to), OparlLinkError, `${from} -> ${to}`);
+  }
+});
+
+test("http:// URLs on the host of an https response are printed as https://", async () => {
+  const served = {
+    id: "http://ris.example.de/oparl/bodies/0001",
+    meeting: "HTTP://RIS.EXAMPLE.DE:80/oparl/bodies/0001/meetings?page=2",
+    legislativeTerm: [{ id: "http://ris.example.de/oparl/terms/1", body: "http://ris.example.de" }],
+    website: "http://www.example.de/",
+    other: "http://ris.example.de:8080/x",
+    note: "see http://ris.example.de/oparl",
+  };
+  const e = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(served)).transport });
+  assert.deepEqual(await e.getJson("https://ris.example.de/oparl/bodies/0001"), {
+    id: "https://ris.example.de/oparl/bodies/0001",
+    meeting: "https://ris.example.de/oparl/bodies/0001/meetings?page=2",
+    legislativeTerm: [{ id: "https://ris.example.de/oparl/terms/1", body: "https://ris.example.de" }],
+    website: "http://www.example.de/", // another host
+    other: "http://ris.example.de:8080/x", // another port
+    note: "see http://ris.example.de/oparl", // not a URL value
+  });
+
+  // An authority that isn't a plain host[:port] is left alone: a backslash or a space
+  // ends the authority for URL parsing but not for the scan, so rewriting such a string
+  // used to drop everything after it.
+  const odd = { a: "http://ris.example.de\\evil.example/x", b: "http://ris.example.de evil", c: "http://user@ris.example.de/x" };
+  const oddEngine = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(odd)).transport });
+  assert.deepEqual(await oddEngine.getJson("https://ris.example.de/oparl"), odd);
+
+  const overHttp = new RequestEngine({ transport: makeMockTransport(() => jsonResponse(served)).transport });
+  assert.deepEqual(await overHttp.getJson("http://ris.example.de/oparl/bodies/0001"), served);
+});
+
+test("withQuery leaves the URL alone when no parameter survives", () => {
+  assert.equal(withQuery("https://a.de/x?page=1", { limit: undefined }), "https://a.de/x?page=1");
+  assert.equal(withQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");
+});
+
+test("encodeTimestampPlus sends a literal + in the OParl timestamp parameters as %2B, and nothing else", () => {
+  // Köln's raw links.next, as `oparl get` prints it: the + reached the server as a space.
+  const somacos = "https://ris.example.de/papers?page=4&modified_since=2026-09-20T00:00:00+00:00&limit=5";
+  assert.equal(encodeTimestampPlus(somacos), "https://ris.example.de/papers?page=4&modified_since=2026-09-20T00:00:00%2B00:00&limit=5");
+  assert.equal(
+    encodeTimestampPlus("https://a.de/x?created_since=2026-01-01T00:00:00+01:00&created_until=2026-02-01T00:00:00+01:00&modified_until=2026-03-01T00:00:00+01:00#f+g"),
+    "https://a.de/x?created_since=2026-01-01T00:00:00%2B01:00&created_until=2026-02-01T00:00:00%2B01:00&modified_until=2026-03-01T00:00:00%2B01:00#f+g",
+  );
+  // Other parameters, already encoded values and URLs without a query are left as they are.
+  for (const url of [
+    "https://a.de/x?q=a+b&flag&modified_since=2026-09-20T00:00:00%2B00:00",
+    "https://a.de/x?modified_since=2026-09-20T00:00:00Z",
+    "https://a.de/x",
+  ]) {
+    assert.equal(encodeTimestampPlus(url), url);
+  }
+});
+
+test("a URL with an unencoded + in a timestamp filter is requested with %2B", async () => {
+  const requested: string[] = [];
+  const engine = new RequestEngine({
+    transport: async (req) => {
+      requested.push(req.url);
+      return { status: 200, headers: { "content-type": "application/json" }, body: Buffer.from('{"data":[]}') };
+    },
+  });
+  await engine.getJson("https://ris.example.de/papers?page=3&modified_since=2026-09-20T00:00:00+00:00&limit=5");
+  assert.deepEqual(requested, ["https://ris.example.de/papers?page=3&modified_since=2026-09-20T00:00:00%2B00:00&limit=5"]);
+});
+
+test("carryQuery sets the client's parameters and leaves the server's byte for byte", () => {
+  // The server's own `next`: a %20, a bare flag and a + that is not a space for every server.
+  assert.equal(
+    carryQuery("https://a.de/w?page=2&q=a%20b&flag&x=1+2", { limit: 5 }),
+    "https://a.de/w?page=2&q=a%20b&flag&x=1+2&limit=5",
+  );
+  // A parameter the client sets replaces the server's copy, however the server spelled it.
+  assert.equal(
+    carryQuery("https://a.de/papers.asp?body=1&limit=100&modified_since=2026-01-01T00:00:00+00:00", {
+      limit: 5,
+      modified_since: "2026-09-01T00:00:00+00:00",
+    }),
+    "https://a.de/papers.asp?body=1&limit=5&modified_since=2026-09-01T00%3A00%3A00%2B00%3A00",
+  );
+  assert.equal(carryQuery("https://a.de/x?page=2", { limit: undefined }), "https://a.de/x?page=2");
+  assert.equal(carryQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");
+});
+
+test("the constructor rejects a numeric option that is not a non-negative integer in range", () => {
+  const bad: Array<[keyof EngineOptions, number]> = [];
+  for (const option of ["timeoutMs", "maxRetries", "retryDelayMs", "maxRedirects", "maxResponseBytes"] as const) {
+    for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) bad.push([option, value]);
+  }
+  bad.push(["maxRetries", MAX_RETRIES + 1], ["maxRedirects", MAX_REDIRECTS + 1]);
+  for (const [option, value] of bad) {
+    assert.throws(
+      () => new RequestEngine({ [option]: value }),
+      (err: unknown) => err instanceof OparlValidationError && err.message.startsWith(`Invalid ${option}: `),
+      `${option} ${value}`,
+    );
+  }
+  assert.equal(MAX_RETRIES, 10);
+  assert.equal(MAX_REDIRECTS, 10);
+  // In range: 0, the bounds, and a timeout beyond Node's timer range (the transport caps it).
+  for (const options of [
+    { timeoutMs: 0, maxRetries: 0, retryDelayMs: 0, maxRedirects: 0, maxResponseBytes: 0 },
+    { maxRetries: MAX_RETRIES, maxRedirects: MAX_REDIRECTS },
+    { timeoutMs: 3_000_000_000 },
+  ]) {
+    assert.doesNotThrow(() => new RequestEngine(options));
+  }
+});
+
+test("headerValueProblem and assertHeaderValue hold the header-value rule", () => {
+  assert.equal(headerValueProblem("User-Agent", "oparl-cli/Köln\t(1)"), undefined);
+  assert.equal(
+    headerValueProblem("User-Agent", `a${String.fromCharCode(0x0d)}b`),
+    "The User-Agent header value contains control characters.",
+  );
+  assert.equal(headerValueProblem("X-Test", String.fromCharCode(0x7f)), "The X-Test header value contains control characters.");
+  assert.match(headerValueProblem("User-Agent", "€") ?? "", /^The User-Agent header value contains U\+20AC, which cannot be sent/);
+  assert.equal(assertHeaderValue("User-Agent", "ok"), "ok");
+  assert.throws(() => assertHeaderValue("User-Agent", "€"), OparlValidationError);
+});
+
+test("parseHttpUrl rejects a blank URL as such", () => {
+  for (const blank of ["", "   "]) {
+    assert.throws(() => parseHttpUrl(blank), (err: unknown) => err instanceof OparlValidationError && err.message === "Expected a non-empty URL.");
+  }
+  assert.throws(() => parseHttpUrl("not a url"), (err: unknown) => err instanceof OparlValidationError && err.message === "Not a valid URL.");
+});
+
+test("userAgentProblem rejects a blank value, then applies the header-value rule", () => {
+  for (const blank of ["", "   ", "\t"]) assert.equal(userAgentProblem(blank), "Expected a non-empty value.", JSON.stringify(blank));
+  assert.equal(userAgentProblem(" x "), undefined);
+  assert.equal(userAgentProblem("oparl-cli/Köln\t(1)"), undefined);
+  assert.equal(userAgentProblem(`a${String.fromCharCode(0x0a)}b`), "The User-Agent header value contains control characters.");
+  assert.match(userAgentProblem("€") ?? "", /^The User-Agent header value contains U\+20AC/);
+  // The engine enforces it: an explicit blank is an error, only undefined means the default.
+  for (const userAgent of ["", "  "]) {
+    assert.throws(
+      () => new RequestEngine({ userAgent }),
+      (err: unknown) => err instanceof OparlValidationError && err.message === "Invalid userAgent: Expected a non-empty value.",
+    );
+  }
+  assert.doesNotThrow(() => new RequestEngine({ userAgent: undefined }));
+});
+
+test("a Location from a Headers object or in any case is followed (custom transports)", async () => {
+  for (const headers of [new Headers({ Location: "/moved" }), { Location: "/moved" }, new Map([["location", "/moved"]])]) {
+    const mt = makeMockTransport((req) =>
+      req.url.endsWith("/moved")
+        ? jsonResponse({ id: "x" })
+        : { status: 302, headers: headers as unknown as Record<string, string>, body: Buffer.alloc(0) },
+    );
+    const engine = new RequestEngine({ transport: mt.transport });
+    assert.deepEqual(await engine.getJson(URL_1), { id: "x" }, headers.constructor.name);
+    assert.equal(mt.calls[1]?.url, "https://ris.example.de/moved");
+  }
+});
+
+test("a transport response without a status, or with status 0, is a network error, not data", async () => {
+  for (const status of [undefined, 0]) {
+    const engine = new RequestEngine({
+      transport: async () => ({ status, headers: {}, body: Buffer.from('{"id":"x"}') }) as never,
+      maxRetries: 0,
+    });
+    await assert.rejects(engine.getJson(URL_1), OparlNetworkError, String(status));
+  }
+});
+
+test("a Retry-After HTTP date is honoured, and retryDelayMs is bounded at 30 s", async () => {
+  const sleeps: number[] = [];
+  let n = 0;
+  const when = new Date(Date.now() + 20_000).toUTCString();
+  const engine = new RequestEngine({
+    transport: async () => (n++ === 0 ? rawResponse("", "text/plain", 503, { "retry-after": when }) : jsonResponse({ id: "x" })),
+    sleep: async (ms) => void sleeps.push(ms),
+  });
+  await engine.getJson(URL_1);
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0]! > 15_000 && sleeps[0]! <= 20_000, String(sleeps[0]));
+  assert.throws(() => new RequestEngine({ retryDelayMs: 30_001 }), OparlValidationError);
+  assert.doesNotThrow(() => new RequestEngine({ retryDelayMs: 30_000 }));
+});
+
+test("a body is decoded by its declared charset; an unknown one is a parse error", async () => {
+  const latin1 = Buffer.from(JSON.stringify({ id: "x", name: "Bürgermeister" }), "latin1");
+  const engine = (contentType: string, body: Buffer) =>
+    new RequestEngine({ transport: async () => rawResponse(body, contentType) });
+  assert.deepEqual(await engine("application/json; charset=ISO-8859-1", latin1).getJson(URL_1), { id: "x", name: "Bürgermeister" });
+  assert.deepEqual(await engine('application/json; charset="utf-8"', Buffer.from('﻿{"id":"ü"}')).getJson(URL_1), { id: "ü" });
+  await assert.rejects(engine("application/json; charset=x-no-such", latin1).getJson(URL_1), OparlParseError);
+});
+
+test("cleartextProblem: exact wording, host with port, loopback range, never the secret", () => {
+  assert.equal(cleartextProblem("http://mirror.example:8080/api"), "requests to mirror.example:8080 are sent unencrypted (http:, not https:)");
+  assert.equal(
+    cleartextProblem("http://alice:pw@mirror.example"),
+    "the base URL's credentials are sent unencrypted to mirror.example (http:, not https:)",
+  );
+  assert.equal(
+    cleartextProblem("http://alice:pw@mirror.example", ["the API key"]),
+    "the API key and the base URL's credentials are sent unencrypted to mirror.example (http:, not https:)",
+  );
+  assert.equal(cleartextProblem("http://mirror.example", ["the login"]), "the login is sent unencrypted to mirror.example (http:, not https:)");
+  for (const url of ["https://alice:pw@mirror.example", "http://127.8.9.10", "http://localhost:1", "http://[::1]/", "not a url"]) {
+    assert.equal(cleartextProblem(url), undefined, url);
+  }
+  assert.notEqual(cleartextProblem("http://128.0.0.1"), undefined);
+});
+
+test("cutText never cuts inside a surrogate pair; toWellFormed replaces half a character", () => {
+  assert.equal(cutText("ab\u{1f600}cd", 3), "ab");
+  assert.equal(cutText("ab\u{1f600}cd", 4), "ab\u{1f600}");
+  assert.equal(cutText("short", 10), "short");
+  assert.equal(toWellFormed("a\ud83d b\ude00 \u{1f600}"), "a\ufffd b\ufffd \u{1f600}");
+});
+
+test("server text cut at 200 characters keeps the message well-formed (sanitizeServerText)", async () => {
+  // At 199 "a"s the emoji's high half is unit 200: the cut must not keep it alone.
+  for (const message of ["a".repeat(199) + "\u{1f600}", "\u{1f600}".repeat(150)]) {
+    const clean = sanitizeServerText(message);
+    assert.equal(toWellFormed(clean), clean, JSON.stringify(clean.slice(-4)));
+    assert.match(clean, /…$/);
+    const e = new RequestEngine({ transport: async () => jsonResponse({ message }, 500) });
+    await assert.rejects(e.getJson(URL_1), (err: Error) => {
+      assert.equal(toWellFormed(err.message), err.message);
+      return true;
+    });
+  }
+});
+
+test("own messages quote a user value at most 200 characters long (L3)", async () => {
+  const long = "x".repeat(5000);
+  assert.throws(() => parseHttpUrl(`ftp://ris.example/${long}`), (err: Error) => err.message.length < 400 && /ftp:\/\/ris\.example\/x+…\./.test(err.message));
+  assert.throws(() => normalizeTimestamp(`2026-${long}`), (err: Error) => err.message.length < 400 && /^Invalid timestamp "2026-x+…": /.test(err.message));
+  const client = new OparlClient({ transport: async () => jsonResponse({}) });
+  await assert.rejects(client.list(URL_1, "meeting", { [`k${long}`]: 1 } as never), (err: Error) => err.message.length < 400 && /Unknown list option "kx+…"/.test(err.message));
+});
+
+test("onRetry is called once per retry, with the event fields, right before the sleep", async () => {
+  const log: string[] = [];
+  const events: unknown[] = [];
+  let n = 0;
+  const mt = makeMockTransport(() =>
+    n++ < 2 ? rawResponse("{}", "application/json", 503, n === 1 ? { "retry-after": "2" } : {}) : jsonResponse({ id: URL_1 }),
+  );
+  const e = new RequestEngine({
+    transport: mt.transport,
+    maxRetries: 3,
+    sleep: async (ms) => void log.push(`sleep ${ms}`),
+    onRetry: (ev) => {
+      events.push(ev);
+      log.push("retry");
+    },
+  });
+  await e.getJson("https://user:pw@ris.example.de/oparl/system");
+  assert.deepEqual(log, ["retry", "sleep 2000", "retry", "sleep 1000"]);
+  assert.deepEqual(events, [
+    { retry: 1, maxRetries: 3, delayMs: 2000, status: 503, url: "https://ris.example.de/oparl/system" },
+    { retry: 2, maxRetries: 3, delayMs: 1000, status: 503, url: "https://ris.example.de/oparl/system" },
+  ]);
+});
+
+test("onRetry reports a reset connection without a status", async () => {
+  let n = 0;
+  const events: unknown[] = [];
+  const mt = makeMockTransport(() => {
+    if (n++ === 0) throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+    return jsonResponse({ id: URL_1 });
+  });
+  const e = new RequestEngine({ transport: mt.transport, sleep: async () => {}, onRetry: (ev) => void events.push(ev) });
+  await e.getJson(URL_1);
+  assert.equal(events.length, 1);
+  assert.equal((events[0] as { status?: number }).status, undefined);
+  assert.equal((events[0] as { retry: number }).retry, 1);
+  assert.equal((events[0] as { delayMs: number }).delayMs, 500);
+});
+
+test("onRetry is never called without a retry", async () => {
+  const events: unknown[] = [];
+  const onRetry = (ev: unknown) => void events.push(ev);
+  const ok = new RequestEngine({ transport: makeMockTransport(() => jsonResponse({})).transport, sleep: async () => {}, onRetry });
+  await ok.getJson(URL_1);
+  const notFound = new RequestEngine({
+    transport: makeMockTransport(() => jsonResponse({ error: "no" }, 404)).transport,
+    sleep: async () => {},
+    onRetry,
+  });
+  await assert.rejects(notFound.getJson(URL_1), OparlApiError);
+  // retries exhausted: the last 503 is an error, not a retry
+  const down = new RequestEngine({
+    transport: makeMockTransport(() => rawResponse("{}", "application/json", 503)).transport,
+    maxRetries: 1,
+    sleep: async () => {},
+    onRetry,
+  });
+  await assert.rejects(down.getJson(URL_1), OparlApiError);
+  assert.equal(events.length, 1);
+});
+
+test("a throw in onRetry is swallowed", async () => {
+  let n = 0;
+  const e = new RequestEngine({
+    transport: makeMockTransport(() => (n++ === 0 ? rawResponse("{}", "application/json", 503) : jsonResponse({}))).transport,
+    sleep: async () => {},
+    onRetry: () => {
+      throw new Error("boom");
+    },
+  });
+  await e.getJson(URL_1);
+});
+
+test("onRetry must be a function", () => {
+  assert.throws(() => new RequestEngine({ onRetry: 5 as never }), OparlValidationError);
+  assert.throws(() => new OparlClient({ onRetry: 5 as never }), OparlValidationError);
+});
