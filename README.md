@@ -4,7 +4,7 @@
 [![Release](https://github.com/maschinenlesbar-org/oparl-cli/actions/workflows/release.yml/badge.svg)](https://github.com/maschinenlesbar-org/oparl-cli/actions/workflows/release.yml)
 [![npm](https://img.shields.io/npm/v/@maschinenlesbar.org/oparl-cli)](https://www.npmjs.com/package/@maschinenlesbar.org/oparl-cli)
 
-**Website:** [English](https://maschinenlesbar-org.github.io/oparl-cli/) · [Deutsch](https://maschinenlesbar-org.github.io/oparl-cli/de/) — command reference, guides and API docs
+**Website:** [English](https://maschinenlesbar.org/oparl-cli/) · [Deutsch](https://maschinenlesbar.org/oparl-cli/de/) — command reference, guides and API docs
 
 Read German **municipal council information** — meetings, agendas, motions, committees
 and members — from your terminal. `oparl` is a command-line tool and TypeScript client
