@@ -920,10 +920,11 @@ export class RequestEngine {
   }
 
   private decode<T>(url: string, rawBody: Buffer, headers: ResponseHeaders): T {
+    const request = `GET ${cutForMessage(url)}`;
     const body = this.decompress(url, rawBody, headers);
-    const text = decodeText(body, headers, url);
+    const text = decodeText(body, headers, request);
     if (text.trim().length === 0) {
-      throw new OparlParseError(`Empty response from ${cutForMessage(url)} (expected OParl JSON).`);
+      throw new OparlParseError(`${request}: empty response body (expected OParl JSON).`);
     }
     let value: unknown;
     try {
@@ -936,8 +937,8 @@ export class RequestEngine {
       const typePart = type === "" ? "" : ` (content-type: ${type})`;
       throw new OparlParseError(
         what === null
-          ? `Failed to parse JSON response from ${cutForMessage(url)}${typePart}`
-          : `Expected OParl JSON from ${cutForMessage(url)} but received ${what}${typePart}` +
+          ? `${request}: the answer is not valid JSON${typePart}.`
+          : `${request}: expected OParl JSON but received ${what}${typePart}` +
             (what === "a PDF file"
               ? " — this CLI prints file metadata, it does not download files."
               : " — is this an OParl URL?"),
@@ -946,15 +947,13 @@ export class RequestEngine {
       );
     }
     if (jsonDepth(value) > MAX_JSON_DEPTH) {
-      throw new OparlParseError(`The response from ${cutForMessage(url)} is nested too deeply to be OParl JSON.`);
+      throw new OparlParseError(`${request}: the answer is nested too deeply to be OParl JSON.`);
     }
     // JSON.parse rounds and overflows numbers silently: refuse the answer rather than print a
     // changed value.
     const inexact = firstInexactNumber(text);
     if (inexact !== undefined) {
-      throw new OparlParseError(
-        `Unexpected response from ${cutForMessage(url)}: the number ${cutForMessage(inexact)} cannot be represented exactly.`,
-      );
+      throw new OparlParseError(`${request}: the number ${cutForMessage(inexact)} cannot be represented exactly.`);
     }
     return value as T;
   }
@@ -998,13 +997,13 @@ export class RequestEngine {
     } catch (cause) {
       if ((cause as { code?: string } | null)?.code === "ERR_BUFFER_TOO_LARGE") {
         throw new OparlNetworkError(
-          `The ${coding} response from ${cutForMessage(url)} exceeded maxResponseBytes (${this.maxResponseBytes}) when decompressed`,
+          `GET ${cutForMessage(url)} failed: the ${coding} answer exceeded maxResponseBytes (${this.maxResponseBytes}) when decompressed`,
         );
       }
-      throw new OparlParseError(`The ${coding}-compressed response from ${cutForMessage(url)} could not be decompressed.`, { cause });
+      throw new OparlParseError(`GET ${cutForMessage(url)}: the ${coding}-compressed answer could not be decompressed.`, { cause });
     }
     throw new OparlParseError(
-      `The response from ${cutForMessage(url)} uses the content encoding "${sanitizeServerText(coding, 40)}", which this client ` +
+      `GET ${cutForMessage(url)}: the answer uses the content encoding "${sanitizeServerText(coding, 40)}", which this client ` +
         "cannot decode (gzip, deflate and br are supported).",
     );
   }
@@ -1078,7 +1077,7 @@ export class RequestEngine {
     // into `body`, `detail` or the message.
     let raw: string;
     try {
-      raw = decodeText(decoded, headers, url);
+      raw = decodeText(decoded, headers, `GET ${cutForMessage(url)}`);
     } catch {
       raw = decoded.toString("utf8"); // an unknown charset label: still report the status
     }
@@ -1121,9 +1120,9 @@ export class RequestEngine {
  * JSON is UTF-8 by RFC 8259, but a server that declares `charset=ISO-8859-1` and sends
  * Latin-1 bytes had every umlaut turned into U+FFFD, silently. TextDecoder also drops a
  * leading byte order mark, which JSON.parse would reject. An unknown charset label is an
- * OparlParseError.
+ * OparlParseError naming `request` (`GET <url>`).
  */
-function decodeText(body: Buffer, headers: ResponseHeaders, url: string): string {
+function decodeText(body: Buffer, headers: ResponseHeaders, request: string): string {
   const raw = headers["content-type"];
   const type = Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? "");
   const charset = /;\s*charset\s*=\s*"?([^";\s]+)"?/i.exec(type)?.[1] ?? "utf-8";
@@ -1131,7 +1130,7 @@ function decodeText(body: Buffer, headers: ResponseHeaders, url: string): string
   try {
     decoder = new TextDecoder(charset);
   } catch {
-    throw new OparlParseError(`The response from ${cutForMessage(url)} declares the charset "${sanitizeServerText(charset, 40)}", which this client cannot decode.`);
+    throw new OparlParseError(`${request}: unsupported response charset "${sanitizeServerText(charset, 40)}".`);
   }
   return decoder.decode(body);
 }

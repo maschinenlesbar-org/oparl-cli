@@ -237,6 +237,14 @@ function urlFilters(url: string): QueryParams | undefined {
   return found ? query : undefined;
 }
 
+/**
+ * The request an answer error names (D9): `GET <url>`, the URL as it went out, with the
+ * caller's query set on it (userinfo dropped, cut for the message).
+ */
+function requestOf(url: string, query?: QueryParams): string {
+  return `GET ${cutForMessage(encodeTimestampPlus(carryQuery(url, query)))}`;
+}
+
 /** Whether a URL is one this client could fetch: a valid absolute http/https URL. */
 function isFetchableUrl(url: string): boolean {
   try {
@@ -293,12 +301,10 @@ function describeJson(value: JsonValue | undefined): string {
  * The objects of a list page's `data`. A `null` or scalar entry is rejected here
  * rather than crashing the walk or reaching the user as if it were an object.
  */
-function listItems(url: string, items: readonly JsonValue[]): JsonObject[] {
+function listItems(request: string, items: readonly JsonValue[]): JsonObject[] {
   for (const item of items) {
     if (!isObject(item)) {
-      throw new OparlParseError(
-        `The list at ${cutForMessage(url)} has an entry in \`data\` that is not an OParl object (${describeJson(item)}).`,
-      );
+      throw new OparlParseError(`${request}: the list has an entry in \`data\` that is not an OParl object (${describeJson(item)}).`);
     }
   }
   return items as JsonObject[];
@@ -434,12 +440,13 @@ export class OparlClient {
     query?: QueryParams,
   ): Promise<{ object: T; url: string }> {
     const { value, url: from } = await this.engine.fetchJson<unknown>(url, query);
+    const request = requestOf(url, query);
     if (!isObject(value)) {
-      throw new OparlParseError(`Expected an OParl object from ${cutForMessage(url)} but got ${Array.isArray(value) ? "an array" : typeof value}.`);
+      throw new OparlParseError(`${request}: expected an OParl object, got ${Array.isArray(value) ? "an array" : typeof value}.`);
     }
     const message = errorObjectMessage(value, (text) => this.engine.redact(text));
     if (message !== null) {
-      throw new OparlParseError(`The server at ${cutForMessage(url)} answered with an error object: ${message}`);
+      throw new OparlParseError(`${request}: the server answered with an error object: ${message}`);
     }
     return { object: value as T, url: from };
   }
@@ -455,13 +462,13 @@ export class OparlClient {
     const type = str(system["type"]) ?? "";
     if (!/\/System$/.test(type)) {
       throw new OparlParseError(
-        `${cutForMessage(url)} is not an OParl System (type: ${sanitizeServerText(type) || "missing"}). Use the endpoint's System URL, ` +
-          "e.g. from `oparl endpoints`.",
+        `${requestOf(url)}: this is not an OParl System (type: ${sanitizeServerText(type) || "missing"}). Use the endpoint's System ` +
+          "URL, e.g. from `oparl endpoints`.",
       );
     }
     if (typeof system["body"] !== "string") {
       throw new OparlParseError(
-        `${cutForMessage(url)} is an OParl System, but its \`body\` is ${describeJson(system["body"])} instead of the URL of its list ` +
+        `${requestOf(url)}: this is an OParl System, but its \`body\` is ${describeJson(system["body"])} instead of the URL of its list ` +
           "of bodies, so its bodies cannot be listed. `oparl get` shows the object as the server sent it.",
       );
     }
@@ -485,20 +492,21 @@ export class OparlClient {
     query?: QueryParams,
   ): Promise<{ page: OparlListPage<T>; url: string }> {
     const { value, url: from } = await this.engine.fetchJson<unknown>(url, query);
+    const request = requestOf(url, query);
     if (Array.isArray(value)) {
-      return { page: { data: listItems(url, value as JsonValue[]) as T[] }, url: from };
+      return { page: { data: listItems(request, value as JsonValue[]) as T[] }, url: from };
     }
     if (!isObject(value) || !Array.isArray(value["data"])) {
       const message = isObject(value) ? errorObjectMessage(value, (text) => this.engine.redact(text)) : null;
       if (message !== null) {
-        throw new OparlParseError(`The server at ${cutForMessage(url)} answered with an error object: ${message}`);
+        throw new OparlParseError(`${request}: the server answered with an error object: ${message}`);
       }
       const type = isObject(value) ? str(value["type"]) : null;
       throw new OparlParseError(
-        `${cutForMessage(url)} is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(type)})` : ""}.`,
+        `${request}: this is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(type)})` : ""}.`,
       );
     }
-    listItems(url, value["data"]);
+    listItems(request, value["data"]);
     return { page: value as unknown as OparlListPage<T>, url: from };
   }
 
@@ -686,7 +694,7 @@ export class OparlClient {
     const bodyType = str(body["type"]) ?? "";
     if (!/\/Body$/.test(bodyType)) {
       throw new OparlParseError(
-        `${cutForMessage(bodyUrl)} is not an OParl Body (type: ${sanitizeServerText(bodyType) || "missing"}). ` +
+        `${requestOf(bodyUrl)}: this is not an OParl Body (type: ${sanitizeServerText(bodyType) || "missing"}). ` +
           "Use a body URL from `oparl bodies`.",
       );
     }
@@ -721,7 +729,7 @@ export class OparlClient {
       // some servers publish a 1.0 `type` on a body that links all of them.
       const only1_0 = available.every((name) => LIST_TYPES_1_0.includes(name));
       throw new OparlParseError(
-        `This body has no ${type} list. It links: ${available.join(", ") || "none"}` +
+        `${requestOf(bodyUrl)}: this body has no ${type} list. It links: ${available.join(", ") || "none"}` +
           (/\/1\.0\//.test(bodyType) && only1_0 ? " (OParl 1.0 bodies only link organization, person, meeting and paper)." : "."),
       );
     }
@@ -819,7 +827,7 @@ export class OparlClient {
       seen.add(carryQuery(parseHttpUrl(url).href, query)); // the URL requested, not the base URL
       seen.add(from); // and the URL a redirect took it to
       if (!isObject(value) || !Array.isArray(value["data"])) {
-        throw new OparlParseError(`${cutForMessage(url)} is not the OParl endpoint registry (no data array).`);
+        throw new OparlParseError(`${requestOf(url, query)}: this is not the OParl endpoint registry (no data array).`);
       }
       for (const raw of value["data"]) {
         if (!isObject(raw)) continue;

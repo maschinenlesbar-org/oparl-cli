@@ -285,6 +285,13 @@ dependency is `commander`.
 | `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), a number it can't carry exactly, wrong object type, `{ error }` object | 1 |
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
 
+Every `OparlParseError` names the request whose answer it is about, as `GET <url>: …` (the URL
+as it went out, with the caller's filters, userinfo dropped, cut at 200 characters), like the
+network errors' `GET <url> failed: …`: `GET <url>: empty response body`, `… the answer is not
+valid JSON (content-type: text/plain).`, `… expected OParl JSON but received an HTML page`,
+`… this is not an OParl System (type: …)`, `… the server answered with an error object: …`. On
+page 7 of a walk the message says which page it was.
+
 **The library owns the input rules.** Every check on what a request may contain lives in
 `packages/client/src` and runs before any request, so a library caller and a CLI user get the same
 answer for the same input. A rule is a pure, exported `…Problem(value)` function (in
@@ -318,8 +325,8 @@ record escapes every control and bidi character in its message (`escapeForRecord
 [The log on stderr](#the-log-on-stderr)), and anything else written to stderr has them
 dropped (`stripTerminalControls`, in `run.ts`). JSON deeper than 256
 levels is rejected before it can blow the stack. A number JSON.parse cannot carry exactly is
-an `OparlParseError` too (`Unexpected response from <url>: the number <N> cannot be
-represented exactly.`), never a changed value: one out of a double's range (`1e400`), one
+an `OparlParseError` too (`GET <url>: the number <N> cannot be represented
+exactly.`), never a changed value: one out of a double's range (`1e400`), one
 past 2^53 that would print differently from how the server wrote it
 (`12345678901234567890`, `9007199254740993e0`, `9007199254740992.5`), and a non-zero one too
 small for a double (`1e-400`), and a subnormal one (below 2.2250738585072014e-308) that does

@@ -189,8 +189,8 @@ test("a 404 carries the server's error text as detail", async () => {
 test("non-JSON bodies surface as OparlParseError with a pointed message", async () => {
   const cases: Array<[string, RegExp]> = [
     ["<!DOCTYPE html><html><body>Portal</body></html>", /HTML page/],
-    ["   ", /Empty response/],
-    ["{not json", /Failed to parse JSON/],
+    ["   ", /^GET https:\/\/ris\.example\.de\/oparl\/system: empty response body/],
+    ["{not json", /^GET https:\/\/ris\.example\.de\/oparl\/system: the answer is not valid JSON/],
   ];
   for (const [body, message] of cases) {
     const mt = makeMockTransport(() => rawResponse(body, "text/html"));
@@ -200,7 +200,7 @@ test("non-JSON bodies surface as OparlParseError with a pointed message", async 
 });
 
 test("a non-JSON answer says what the server actually sent", async () => {
-  // All of these were reported as "Failed to parse JSON response": Aachen's error page
+  // All of these were reported as "the answer is not valid JSON": Aachen's error page
   // starts with an HTML comment and Apache's with an XML declaration, so the prefix test
   // missed them, and a file URL answers with the file.
   const cases: Array<[string | Buffer, string, RegExp]> = [
@@ -208,7 +208,7 @@ test("a non-JSON answer says what the server actually sent", async () => {
     ['<?xml version="1.0"?>\n<html><body>Bad Gateway!</body></html>', "text/html", /an HTML page/],
     ['<?xml version="1.0"?><error>no</error>', "application/xml", /an XML document/],
     [Buffer.from("%PDF-1.4\ntrailer\n"), "application/pdf", /a PDF file .*does not download files/],
-    ["Not found", "text/plain", /Failed to parse JSON response .* \(content-type: text\/plain\)/],
+    ["Not found", "text/plain", /: the answer is not valid JSON \(content-type: text\/plain\)\.$/],
   ];
   for (const [body, type, message] of cases) {
     const mt = makeMockTransport(() => rawResponse(body, type));
@@ -253,7 +253,7 @@ test("an undecodable or oversized compressed response says so", async () => {
   const broken = makeMockTransport(() => rawResponse("not gzip at all", "application/json", 200, { "content-encoding": "gzip" }));
   await assert.rejects(
     () => new RequestEngine({ transport: broken.transport }).getJson(URL_1),
-    (err) => err instanceof OparlParseError && /gzip-compressed response .* could not be decompressed/.test(err.message),
+    (err) => err instanceof OparlParseError && /^GET \S+: the gzip-compressed answer could not be decompressed/.test(err.message),
   );
 
   // maxResponseBytes has to hold for the decompressed size too: the transport only ever
@@ -262,7 +262,7 @@ test("an undecodable or oversized compressed response says so", async () => {
   const big = makeMockTransport(() => rawResponse(bomb, "application/json", 200, { "content-encoding": "gzip" }));
   await assert.rejects(
     () => new RequestEngine({ transport: big.transport, maxResponseBytes: 1000 }).getJson(URL_1),
-    (err) => err instanceof OparlNetworkError && /maxResponseBytes \(1000\)/.test(err.message),
+    (err) => err instanceof OparlNetworkError && /^GET \S+ failed: the gzip answer exceeded maxResponseBytes \(1000\)/.test(err.message),
   );
 });
 
@@ -710,7 +710,7 @@ test("a number JSON.parse can't carry exactly is an OparlParseError, never a cha
       () => new RequestEngine({ transport: mt.transport }).getJson(URL_1),
       (err) =>
         err instanceof OparlParseError &&
-        err.message === `Unexpected response from ${URL_1}: the number ${literal} cannot be represented exactly.`,
+        err.message === `GET ${URL_1}: the number ${literal} cannot be represented exactly.`,
       literal,
     );
   }

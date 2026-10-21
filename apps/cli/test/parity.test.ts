@@ -262,7 +262,7 @@ test("page() and walk() keep a URL's credentials out of their messages too", asy
     await assert.rejects(call(libClient(mt.transport)), (err: unknown) => {
       assert.ok(err instanceof Error);
       assert.doesNotMatch(err.message, /alice|pw123/);
-      assert.match(err.message, /https:\/\/x\.example\/oparl\/v1\/list is not an OParl object list/);
+      assert.match(err.message, /^GET https:\/\/x\.example\/oparl\/v1\/list: this is not an OParl object list/);
       return true;
     });
   }

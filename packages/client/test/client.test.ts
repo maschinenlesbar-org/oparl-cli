@@ -904,3 +904,39 @@ test("a server's long next link is quoted cut in the error and the walk note, an
   assert.match(result.note ?? "", /^stopped after page 2: Refusing to follow https:\/\/tracker\.example\.com\/x from .*y…: it points to another host/);
   assert.ok((result.note ?? "").length < 800, `${(result.note ?? "").length} characters`);
 });
+
+test("an answer error names the request: GET and the URL, userinfo dropped (D9)", async () => {
+  const gzip = (text: string): Buffer => Buffer.from(text); // not gzip: "could not be decompressed"
+  const deep = `${"[".repeat(300)}${"]".repeat(300)}`;
+  const cases: Array<[string, (c: OparlClient, url: string) => Promise<unknown>, () => ReturnType<typeof jsonResponse>]> = [
+    ["empty", (c, u) => c.get(u), () => rawResponse("  ", "application/json")],
+    ["broken JSON", (c, u) => c.get(u), () => rawResponse("{", "application/json")],
+    ["an HTML page", (c, u) => c.get(u), () => rawResponse("<html>down</html>", "text/html")],
+    ["too deep", (c, u) => c.get(u), () => rawResponse(deep, "application/json")],
+    ["an inexact number", (c, u) => c.get(u), () => rawResponse('{"id":"x","n":1e400}', "application/json")],
+    ["an unknown charset", (c, u) => c.get(u), () => rawResponse("{}", "application/json; charset=x-unknown")],
+    ["an unknown content coding", (c, u) => c.get(u), () => rawResponse("{}", "application/json", 200, { "content-encoding": "exotic" })],
+    ["a broken gzip body", (c, u) => c.get(u), () => rawResponse(gzip("{}"), "application/json", 200, { "content-encoding": "gzip" })],
+    ["an array for get", (c, u) => c.get(u), () => jsonResponse([1])],
+    ["an error object", (c, u) => c.get(u), () => jsonResponse({ error: "Datenbank weg" })],
+    ["not a System", (c, u) => c.system(u), () => jsonResponse(fx.body)],
+    ["a System without body", (c, u) => c.system(u), () => jsonResponse({ ...fx.system, body: 3 })],
+    ["not a list", (c, u) => c.page(u), () => jsonResponse(fx.body)],
+    ["an error object as a list", (c, u) => c.page(u), () => jsonResponse({ error: "kaputt" })],
+    ["a list entry that is no object", (c, u) => c.page(u), () => jsonResponse({ data: [1] })],
+    ["not a Body", (c, u) => c.list(u, "meeting"), () => jsonResponse(fx.system)],
+    ["a Body without that list", (c, u) => c.list(u, "meeting"), () => jsonResponse({ ...fx.body, meeting: undefined })],
+  ];
+  const url = "https://ris.example.de/oparl/x";
+  for (const [label, call, answer] of cases) {
+    const client = new OparlClient({ transport: routes({ [url]: answer }).transport, maxRetries: 0 });
+    await assert.rejects(call(client, "https://user:pw@ris.example.de/oparl/x"), (err: Error) => {
+      assert.ok(err instanceof OparlParseError, `${label}: ${err.name} ${err.message}`);
+      assert.ok(err.message.startsWith(`GET ${url}: `), `${label}: ${err.message}`);
+      assert.doesNotMatch(err.message, /user|pw/, label);
+      return true;
+    });
+  }
+  const registry = new OparlClient({ registryUrl: url, transport: routes({ [url]: jsonResponse({ nope: 1 }) }).transport });
+  await assert.rejects(registry.endpoints({ source: "registry" }), (err: Error) => err.message.startsWith(`GET ${url}?page=1&limit=100: `));
+});
