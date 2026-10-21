@@ -425,6 +425,19 @@ test("DEL and C1 control characters in server data are escaped in the JSON outpu
   }
 });
 
+test("bidi controls in server data are escaped in the JSON output, on stdout and in the -o file", async () => {
+  const bidi = [0x061c, 0x200e, 0x200f, 0x202a, 0x202e, 0x2066, 0x2069].map((c) => String.fromCharCode(c)).join("");
+  const served = { ...fx.system, name: `Rat ${bidi}gnuldnawrevtdatS` };
+  for (const format of [[], ["--compact"], ["-o", "system.json"]]) {
+    const cli = makeCli(() => jsonResponse(served));
+    assert.equal(await run([...format, "system", fx.SYSTEM_URL], cli.deps), 0);
+    const text = format[0] === "-o" ? cli.files["system.json"]!.toString("utf8") : cli.out.join("\n");
+    assert.ok(![...text].some((c) => bidi.includes(c)), format.join(" "));
+    assert.match(text, /Rat \\u061c\\u200e\\u200f\\u202a\\u202e\\u2066\\u2069gnuldnawrevtdatS/, format.join(" "));
+    assert.deepEqual(JSON.parse(text), served);
+  }
+});
+
 test("no server string reaches stdout or stderr as a terminal escape", async () => {
   // Whatever the server puts in a field, neither stream may carry an escape byte: the
   // JSON output escapes them, messages are sanitised.

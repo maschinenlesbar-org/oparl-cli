@@ -36,6 +36,7 @@ export {
   cleartextProblem,
   encodeTimestampPlus,
   headerValueProblem,
+  isBidiControl,
   parseHttpUrl,
   parseRetryAfter,
   resolveLink,
