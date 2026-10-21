@@ -171,7 +171,7 @@ giving one twice (`--limit 2 --limit 5`) is a usage error rather than "the last 
 | `2` | Bad usage / invalid argument (nothing was sent) |
 | `4` | Not found (`404` from the server) — on SD.NET servers also an empty date-filter window, see Troubleshooting |
 | `6` | Network / transport failure (DNS, connection, timeout, size cap, no response at all) |
-| `1` | Any other error — a non-OParl response, a refused link, another HTTP status |
+| `1` | Any other error — a non-OParl response (or one with a number JSON cannot carry exactly), a refused link, another HTTP status |
 
 A reader that stops early (`| head`) ends the run quietly with `0`; if stderr's reader is
 gone, a failed run still exits with its own code.

@@ -277,7 +277,7 @@ dependency is `commander`.
 | `OparlValidationError` | bad URL, timestamp, header value or option before any request | 2 |
 | `OparlApiError` | non-2xx status, or a redirect not followed (`location` names its target) | 4 for 404, else 1 |
 | `OparlNetworkError` | DNS, connection, timeout, size cap, a request that ends without a response | 6 |
-| `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), wrong object type, `{ error }` object | 1 |
+| `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), a number it can't carry exactly, wrong object type, `{ error }` object | 1 |
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
 
 **The library owns the input rules.** Every check on what a request may contain lives in
@@ -310,7 +310,14 @@ workflows feed server data into those (`oparl get "$(jq -r .data[0].id)"`), so a
 record escapes every control and bidi character in its message (`escapeForRecord`, see
 [The log on stderr](#the-log-on-stderr)), and anything else written to stderr has them
 dropped (`stripTerminalControls`, in `run.ts`). JSON deeper than 256
-levels is rejected before it can blow the stack.
+levels is rejected before it can blow the stack. A number JSON.parse cannot carry exactly is
+an `OparlParseError` too (`Unexpected response from <url>: the number <N> cannot be
+represented exactly.`), never a changed value: one out of a double's range (`1e400`), one
+past 2^53 that would print differently from how the server wrote it
+(`12345678901234567890`, `9007199254740993e0`, `9007199254740992.5`), and a non-zero one too
+small for a double (`1e-400`). A double the server wrote in its shortest form (`1e23`,
+`1.7976931348623157E308`) passes, and below 2^53 a decimal fraction keeps a double's
+precision, as JSON means it (`firstInexactNumber` in `engine.ts`).
 
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
 characters *and* by `Content-Type`, since Aachen's error page starts with an HTML comment
