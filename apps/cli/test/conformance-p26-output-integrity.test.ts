@@ -1,9 +1,12 @@
-// Conformance test P26 (trend analysis 2026-10-21): `-o` never loses a file. A write cut short
-// (a full disk, a quota; here a file-size limit) leaves the old file as it was and no
-// half-written file or temporary file behind, and says so (exit 1, an ERROR record of
-// <bin>.output). An existing file without --force is refused before any request. Runs the built
-// bin in a child process under `ulimit -f`. Shared across the *-cli repos that have -o; only
-// the adapter differs.
+// Conformance test P26 (trend analysis 2026-10-21; fix plan 2026-10-21, D1, D5 and D6): `-o`
+// never loses a file, and no output is cut short silently. A write cut short (a full disk, a
+// quota; here a file-size limit) leaves the old file as it was and no half-written file or
+// temporary file behind, and says so (exit 1, an ERROR record of <bin>.output); so does stdout
+// redirected to a file. An existing file without --force, and a file whose directory is missing,
+// are refused before any request. A device or a FIFO is written in place, without --force, and
+// stays what it is. A signal during the write leaves no claim and no temporary file. --force
+// through a dangling link creates the file it names; a 255-byte name is written. Runs the built
+// bin in child processes. Shared across the *-cli repos that have -o; only the adapter differs.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -25,15 +28,19 @@ const BIN = fileURLToPath(new URL("../src/cli/index.js", import.meta.url));
 const outputArgv = (base: string, file: string, force: boolean): string[] => [
   "--max-retries", "0", "-o", file, ...(force ? ["--force"] : []), "get", `${base}/oparl/paper/1`,
 ];
-/** An answer of about 200 kB for that command, as the server sends it (any format the API speaks). */
-const bigAnswer = (): { body: string; contentType: string } => ({
+/** argv that prints the server's answer to stdout, given the mock's base URL. */
+const stdoutArgv = (base: string): string[] => ["--max-retries", "0", "get", `${base}/oparl/paper/1`];
+/** An answer for that command of about `items` × 20 bytes, as the server sends it (any format the API speaks). */
+const answerOf = (items: number): { body: string; contentType: string } => ({
   body: JSON.stringify({
     id: "http://127.0.0.1/oparl/paper/1",
     type: "https://schema.oparl.org/1.1/Paper",
-    auxiliaryFile: Array.from({ length: 4000 }, (_, i) => ({ id: `http://127.0.0.1/oparl/file/${i}`, name: `Anlage ${i}` })),
+    auxiliaryFile: Array.from({ length: items }, (_, i) => ({ name: `A${i}` })),
   }),
   contentType: "application/json",
 });
+/** An answer of about 200 kB. */
+const bigAnswer = (): { body: string; contentType: string } => answerOf(10000);
 /** The log program, as in `ERROR [<bin>.output]`. */
 const PROGRAM = "oparl";
 /** The exit code of a usage error in this repo (commander's default is 1; most repos use 2). */
@@ -48,22 +55,29 @@ const STARTS_A_PROCESS = { timeout: 30_000 };
  * Node passes NODE_V8_COVERAGE to every child; under the limit the child's coverage file would
  * be cut short and break `npm run coverage`, so the shell drops it.
  */
-function runLimited(argv: string[]): Promise<{ code: number; stderr: string }> {
-  const sh = `trap '' XFSZ; ulimit -f 8; unset NODE_V8_COVERAGE; exec "$0" "$@"`;
+function runLimited(argv: string[], stdoutFile?: string): Promise<{ code: number; stderr: string }> {
+  const redirect = stdoutFile === undefined ? "" : ' > "$OUT"';
+  const sh = `trap '' XFSZ; ulimit -f 8; unset NODE_V8_COVERAGE; exec "$0" "$@"${redirect}`;
   return new Promise((resolve) =>
-    execFile("/bin/sh", ["-c", sh, process.execPath, BIN, ...argv], { env: { PATH: process.env.PATH ?? "" } }, (err, _stdout, stderr) =>
+    execFile("/bin/sh", ["-c", sh, process.execPath, BIN, ...argv], { env: { PATH: process.env.PATH ?? "", OUT: stdoutFile ?? "" } }, (err, _stdout, stderr) =>
       resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stderr }),
     ),
   );
 }
 
-async function withServer(body: (base: string, requests: () => number) => Promise<void>): Promise<void> {
-  const answer = bigAnswer();
+async function withServer(
+  body: (base: string, requests: () => number) => Promise<void>,
+  answer = bigAnswer(),
+  delayMs = 0,
+): Promise<void> {
   let count = 0;
   const server = http.createServer((_req, res) => {
     count += 1;
     res.setHeader("content-type", answer.contentType);
-    res.end(answer.body);
+    if (delayMs === 0) return void res.end(answer.body);
+    // A slow answer: the first bytes now, the rest later.
+    res.write(answer.body.slice(0, 10));
+    setTimeout(() => res.end(answer.body.slice(10)), delayMs);
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   try {
@@ -109,3 +123,25 @@ test("P26: an existing file without --force is refused before any request", STAR
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** Run `body` in a fresh temp directory that is always removed. */
+async function inTempDir(body: (dir: string) => Promise<void>): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), `${PROGRAM}-p26-`));
+  try {
+    await body(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("P26: stdout redirected to a file and cut short is an error (exit 1, ERROR of output), never exit 0", STARTS_A_PROCESS, async () => {
+  await inTempDir(async (dir) => {
+    await withServer(async (base) => {
+      const out = join(dir, "stdout.json");
+      const cut = await runLimited(stdoutArgv(base), out);
+      assert.equal(cut.code, 1, cut.stderr);
+      assert.match(cut.stderr, new RegExp(`ERROR \\[${PROGRAM}\\.output\\] Could not write to stdout: .*EFBIG`), cut.stderr);
+    });
+  });
+});
+

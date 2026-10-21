@@ -602,6 +602,9 @@ touched, and a secret is kept out of the log in either format. `CliDeps.now` mak
 carries data only. A stdout write error other than a reader that has gone (EBADF, EIO) is
 an ERROR record of `oparl.output` too, `Could not write to stdout: …` (`handleOutputErrors`,
 with the bin shim's `processLogger(argv)`: the format argv asks for, the run's redaction).
+When stdout is a regular file (`> out.json`), `stdoutWriter` writes every byte itself
+(`writeAll`): Node's stream ignored a short count, so a file-size limit or a full disk cut the
+output short with exit 0; now EFBIG or ENOSPC is that ERROR record and exit 1.
 Node's own process warnings (`NODE_TLS_REJECT_UNAUTHORIZED=0`) are WARN records of
 `oparl.cli` too: the bin shim installs `installWarningLog`, which removes Node's default
 `warning` listener and logs `(node) <name>: <message>` through `processLogger(argv)`.
