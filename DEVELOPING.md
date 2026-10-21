@@ -322,9 +322,10 @@ an `OparlParseError` too (`Unexpected response from <url>: the number <N> cannot
 represented exactly.`), never a changed value: one out of a double's range (`1e400`), one
 past 2^53 that would print differently from how the server wrote it
 (`12345678901234567890`, `9007199254740993e0`, `9007199254740992.5`), and a non-zero one too
-small for a double (`1e-400`). A double the server wrote in its shortest form (`1e23`,
-`1.7976931348623157E308`) passes, and below 2^53 a decimal fraction keeps a double's
-precision, as JSON means it (`firstInexactNumber` in `engine.ts`). Since nothing deeper than
+small for a double (`1e-400`), and a subnormal one (below 2.2250738585072014e-308) that does
+not print as written (`3e-324` would print as `5e-324`). A double the server wrote in its
+shortest form (`1e23`, `1.7976931348623157E308`, `5e-324`) passes, and between the smallest
+normal double and 2^53 a decimal fraction keeps a double's precision, as JSON means it (`firstInexactNumber` in `engine.ts`). Since nothing deeper than
 256 levels gets through, the pretty printer never overflows the stack. `--compact` prints with
 V8's fast path (`JSON.stringify(value)`) unless the answer holds a string or key of 64 Mi
 characters or more (`holdsHugeString` in `shared.ts`): on Node 26 that path aborts the process

@@ -701,6 +701,8 @@ test("a number JSON.parse can't carry exactly is an OparlParseError, never a cha
     "12345678901234567890", "-9007199254740993", "1e400", "-1E400", "12345678901234567890.0", "9007199254740993e0",
     "90071992547409930E-1", "9007199254740992.5", "-9007199254740992.5", "1e-400", "-0.0001e-399",
     "123456789012345678901234567890",
+    // Subnormal: below 2.2250738585072014e-308 a double has fewer digits (D4).
+    "3e-324", "4e-324", "-4.9e-324", "1.2345678901234567e-310", "2.225073858507201e-309",
   ];
   for (const literal of inexact) {
     const mt = makeMockTransport(() => rawResponse(`{"id":"${URL_1}","n":${literal},"s":"12345678901234567890"}`, "application/json"));
@@ -719,6 +721,8 @@ test("a number a double carries is decoded as the same value, also in a string a
     ["0", 0], ["-0", -0], ["42", 42], ["9007199254740991", 9007199254740991], ["9007199254740992.0", 2 ** 53],
     ["9007199254740992e0", 2 ** 53], ["1e21", 1e21], ["1.2e21", 1.2e21], ["0.1", 0.1], ["1.10", 1.1],
     ["-2.5e-3", -0.0025], ["5e-324", 5e-324], ["0.0e-500", 0],
+    // A subnormal printed as written, and the smallest normal double (D4).
+    ["-5e-324", -5e-324], ["1e-310", 1e-310], ["2.2250738585072014e-308", 2.2250738585072014e-308],
     ["1e23", 1e23], ["100000000000000000000000", 1e23], ["1.7976931348623157E308", Number.MAX_VALUE], ["-1.7976931348623157e308", -Number.MAX_VALUE],
   ];
   for (const [literal, value] of exact) {
