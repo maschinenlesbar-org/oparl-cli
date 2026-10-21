@@ -322,7 +322,12 @@ past 2^53 that would print differently from how the server wrote it
 (`12345678901234567890`, `9007199254740993e0`, `9007199254740992.5`), and a non-zero one too
 small for a double (`1e-400`). A double the server wrote in its shortest form (`1e23`,
 `1.7976931348623157E308`) passes, and below 2^53 a decimal fraction keeps a double's
-precision, as JSON means it (`firstInexactNumber` in `engine.ts`).
+precision, as JSON means it (`firstInexactNumber` in `engine.ts`). Since nothing deeper than
+256 levels gets through, the pretty printer never overflows the stack. `--compact` prints with
+V8's fast path (`JSON.stringify(value)`) unless the answer holds a string or key of 64 Mi
+characters or more (`holdsHugeString` in `shared.ts`): on Node 26 that path aborts the process
+on a string of some 250 MB, which `--max-response-bytes 0` lets through, so such an answer
+takes the gap path (an empty gap, the same text).
 
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
 characters *and* by `Content-Type`, since Aachen's error page starts with an HTML comment

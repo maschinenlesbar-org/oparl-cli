@@ -191,12 +191,47 @@ export function escapeControlChars(json: string): string {
 }
 
 /**
+ * JSON.stringify, pretty or compact. The engine refuses an answer nested deeper than 256
+ * levels, so the pretty printer's recursion is never asked for more.
+ *
+ * Compact output takes V8's fast path (no gap) unless the answer holds a huge string: on Node 26
+ * the fast path aborts the process ("Zone Allocation failed", exit 134, a native dump on stderr)
+ * on a string of some 250 MB that JSON.parse made (reachable with --max-response-bytes 0), while
+ * the gap path (an empty gap, the same text) prints it. The fast path stays the default for every
+ * other answer.
+ */
+function stringifyJson(value: unknown, compact: boolean): string {
+  if (!compact) return JSON.stringify(value, null, 2);
+  return holdsHugeString(value) ? JSON.stringify(value, null, "") : JSON.stringify(value);
+}
+
+/** A string or key this long sends --compact through the gap path: a quarter of where Node 26's fast path aborts. */
+const HUGE_STRING_LENGTH = 64 * 1024 * 1024;
+
+/** Whether `value` holds a string or key of HUGE_STRING_LENGTH or more. Iterative, so nesting costs no stack. */
+function holdsHugeString(value: unknown): boolean {
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (typeof item === "string") {
+      if (item.length >= HUGE_STRING_LENGTH) return true;
+    } else if (typeof item === "object" && item !== null) {
+      for (const [key, element] of Object.entries(item)) {
+        if (key.length >= HUGE_STRING_LENGTH) return true;
+        if (typeof element === "string" || (typeof element === "object" && element !== null)) stack.push(element);
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Render a JSON value, pretty by default and compact with --compact. Writes to the
  * file given by --output (with a short stderr confirmation so stdout stays clean
  * for piping), or to stdout otherwise.
  */
 export function renderJson(deps: CliDeps, global: GlobalOptions, value: unknown): void {
-  const text = escapeControlChars(global.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2));
+  const text = escapeControlChars(stringifyJson(value, global.compact === true));
   // `-o -` means stdout, as for curl and wget, not a file named "-".
   if (global.output !== undefined && global.output !== "-") {
     const data = Buffer.from(text + "\n", "utf8");
