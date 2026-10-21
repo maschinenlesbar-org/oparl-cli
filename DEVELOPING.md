@@ -469,7 +469,15 @@ shaped after real 1.1 and 1.0 servers and the registry, moved to example hosts.
   logs `cleartextProblem(start)` as a `WARN` record of `oparl.http` once, before the client is built.
   P21 (`conformance-p21-readme-links`): every relative link in `README.md` points to a file
   `apps/cli/package.json` `files` ships, since npmjs.com shows the README; other documents are linked
-  by their GitHub URL.
+  by their GitHub URL. The kit round of 2026-10-21 added P24 (`conformance-p24-input-corpus`:
+  a text filter or path id is canonicalised or refused — both lists are empty here, since the
+  one text filter, `endpoints --search`, is matched client-side and objects are addressed by
+  absolute URL, never by an id in a path; the adapter maps `parity` to the kit's shape), P25
+  (`conformance-p25-response-corpus`: a number a double can't carry exactly, and an empty
+  answer, are errors on both sides; `get` on a File object's `size`) and P26
+  (`conformance-p26-output-integrity`: `-o` under `ulimit -f` leaves the old file and no
+  temporary file; an existing file without `--force` is refused before any request; spawns
+  the built bin against a local server).
 - **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
   real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
   file holds only filtered objects.
