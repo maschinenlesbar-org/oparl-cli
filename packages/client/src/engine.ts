@@ -585,15 +585,39 @@ function hasTransientCode(err: unknown, depth = 0): boolean {
   return hasTransientCode((err as { cause?: unknown }).cause, depth + 1);
 }
 
+/**
+ * How deep `value` nests, counted up to just past MAX_JSON_DEPTH. Iterative, linear, and without
+ * an allocation per value: only nested objects and arrays are kept for later, with their depth in
+ * a parallel list (a pair per element, numbers included, took a gigabyte on an answer of 8M numbers).
+ */
 function jsonDepth(value: unknown): number {
+  if (value === null || typeof value !== "object") return 0;
+  const nodes: object[] = [value];
+  const depths: number[] = [1];
   let max = 0;
-  const stack: Array<[unknown, number]> = [[value, 1]];
-  while (stack.length > 0) {
-    const [node, depth] = stack.pop() as [unknown, number];
-    if (node === null || typeof node !== "object") continue;
+  while (nodes.length > 0) {
+    const node = nodes.pop() as object;
+    const depth = depths.pop() as number;
     if (depth > max) max = depth;
     if (max > MAX_JSON_DEPTH) return max;
-    for (const child of Array.isArray(node) ? node : Object.values(node)) stack.push([child, depth + 1]);
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        const child: unknown = node[i];
+        if (child !== null && typeof child === "object") {
+          nodes.push(child);
+          depths.push(depth + 1);
+        }
+      }
+      continue;
+    }
+    const record = node as Record<string, unknown>;
+    for (const key in record) {
+      const child = record[key];
+      if (child !== null && typeof child === "object") {
+        nodes.push(child);
+        depths.push(depth + 1);
+      }
+    }
   }
   return max;
 }

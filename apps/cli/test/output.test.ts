@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../src/cli/run.js";
 import { renderJson } from "../src/cli/shared.js";
-import { defaultIO, type CliDeps } from "../src/cli/io.js";
+import { OutputError, defaultIO, type CliDeps } from "../src/cli/io.js";
 import { OparlClient } from "@maschinenlesbar.org/oparl-client/internal/client";
 import type { HttpRequest, HttpResponse } from "@maschinenlesbar.org/oparl-client/internal/http";
 import { jsonResponse, makeMockTransport, untimed } from "./helpers.js";
@@ -42,6 +42,53 @@ test("--compact takes the gap path only for an answer holding a huge string, the
   stringify.mock.restore();
   assert.deepEqual(calls.map((args) => (args.length >= 3 ? args[2] : "none")), ["", "none", "", "", 2]);
   assert.deepEqual(out, ['"stub"', '"stub"', '"stub"', '"stub"', '"stub"']);
+});
+
+test("an answer nested too deeply is a clean error; it suggests --compact only where --compact prints it (D7)", () => {
+  // The engine refuses an answer deeper than 256 levels, but a library value handed to the
+  // renderer may be deeper: the pretty printer's recursion can't print it. Whether the compact
+  // printer can depends on the Node version (iterative from Node 26) and the stack: probed here,
+  // never assumed.
+  const depth = 200_000;
+  const value = JSON.parse(`{"id":"a1","x":${"[".repeat(depth)}${"]".repeat(depth)}}`) as unknown;
+  let compactPrints = true;
+  try {
+    JSON.stringify(value);
+  } catch {
+    compactPrints = false;
+  }
+  const { deps, out } = makeDeps();
+  assert.throws(() => renderJson(deps, {}, value), (err: Error) =>
+    err instanceof OutputError && err.message === `The answer is nested too deeply to pretty-print${compactPrints ? "; try --compact" : ""}.`);
+  if (compactPrints) {
+    renderJson(deps, { compact: true }, value);
+    assert.equal(out.length, 1);
+  } else {
+    assert.throws(() => renderJson(deps, { compact: true }, value), (err: Error) =>
+      err instanceof OutputError && err.message === "The answer is nested too deeply to print.");
+  }
+});
+
+test("an answer too large to print is called too large, not too deep; the hint only where --compact prints (D7)", async (t) => {
+  const real = JSON.stringify;
+  // V8's own error for a text past its longest string, stood in for: a real one needs 512 MB.
+  const tooLarge = (gap: unknown): boolean => gap === 2 || gap === "big";
+  t.mock.method(JSON, "stringify", (value: unknown, replacer: never, gap: unknown) => {
+    if (tooLarge(gap) || (gap === undefined && (value as { all?: boolean } | null)?.all === true)) throw new RangeError("Invalid string length");
+    return real(value, replacer, gap as number);
+  });
+  const { deps } = makeDeps();
+  assert.throws(() => renderJson(deps, {}, { id: "a1" }), (err: Error) =>
+    /^The answer is too large \(more than \d+ characters of JSON\) to pretty-print; try --compact\.$/.test(err.message));
+  assert.throws(() => renderJson(deps, {}, { all: true }), (err: Error) =>
+    /^The answer is too large \(more than \d+ characters of JSON\) to pretty-print\.$/.test(err.message));
+  assert.throws(() => renderJson(deps, { compact: true }, { all: true }), (err: Error) =>
+    /^The answer is too large \(more than \d+ characters of JSON\) to print\.$/.test(err.message));
+  // Through the CLI: an ERROR record of oparl.output, exit 1, nothing on stdout.
+  const cli = makeCli(() => jsonResponse({ ...SYSTEM }));
+  assert.equal(await run(["get", OBJECT_URL], cli.deps), 1);
+  assert.deepEqual(cli.out, []);
+  assert.match(cli.err.join("\n"), /^ERROR \[oparl\.output\] The answer is too large \(more than \d+ characters of JSON\) to pretty-print; try --compact\.$/);
 });
 
 const SYSTEM = { ...fx.system, name: "Ein \u001b[31mroter\u009b Rat \u202e" };

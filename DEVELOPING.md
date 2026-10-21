@@ -337,9 +337,16 @@ shortest form (`1e23`, `1.7976931348623157E308`, `5e-324`) passes, and between t
 normal double and 2^53 a decimal fraction keeps a double's precision, as JSON means it (`firstInexactNumber` in `engine.ts`). Since nothing deeper than
 256 levels gets through, the pretty printer never overflows the stack. `--compact` prints with
 V8's fast path (`JSON.stringify(value)`) unless the answer holds a string or key of 64 Mi
-characters or more (`holdsHugeString` in `shared.ts`): on Node 26 that path aborts the process
-on a string of some 250 MB, which `--max-response-bytes 0` lets through, so such an answer
-takes the gap path (an empty gap, the same text).
+characters or more (`holdsHugeString` in `shared.ts`, an iterative walk without an allocation
+per value): on Node 26 that path aborts the process on a string of some 250 MB, which
+`--max-response-bytes 0` lets through, so such an answer takes the gap path (an empty gap, the
+same text). A JSON text longer than V8's longest string (536870888 characters) can't be printed:
+`The answer is too large (more than 536870888 characters of JSON) to pretty-print; try
+--compact.`, an `OutputError` (ERROR of `oparl.output`, exit 1). "try --compact" is added only
+when the compact form of that very answer prints (probed, not assumed); a library value nested
+too deeply for the printer is `The answer is nested too deeply to pretty-print[; try
+--compact].` The engine's own depth check (`jsonDepth`) keeps only nested containers, so an
+answer of millions of numbers is checked within a small heap.
 
 A non-JSON body is named by what it is — an HTML page (sniffed in the first 200
 characters *and* by `Content-Type`, since Aachen's error page starts with an HTML comment
