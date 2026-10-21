@@ -1017,15 +1017,18 @@ export class RequestEngine {
   }
 
   /**
-   * What a transport threw, as the error the engine raises. The built-in transport rejects
-   * with OparlNetworkError only, and that passes through; an injected one may throw
-   * anything (a string, fetch's TypeError, an AbortError), which is wrapped into an
-   * OparlNetworkError naming the request, with the original (scrubbed) as `cause` — a
-   * caller (and the CLI) can rely on every failure being an OparlError. Any other
-   * OparlError passes through.
+   * What a transport threw, as the error the engine raises: an OparlNetworkError naming the
+   * request, `GET <url> failed: <reason>`, with the original (scrubbed) as `cause`. The
+   * built-in transport's own errors (a timeout, the size cap, a refused connection, a failed
+   * DNS lookup, a reset) and the engine's deadline say only what went wrong, not which of a
+   * walk's pages it was; an injected transport may throw anything (a string, fetch's
+   * TypeError, an AbortError). A caller (and the CLI) can rely on every failure being an
+   * OparlError. A network error that already names the request, and any other OparlError,
+   * pass through.
    */
   private toNetworkError(url: string, cause: unknown): OparlError {
-    if (cause instanceof OparlError) return cause;
+    if (cause instanceof OparlError && !(cause instanceof OparlNetworkError)) return cause;
+    if (cause instanceof OparlNetworkError && cause.message.startsWith("GET ")) return cause;
     const reason = cause instanceof Error ? cause.message : String(cause);
     return new OparlNetworkError(`GET ${cutForMessage(url)} failed: ${sanitizeServerText(this.redact(reason))}`, {
       cause: this.scrubCause(cause),

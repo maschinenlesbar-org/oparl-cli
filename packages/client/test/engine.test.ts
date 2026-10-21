@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   MAX_REDIRECTS,
   MAX_RETRIES,
@@ -27,6 +29,7 @@ import {
   toWellFormed,
 } from "../src/errors.js";
 import { OparlClient, normalizeTimestamp } from "../src/client.js";
+import { nodeHttpTransport } from "../src/http.js";
 import { hasControlChar, hostileText, jsonResponse, makeMockTransport, queryOf, rawResponse, redirect } from "./helpers.js";
 
 const URL_1 = "https://ris.example.de/oparl/system";
@@ -694,4 +697,51 @@ test("a number a double carries is decoded as the same value, also in a string a
     assert.equal(got.n, value, literal);
     assert.equal(got.s, '1e400 " 12345678901234567890', literal);
   }
+});
+
+test("a timeout, the size cap, a refused connection and a DNS failure name the request; the original is the cause", async () => {
+  const page = "https://ris.example.de/oparl/papers?limit=5";
+  // The engine's own deadline, with a transport that never answers.
+  const hanging = makeMockTransport(() => new Promise<never>(() => {}));
+  await assert.rejects(
+    () => new RequestEngine({ transport: hanging.transport, timeoutMs: 5 }).getJson(page),
+    (err) =>
+      err instanceof OparlNetworkError &&
+      err.message === `GET ${page} failed: Request timed out after 5ms` &&
+      err.cause instanceof OparlNetworkError &&
+      err.cause.message === "Request timed out after 5ms",
+  );
+  // What the default transport raises for the size cap and a failed lookup.
+  const lookup = Object.assign(new Error("getaddrinfo ENOTFOUND ris.example.de"), { code: "ENOTFOUND" });
+  for (const raised of [
+    new OparlNetworkError("Response exceeded the size limit of 10 bytes (maxResponseBytes; --max-response-bytes on the CLI)"),
+    new OparlNetworkError(lookup.message, { cause: lookup }),
+  ]) {
+    const mt = makeMockTransport(() => Promise.reject(raised));
+    await assert.rejects(
+      () => new RequestEngine({ transport: mt.transport, maxRetries: 0 }).getJson(page),
+      (err) => err instanceof OparlNetworkError && err.message === `GET ${page} failed: ${raised.message}` && err.cause === raised,
+    );
+  }
+  // A refused connection, from the real transport on a loopback port nobody listens on.
+  const server = http.createServer();
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as AddressInfo).port;
+  await new Promise<void>((r) => server.close(() => r()));
+  const closed = `http://127.0.0.1:${port}/oparl/system`;
+  await assert.rejects(
+    () => new RequestEngine({ transport: nodeHttpTransport, maxRetries: 0 }).getJson(closed),
+    (err) =>
+      err instanceof OparlNetworkError &&
+      err.message.startsWith(`GET ${closed} failed: connect ECONNREFUSED`) &&
+      err.cause instanceof OparlNetworkError,
+  );
+});
+
+test("a network error that already names the request is not prefixed twice", async () => {
+  const mt = makeMockTransport(() => ({ status: 200, headers: {}, body: "not bytes" }) as never);
+  await assert.rejects(
+    () => new RequestEngine({ transport: mt.transport }).getJson(URL_1),
+    (err) => err instanceof OparlNetworkError && /^GET \S+ failed: the transport returned an invalid response/.test(err.message) && !/failed: GET/.test(err.message),
+  );
 });

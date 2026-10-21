@@ -347,7 +347,10 @@ headers as a plain record in any case, a `Headers` object or a `Map` — `Locati
 `Retry-After` are found in all of them. A response without an integer status from 100 to
 599, without a headers object or without a byte-array body is an `OparlNetworkError`, never
 data; so is whatever the transport throws (a string, fetch's `TypeError`, an `AbortError`),
-with the original as `cause`.
+with the original as `cause`. Every network error names the request it ended, as
+`GET <url> failed: <reason>` — a timeout, the size cap, a refused connection, a failed DNS
+lookup and a reset alike, the built-in transport's errors included, so on page 7 of a walk
+the message says which page it was; the transport's own error stays the `cause`.
 
 The transport rejects a request that ends without a response — a server answering
 HTTP 101 (`upgrade`), a socket closed after the headers — instead of leaving the promise
