@@ -148,6 +148,7 @@ const CLIENT_OPTION_NAMES = [
   "maxResponseBytes",
   "sleep",
   "onRetry",
+  "onWarning",
   "bigIntegerKeys",
 ] as const satisfies ReadonlyArray<keyof OparlClientOptions>;
 

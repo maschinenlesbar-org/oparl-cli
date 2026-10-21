@@ -359,7 +359,9 @@ export function action(
     const cleartext = start === undefined ? undefined : cleartextProblem(start);
     if (cleartext !== undefined) logOf(deps).warn("http", cleartext);
     const onRetry = (event: RetryEvent): void => logOf(deps).warn("http", retryMessage(event));
-    const client = deps.createClient({ ...toEngineOptions(global), ...clientOptions(opts), onRetry });
+    // Text in an answer replaced with U+FFFD is said, never silent (a WARN of oparl.api).
+    const onWarning = (message: string): void => logOf(deps).warn("api", message);
+    const client = deps.createClient({ ...toEngineOptions(global), ...clientOptions(opts), onRetry, onWarning });
     await fn({ client, global, opts }, positionals);
   };
 }

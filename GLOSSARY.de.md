@@ -157,6 +157,8 @@ Zeitstempel, eine Stufe (`ERROR`, `WARN`, `INFO`) und ein Thema `oparl.<Bereich>
 Bereiche: `cli` (Bedienfehler, Meldungen von commander, unerwartete Fehler), `api` (die
 Antworten des Servers: ein Fehlerstatus und eine Antwort, die kein OParl ist – kein JSON,
 eine HTML-Seite, der falsche Objekttyp, ein OParl-Fehlerobjekt; die Hinweise zu einem
-Durchlauf oder zum Verzeichnis), `http` (die Verbindung, ein abgelehnter Link, die
+Durchlauf oder zum Verzeichnis; eine WARN-Zeile, wenn Text in einer Antwort ungültig war –
+ungültige Bytes oder ein halbes Zeichen – und durch U+FFFD ersetzt wurde, mit Anzahl und
+Anfrage), `http` (die Verbindung, ein abgelehnter Link, die
 Klartext-Warnung und je Wiederholung eine WARN-Zeile vor dem Warten) und `output` (die `-o`-Datei, Schreibfehler auf stdout). Ein Eintrag ist
 immer eine Zeile; Steuerzeichen darin werden maskiert.

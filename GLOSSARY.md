@@ -146,6 +146,8 @@ the link leads back into a loop.
 `--log-format jsonl` as one JSON object per line. The areas: `cli` (usage errors,
 commander's messages, unexpected errors), `api` (the server's answers: an error status, and
 an answer that is not OParl — not JSON, an HTML page, the wrong object type, an OParl error
-object; the notes on a walk or on the registry), `http` (the connection, a refused link,
+object; the notes on a walk or on the registry; a WARN when text in an answer was not valid —
+invalid bytes or half a character — and was replaced with U+FFFD, with the count and the
+request), `http` (the connection, a refused link,
 the cleartext warning, and one WARN per retry before it waits) and `output` (the `-o` file, stdout failures). A record is always
 one line; control characters in it are escaped.
