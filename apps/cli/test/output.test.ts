@@ -91,6 +91,20 @@ test("an answer too large to print is called too large, not too deep; the hint o
   assert.match(cli.err.join("\n"), /^ERROR \[oparl\.output\] The answer is too large \(more than \d+ characters of JSON\) to pretty-print; try --compact\.$/);
 });
 
+test("terminal controls are escaped in chunks: the same text as one pass, across chunk edges (D7)", () => {
+  const DEL = String.fromCharCode(0x7f);
+  const C1 = String.fromCharCode(0x9b);
+  const RLO = String.fromCharCode(0x202e);
+  // Controls right before, at and after the 64 Ki edges, and a run of them.
+  const text = ["a".repeat(65535), DEL, C1, "b".repeat(65534), RLO, DEL.repeat(70000), "ü😀", C1].join("");
+  const { deps, out } = makeDeps();
+  renderJson(deps, { compact: true }, { text });
+  const expected = JSON.stringify({ text }).replace(/[\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  assert.equal(out[0], expected);
+  assert.deepEqual(JSON.parse(out[0]!), { text });
+});
+
 const SYSTEM = { ...fx.system, name: "Ein \u001b[31mroter\u009b Rat \u202e" };
 const OBJECT_URL = `${fx.HOST}/oparl/paper/1`;
 

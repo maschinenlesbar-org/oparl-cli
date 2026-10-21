@@ -320,7 +320,10 @@ under kilobytes of its own text. It applies to every server-derived string, the 
 `type` of the type checks and a response's `Content-Type` included; the JSON output, on
 stdout and in the `-o` file, escapes instead what `JSON.stringify` leaves raw: DEL, C1 and the
 bidi controls (`isBidiControl`: U+061C, U+200E, U+200F, U+202A–U+202E, U+2066–U+2069), as
-`\uXXXX` (`escapeControlChars`). Messages also quote the
+`\uXXXX` (`escapeControlChars`, which measures the escaped length first and builds it in
+64 Ki chunks, so 20 MB of DEL characters print within a 512 MB heap; an answer whose escaped
+form would pass V8's longest string is `The answer is too large to print (N characters once its
+control characters are escaped).`, an ERROR of `oparl.output`, exit 1). Messages also quote the
 user's own arguments as typed (`<url> is not an OParl System`), and the documented
 workflows feed server data into those (`oparl get "$(jq -r .data[0].id)"`), so a log
 record escapes every control and bidi character in its message (`escapeForRecord`, see
