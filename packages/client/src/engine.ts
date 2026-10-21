@@ -38,54 +38,54 @@ export interface EngineOptions {
    * enforces `timeoutMs` and `maxResponseBytes` on any transport and checks the shape of
    * what it returns (see HttpResponse).
    */
-  transport?: Transport;
+  transport?: Transport | undefined;
   /** Value of the User-Agent header. */
-  userAgent?: string;
+  userAgent?: string | undefined;
   /**
    * Extra headers sent on every request. The values of credential headers (Authorization,
    * Proxy-Authorization, X-API-Key, Cookie) are kept out of logged clients and errors, and
    * go only to the origin of the URL a request starts at (see fetchJson).
    */
-  defaultHeaders?: Record<string, string>;
+  defaultHeaders?: Record<string, string> | undefined;
   /**
    * Time limit per request in milliseconds, covering the whole response body, not
    * only idle gaps (0 disables). Defaults to 120 s: some
    * council systems take well over 30 s to render a single list page. A non-negative
    * integer, capped at MAX_TIMEOUT_MS. The engine enforces it for every transport.
    */
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
   /**
    * Number of automatic retries for transient 429/503 responses and reset connections
    * (ECONNRESET, EPIPE, ECONNABORTED, UND_ERR_SOCKET): 0 to MAX_RETRIES. Timeouts are
    * not retried.
    */
-  maxRetries?: number;
+  maxRetries?: number | undefined;
   /**
    * Base backoff between retries in milliseconds (default 500), 0 to MAX_RETRY_AFTER_MS
    * (30 000). Grows linearly per attempt for a 503 and a reset; a 429 waits at least 1 s,
    * doubling per attempt. A Retry-After header (seconds or an HTTP date) can lengthen a
    * wait, never shorten it; every wait is capped at 30 s.
    */
-  retryDelayMs?: number;
+  retryDelayMs?: number | undefined;
   /**
    * Redirects (301/302/303/307/308) followed per request, same host only. Defaults to 3;
    * 0 disables; at most MAX_REDIRECTS. Any other 3xx, one without a Location, and one
    * past this limit surface as an OparlApiError naming the target.
    */
-  maxRedirects?: number;
+  maxRedirects?: number | undefined;
   /**
    * Hard cap on response body size in bytes (defends against memory exhaustion
    * from a hostile/buggy endpoint). Defaults to 100 MiB; set to 0 for no limit. A
    * non-negative integer.
    */
-  maxResponseBytes?: number;
+  maxResponseBytes?: number | undefined;
   /** Injectable sleep, primarily for deterministic tests. */
-  sleep?: (ms: number) => Promise<void>;
+  sleep?: ((ms: number) => Promise<void>) | undefined;
   /**
    * Called once per retry, right before the backoff sleep, for each retried 429/503
    * and reset connection; never when there is no retry. A throw is swallowed.
    */
-  onRetry?: (event: RetryEvent) => void;
+  onRetry?: ((event: RetryEvent) => void) | undefined;
 }
 
 /** What `EngineOptions.onRetry` is told about one retry. */

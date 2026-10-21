@@ -152,22 +152,22 @@ const CLIENT_OPTION_NAMES = [
 
 export interface ListOptions {
   /** Pages to fetch; 0 means all. Defaults to 1. A non-negative integer, checked before any request. */
-  maxPages?: number;
+  maxPages?: number | undefined;
   /** Only objects created at or after this time (OParl `created_since`). */
-  createdSince?: string;
+  createdSince?: string | undefined;
   /** Only objects created at or before this time (OParl `created_until`). */
-  createdUntil?: string;
+  createdUntil?: string | undefined;
   /** Only objects modified at or after this time (OParl `modified_since`). */
-  modifiedSince?: string;
+  modifiedSince?: string | undefined;
   /** Only objects modified at or before this time (OParl `modified_until`). */
-  modifiedUntil?: string;
+  modifiedUntil?: string | undefined;
   /**
    * Page size hint (OParl `limit`): an integer from 1 to MAX_LIST_LIMIT (1000), else an
    * OparlValidationError before any request. Servers may ignore or reject it.
    */
-  limit?: number;
+  limit?: number | undefined;
   /** Ask the server to leave out embedded objects (OParl `omit_internal`). */
-  omitInternal?: boolean;
+  omitInternal?: boolean | undefined;
 }
 
 export interface OparlClientOptions extends EngineOptions {
@@ -175,11 +175,11 @@ export interface OparlClientOptions extends EngineOptions {
    * URL of the endpoint registry. Defaults to https://dev.oparl.org/api/endpoints. An
    * http(s) URL, checked by the constructor (OparlValidationError); any userinfo is dropped.
    */
-  registryUrl?: string;
+  registryUrl?: string | undefined;
   /** Endpoints the registry lacks. Defaults to the list shipped with this package. */
-  curatedEndpoints?: readonly CuratedEndpoint[];
+  curatedEndpoints?: readonly CuratedEndpoint[] | undefined;
   /** Live checks of registry entries. Defaults to the checks shipped with this package. */
-  registryChecks?: readonly RegistryCheck[];
+  registryChecks?: readonly RegistryCheck[] | undefined;
 }
 
 /** Which endpoints `endpoints()` returns. */
@@ -201,7 +201,7 @@ export interface EndpointsReport {
 /** The options of `endpoints()`: the source, and the filters applied to its entries. */
 export interface EndpointsOptions extends EndpointFilters {
   /** "all" (default): the registry followed by the curated list; or either one alone. */
-  source?: EndpointSource;
+  source?: EndpointSource | undefined;
 }
 
 const isObject = (value: unknown): value is JsonObject =>
@@ -655,7 +655,7 @@ export class OparlClient {
   }
 
   /** The bodies (Körperschaften) of a System — usually one per municipality. */
-  async bodies(systemUrl: string, options: { maxPages?: number } = {}): Promise<ListResult<OparlBody>> {
+  async bodies(systemUrl: string, options: { maxPages?: number | undefined } = {}): Promise<ListResult<OparlBody>> {
     assertOptionsObject("bodies options", options);
     assertKnownKeys("bodies option", options, ["maxPages"]);
     const maxPages = assertValid("maxPages", options.maxPages ?? 0, maxPagesProblem);

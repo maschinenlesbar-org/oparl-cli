@@ -140,6 +140,11 @@ const one = await client.get(papers.data[0]!.id);
 | `defaultHeaders` | none | Extra headers on every request. OParl is anonymous; a credential header (`Authorization`, `Proxy-Authorization`, `X-API-Key`, `Cookie`) is kept in a private field — `util.inspect`, `console.log` and `JSON.stringify` of a client don't show it — and its value is scrubbed (`***`) from error bodies, details, messages and `cause` chains that echo the request |
 | `transport` | node http/https | Swap the HTTP layer (tests inject a mock); see *Custom transports* below |
 
+Every option, here and in the options of `list()`, `bodies()` and `endpoints()`, is typed
+`?: T | undefined`: an option given as `undefined` means its default, exactly like an omitted
+one, so a caller compiling with `exactOptionalPropertyTypes` can pass
+`{ userAgent: process.env.X }` (`packages/client/test/types.test.ts`).
+
 The numeric options must be integers in their range — `timeoutMs` and `maxResponseBytes`
 non-negative, `retryDelayMs` from 0 to 30 000, `maxRetries` and `maxRedirects` from 0 to 10. Anything
 else (NaN, Infinity, a fraction, a negative number) is an `OparlValidationError` from the
@@ -421,7 +426,7 @@ node --test packages/client/dist/test/client.test.js   # one file, after a build
 ```
 
 The client's tests are in `packages/client/test/` (`query`, `http`, `engine`, `client`,
-`endpoints-search`), with the transport helpers (`helpers.ts`, which
+`endpoints-search`, `types`), with the transport helpers (`helpers.ts`, which
 `apps/cli/test/helpers.ts` re-exports next to the CLI's own helpers) and the fixtures
 (`fixtures.ts`); everything that drives the CLI is in `apps/cli/test/`.
 

@@ -14,11 +14,11 @@ export interface EndpointFilters {
    * form and accents (`ß` = `ss`); when nothing matches literally, the `ae`/`oe`/`ue`
    * umlaut spellings are tried (`koeln` finds `Köln`). Must not be blank.
    */
-  search?: string;
+  search?: string | undefined;
   /** Only entries speaking this OParl version: `1.0`, `1.1`, or a version URI. */
-  oparlVersion?: string;
+  oparlVersion?: string | undefined;
   /** Only entries that worked on their last check. */
-  working?: boolean;
+  working?: boolean | undefined;
 }
 
 /** "https://schema.oparl.org/1.1/" → "1.1"; anything else unchanged. */
