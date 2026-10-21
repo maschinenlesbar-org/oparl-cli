@@ -382,6 +382,36 @@ test("http:// URLs on the host of an https response are printed as https://", as
   assert.deepEqual(await overHttp.getJson("http://ris.example.de/oparl/bodies/0001"), served);
 });
 
+test("a __proto__ key in an https answer is an ordinary member, never the prototype of the object (bug 1)", async () => {
+  // JSON.parse makes "__proto__" an own key; the https rewrite rebuilt every object with
+  // `out[key] =`, where that key called the prototype setter: the key was dropped and its
+  // value became the object's prototype (`o.evil === 1`), a nested `{"__proto__":[1,2]}` became `{}`.
+  const raw =
+    '{"id":"https://ris.example.de/oparl/file/1","type":"https://schema.oparl.org/1.1/File","__proto__":{"evil":1},' +
+    '"constructor":"x","nested":{"__proto__":[1,2],"link":"http://ris.example.de/oparl/x"},"name":"p"}';
+  const e = new RequestEngine({ transport: makeMockTransport(() => rawResponse(raw, "application/json")).transport });
+  const value = await e.getJson<Record<string, unknown>>("https://ris.example.de/oparl/file/1");
+  assert.deepEqual(Object.keys(value), ["id", "type", "__proto__", "constructor", "nested", "name"]);
+  assert.equal((value as { evil?: unknown }).evil, undefined, "a member of __proto__ is read through the prototype");
+  assert.equal(Object.getPrototypeOf(value), Object.prototype);
+  assert.deepEqual(Object.getOwnPropertyDescriptor(value, "__proto__")?.value, { evil: 1 });
+  const nested = value["nested"] as Record<string, unknown>;
+  assert.deepEqual(Object.getOwnPropertyDescriptor(nested, "__proto__")?.value, [1, 2]);
+  assert.equal(nested["link"], "https://ris.example.de/oparl/x", "the rewrite still applies");
+  assert.equal(JSON.stringify(value), JSON.stringify(JSON.parse(raw.replace("http://ris", "https://ris"))));
+});
+
+test("a header named __proto__ is an ordinary header, never the prototype of the headers read (T12)", async () => {
+  // A JavaScript transport may return any object; JSON.parse makes "__proto__" an own key.
+  const headers = JSON.parse('{"__proto__":{"content-type":"text/html"}}') as Record<string, string>;
+  const e = new RequestEngine({ transport: async () => ({ status: 200, headers, body: Buffer.from("Not found") }) });
+  // With the prototype set, "text/html" was read as the Content-Type: "an HTML page (content-type: text/html)".
+  await assert.rejects(e.getJson(URL_1), (err: Error) => err instanceof OparlParseError && !/html/i.test(err.message));
+  const fetchLike = new Headers([["__proto__", "x"], ["content-type", "application/json"]]);
+  const f = new RequestEngine({ transport: async () => ({ status: 200, headers: fetchLike as unknown as Record<string, string>, body: Buffer.from('{"a":1}') }) });
+  assert.deepEqual(await f.getJson(URL_1), { a: 1 });
+});
+
 test("withQuery leaves the URL alone when no parameter survives", () => {
   assert.equal(withQuery("https://a.de/x?page=1", { limit: undefined }), "https://a.de/x?page=1");
   assert.equal(withQuery("https://a.de/x", { omit_internal: true }), "https://a.de/x?omit_internal=true");

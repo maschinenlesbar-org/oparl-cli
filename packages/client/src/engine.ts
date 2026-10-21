@@ -399,8 +399,13 @@ export function upgradeSameHostUrls<T>(value: T, fetchedFrom: string): T {
     if (typeof node === "string") return rewrite(node);
     if (Array.isArray(node)) return node.map(walk);
     if (node !== null && typeof node === "object") {
+      // Each member is defined, not assigned: `out["__proto__"] = …` calls the prototype
+      // setter, which dropped the key and made its value the object's prototype. JSON.parse
+      // makes it an own member like any other, and so does this copy.
       const out: Record<string, unknown> = {};
-      for (const [key, child] of Object.entries(node)) out[key] = walk(child);
+      for (const [key, child] of Object.entries(node)) {
+        Object.defineProperty(out, key, { value: walk(child), enumerable: true, writable: true, configurable: true });
+      }
       return out;
     }
     return node;
@@ -532,14 +537,16 @@ function bodyBytes(value: unknown): Buffer | undefined {
  */
 function plainHeaders(headers: object): ResponseHeaders {
   const h = headers as { get?: unknown; forEach?: unknown };
+  // Records built from an answer have no prototype: a header named `__proto__` is an own
+  // entry like any other, never the record's prototype (whose entries would read as headers).
   if (typeof h.get === "function" && typeof h.forEach === "function") {
-    const record: Record<string, string> = {};
+    const record = Object.create(null) as Record<string, string>;
     (h.forEach as (cb: (value: unknown, name: unknown) => void) => void).call(headers, (value, name) => {
       record[String(name).toLowerCase()] = String(value);
     });
     return record;
   }
-  const record: ResponseHeaders = {};
+  const record = Object.create(null) as ResponseHeaders;
   for (const [name, value] of Object.entries(headers as ResponseHeaders)) record[name.toLowerCase()] = value;
   return record;
 }
