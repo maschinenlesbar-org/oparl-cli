@@ -8,6 +8,7 @@
 // which is why redirects and links are kept on the host they came from (see
 // resolveLink).
 
+import { constants } from "node:buffer";
 import { TextDecoder } from "node:util";
 import zlib from "node:zlib";
 import { MAX_TIMEOUT_MS, nodeHttpTransport, sizeLimitMessage, type HttpRequest, type HttpResponse, type Transport } from "./http.js";
@@ -1135,11 +1136,17 @@ export class RequestEngine {
     }
     // A server that echoes the request (its headers included) must not put a credential
     // into `body`, `detail` or the message.
-    let raw: string;
+    let raw = "";
     try {
       raw = decodeText(decoded, headers, `GET ${cutForMessage(url)}`).text;
     } catch {
-      raw = decoded.toString("utf8"); // an unknown charset label: still report the status
+      // An unknown charset label: still report the status. A body too large to be a string
+      // (maxResponseBytes lifted) is left out: the status is the error.
+      try {
+        raw = decoded.toString("utf8");
+      } catch (err) {
+        if (!isStringTooLong(err)) throw err;
+      }
     }
     const text = this.redact(raw);
     let detail: string | undefined;
@@ -1196,12 +1203,37 @@ function decodeText(body: Buffer, headers: ResponseHeaders, request: string): { 
   }
   try {
     return { text: decoder.decode(body), replaced: 0 };
-  } catch {
+  } catch (err) {
+    if (isStringTooLong(err)) throw tooLargeForText(request, body);
     // Not valid in the charset: decode with replacement, and count what was replaced.
-    const text = new TextDecoder(decoder.encoding).decode(body);
+    let text: string;
+    try {
+      text = new TextDecoder(decoder.encoding).decode(body);
+    } catch (again) {
+      if (isStringTooLong(again)) throw tooLargeForText(request, body);
+      throw again;
+    }
     const sent = decoder.encoding === "utf-8" ? countBytes(body, REPLACEMENT_UTF8) : 0;
     return { text, replaced: countChar(text, 0xfffd) - sent };
   }
+}
+
+/** V8's longest string (2^29 − 24 characters on 64-bit). */
+const MAX_STRING_LENGTH = constants.MAX_STRING_LENGTH;
+
+/**
+ * True for V8's error for a string past its longest one (2^29 − 24 characters on 64-bit): a body
+ * of 512 MB and more, possible once `maxResponseBytes` is lifted, can't be decoded into one.
+ */
+function isStringTooLong(err: unknown): boolean {
+  return (err as { code?: unknown } | null)?.code === "ERR_STRING_TOO_LONG";
+}
+
+/** The parse error for a body too large to decode: it used to escape as a plain Error ("Unexpected error"). */
+function tooLargeForText(request: string, body: Buffer): OparlParseError {
+  return new OparlParseError(
+    `${request}: the answer is too large to read as text (${body.byteLength} bytes; the longest string is ${MAX_STRING_LENGTH} characters).`,
+  );
 }
 
 /** U+FFFD in UTF-8. */

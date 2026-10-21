@@ -284,7 +284,7 @@ dependency is `commander`.
 | `OparlValidationError` | bad URL, timestamp, header value or option before any request | 2 |
 | `OparlApiError` | non-2xx status, or a redirect not followed (`location` names its target) | 4 for 404, else 1 |
 | `OparlNetworkError` | DNS, connection, timeout, size cap, a request that ends without a response | 6 |
-| `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), a number it can't carry exactly, wrong object type, `{ error }` object | 1 |
+| `OparlParseError` | not JSON (an HTML page, a PDF, a content coding it cannot decode), a number it can't carry exactly, wrong object type, `{ error }` object, an answer too large to read as text (512 MB and more, with `--max-response-bytes 0`: longer than V8's longest string) | 1 |
 | `OparlLinkError` | a link or redirect to another host/port, or a non-http link | 1 |
 
 Every `OparlParseError` names the request whose answer it is about, as `GET <url>: …` (the URL
