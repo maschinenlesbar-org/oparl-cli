@@ -8,14 +8,17 @@ import {
   MAX_RETRIES,
   RequestEngine,
   assertHeaderValue,
+  bigIntegerKeysOption,
   carryQuery,
   cleartextProblem,
   encodeTimestampPlus,
+  firstInexactNumber,
   headerValueProblem,
   userAgentProblem,
   parseHttpUrl,
   resolveLink,
   sanitizeServerText,
+  scanNumbers,
   withQuery,
   type EngineOptions,
 } from "../src/engine.js";
@@ -778,4 +781,44 @@ test("a network error that already names the request is not prefixed twice", asy
     () => new RequestEngine({ transport: mt.transport }).getJson(URL_1),
     (err) => err instanceof OparlNetworkError && /^GET \S+ failed: the transport returned an invalid response/.test(err.message) && !/failed: GET/.test(err.message),
   );
+});
+
+test("bigIntegerKeys: a declared member's number is its exact literal as a string; others keep the rule (D3)", async () => {
+  const body = '{"_version_":1858054135406919680,"small":{"_version_":5},"neg":{"\\u005fversion_":-12345678901234567890},' +
+    '"s":{"_version_":"text"},"n":{"_version_":null},"arr":{"_version_":[1]},"t":"\\"_version_\\":1","n2":42}';
+  const e = new RequestEngine({
+    bigIntegerKeys: new Set(["_version_"]),
+    transport: makeMockTransport(() => rawResponse(body, "application/json")).transport,
+  });
+  assert.deepEqual(await e.getJson(URL_1), {
+    _version_: "1858054135406919680", small: { _version_: "5" }, neg: { _version_: "-12345678901234567890" },
+    s: { _version_: "text" }, n: { _version_: null }, arr: { _version_: [1] }, t: '"_version_":1', n2: 42,
+  });
+  assert.deepEqual([...e.bigIntegerKeys], ["_version_"]);
+  // An undeclared big number is still refused; a declared member doesn't make others exact.
+  const other = new RequestEngine({
+    bigIntegerKeys: ["_version_"] as unknown as ReadonlySet<string>,
+    transport: makeMockTransport(() => rawResponse('{"_version_":1858054135406919680,"id":12345678901234567890}', "application/json")).transport,
+  });
+  await assert.rejects(other.getJson(URL_1), /the number 12345678901234567890 cannot be represented exactly/);
+  // Malformed stays malformed: a declared member with a leading zero still fails JSON.parse.
+  const malformed = new RequestEngine({ bigIntegerKeys: new Set(["_version_"]), transport: makeMockTransport(() => rawResponse('{"_version_":01}', "application/json")).transport });
+  await assert.rejects(malformed.getJson(URL_1), /not valid JSON/);
+  for (const bad of [new Set([""]), new Set([1]), "x", 5, null]) {
+    assert.throws(() => new RequestEngine({ bigIntegerKeys: bad as unknown as ReadonlySet<string> }),
+      (err: unknown) => err instanceof OparlValidationError && err.message === "Invalid bigIntegerKeys: Expected a set of non-empty member names.");
+  }
+  // The option reader copies a set or a list; undefined is none.
+  const names = new Set(["a"]);
+  const copy = bigIntegerKeysOption(names);
+  names.add("b");
+  assert.deepEqual([...copy], ["a"]);
+  assert.deepEqual([...bigIntegerKeysOption(["x", "y"] as unknown as ReadonlySet<string>)], ["x", "y"]);
+  assert.equal(bigIntegerKeysOption(undefined).size, 0);
+  // Without declarations the scan is the plain number check.
+  assert.equal(firstInexactNumber('{"a":"1e400","b":3e-324}'), "3e-324");
+  assert.deepEqual(scanNumbers('{"a":1}'), { json: '{"a":1}', inexact: undefined });
+  // The client takes the option too.
+  const client = new OparlClient({ bigIntegerKeys: new Set(["size"]), transport: makeMockTransport(() => rawResponse('{"id":"x","size":12345678901234567890}', "application/json")).transport });
+  assert.deepEqual(await client.get(URL_1), { id: "x", size: "12345678901234567890" });
 });
