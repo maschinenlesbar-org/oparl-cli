@@ -542,6 +542,14 @@ malformed answer, an `OparlParseError`: not OParl JSON, an HTML page, the wrong 
 an OParl error object; the notes on a walk that stopped early or on the registry), `http` (the connection:
 network errors and their hints, a refused link or redirect, the cleartext warning) and
 `output` (`-o`: "Wrote N bytes", and every failure to write the file, an `OutputError`).
+`-o` is checked before any request (`checkOutputTarget` in `shared.ts`): `--force` without
+`-o`, a directory, and an existing path (a dangling link too) without `--force` are usage
+errors (exit 2, `cli`). The write (`nodeFiles` in `io.ts`, behind `CliIO.writeFile` and
+`CliIO.outputState`) is atomic: without `--force` the name is claimed with an exclusive
+create, then a temporary file beside it is renamed over it; the old file's mode is kept,
+`--force` writes through a symlink, and a failure leaves neither a temporary file nor the
+claimed name behind (`Could not write to "<path>": …`, exit 1). A file that appears during
+the request is refused at the write (`Refusing to overwrite existing file …`, exit 1).
 A registry that cannot be read with `--source all` is a `WARN` of the failure's own area
 (`http` for the connection, `api` for the registry's answer; `failureArea`), followed by
 the failure's hint where it has one (`networkHint`: raise `--timeout` or

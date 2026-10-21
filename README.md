@@ -25,7 +25,7 @@ their meetings, papers or persons as clean JSON you can pipe straight into
   servers that serve the same page, or an empty one, over and over — those leave you a
   link to resume from), compressed answers are decoded, and slow servers get a 2-minute timeout.
 - **Clean JSON output** — pretty by default, `--compact` for scripting, `-o <file>` to
-  write to disk.
+  write to disk (never over an existing file without `--force`, never half a file).
 
 > Want to use this as a TypeScript library or understand how it's built?
 > See **[DEVELOPING.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/DEVELOPING.md)**.
@@ -160,7 +160,10 @@ oparl get "$next" | jq '.data | length'
 ```
 
 Use `--compact` for single-line JSON and `-o <file>` to write to a file — both are
-**global options** that work before or after the command. Every option takes one value:
+**global options** that work before or after the command. `-o` refuses an existing file (or
+a directory) before sending any request, with exit `2`; `--force` replaces it. The file is
+written beside the target and renamed over it, so a failed write (a full disk) leaves the old
+file as it was and no half-written one. Every option takes one value:
 giving one twice (`--limit 2 --limit 5`) is a usage error rather than "the last one wins".
 
 **Exit codes** make the CLI easy to use in scripts:
@@ -250,7 +253,8 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `-V, --version` | Print the version number |
 | `-h, --help` | Show help for the program or a command |
 | `--compact` | Print JSON on a single line instead of pretty-printed |
-| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout) |
+| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout); an existing file is refused (exit `2`, no request sent) unless `--force` is given |
+| `--force` | With `-o`, replace an existing file (atomically; its mode is kept, a symlink is written through). Without `-o` it is a usage error |
 | `--log-format <format>` | How errors, warnings and notes are written to stderr: `text` (default; log4j style, `2026-10-09T14:03:12.481Z WARN  [oparl.http] …`) or `jsonl` (one JSON object per line: `ts`, `level`, `topic`, `msg`). stdout is not affected |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
 | `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji, an en dash or a blank value is rejected with exit `2`) |

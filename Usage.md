@@ -192,6 +192,11 @@ oparl list paper "$BODY" --max-pages 0 -o papers-full.json
 oparl list paper "$BODY" --max-pages 0 --modified-since 2026-09-01T00:00:00+02:00 -o papers-delta.json
 ```
 
+`-o` never overwrites a file by accident: a run whose file already exists stops before any
+request (exit `2`). Add `--force` to replace it on the next sync — the new file is written
+beside the old one and renamed over it, so a run that fails halfway leaves the old file as
+it was.
+
 Deleted objects may appear with `deleted: true` — apply them to your copy as deletions.
 Each object appears once per `id`, and where a page repeated it (a list that changes while
 it is being walked does that), the delta holds the **last** copy the server sent, so an

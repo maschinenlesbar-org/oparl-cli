@@ -3,10 +3,10 @@
 
 import type { Command } from "commander";
 import { InvalidArgumentError } from "commander";
-import { OutputError, logOf, type CliDeps } from "./io.js";
+import { OutputError, isDirectoryMessage, logOf, refuseOverwrite, type CliDeps } from "./io.js";
 import type { OparlClientOptions } from "@maschinenlesbar.org/oparl-client/internal/client";
 import { normalizeTimestamp } from "@maschinenlesbar.org/oparl-client/internal/client";
-import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError } from "@maschinenlesbar.org/oparl-client/internal/errors";
+import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, cutForMessage } from "@maschinenlesbar.org/oparl-client/internal/errors";
 import { cleartextProblem, isBidiControl, parseHttpUrl, userAgentProblem, type RetryEvent } from "@maschinenlesbar.org/oparl-client/internal/engine";
 import type { Problem } from "@maschinenlesbar.org/oparl-client/internal/validate";
 
@@ -157,6 +157,7 @@ export interface GlobalOptions {
   maxResponseBytes?: number;
   compact?: boolean;
   output?: string;
+  force?: boolean;
 }
 
 /** Translate resolved global CLI options into client options. */
@@ -226,31 +227,51 @@ function holdsHugeString(value: unknown): boolean {
   return false;
 }
 
+/** The `-o` file, or undefined for stdout (no `-o`, or `-o -`: stdout, as for curl and wget). */
+function outputFile(global: GlobalOptions): string | undefined {
+  return global.output === undefined || global.output === "-" ? undefined : global.output;
+}
+
+/**
+ * Check `-o` before any request, so a refused target costs none: `--force` without `-o`, a
+ * directory, and an existing path (a dangling link too) without `--force` are usage errors
+ * (an OparlValidationError, exit 2). `-o -` is stdout. The write checks again: a file that
+ * appears during the request is not overwritten either (an OutputError then, exit 1).
+ */
+export function checkOutputTarget(deps: CliDeps, global: GlobalOptions): void {
+  if (global.force === true && global.output === undefined) {
+    throw new OparlValidationError("--force needs --output (it only allows overwriting the -o file).");
+  }
+  const path = outputFile(global);
+  if (path === undefined || deps.io.outputState === undefined) return;
+  const state = deps.io.outputState(path);
+  if (state === "directory") throw new OparlValidationError(isDirectoryMessage(path));
+  if (state === "exists" && global.force !== true) throw new OparlValidationError(refuseOverwrite(path));
+}
+
 /**
  * Render a JSON value, pretty by default and compact with --compact. Writes to the
- * file given by --output (with a short stderr confirmation so stdout stays clean
- * for piping), or to stdout otherwise.
+ * file given by --output (atomically, never over an existing file without --force; with a
+ * short stderr confirmation so stdout stays clean for piping), or to stdout otherwise.
  */
 export function renderJson(deps: CliDeps, global: GlobalOptions, value: unknown): void {
   const text = escapeControlChars(stringifyJson(value, global.compact === true));
-  // `-o -` means stdout, as for curl and wget, not a file named "-".
-  if (global.output !== undefined && global.output !== "-") {
-    const data = Buffer.from(text + "\n", "utf8");
-    try {
-      deps.io.writeFile(global.output, data);
-    } catch (err) {
-      // A bad --output path (missing directory, a directory, no permission) is a
-      // user error, not an internal fault — surface it as a clean OutputError (a record
-      // of oparl.output, like the confirmation below) instead of letting the raw fs
-      // exception hit the "Unexpected error" path. Drop the `, open '<path>'` tail since
-      // we already name the path ourselves.
-      const reason = err instanceof Error ? err.message.replace(/,\s*open\s+'.*'$/, "") : String(err);
-      throw new OutputError(`Could not write to ${global.output}: ${reason}`, { cause: err });
-    }
-    logOf(deps).info("output", `Wrote ${data.length} bytes to ${global.output}`);
-  } else {
-    deps.io.out(text);
+  const path = outputFile(global);
+  if (path === undefined) return deps.io.out(text);
+  const data = Buffer.from(text + "\n", "utf8");
+  try {
+    deps.io.writeFile(path, data, global.force === true);
+  } catch (err) {
+    // A bad --output path (missing directory, no permission, a full disk) is a user error,
+    // not an internal fault — a clean OutputError (a record of oparl.output, like the
+    // confirmation below) instead of the "Unexpected error" path. The file seam's own
+    // errors carry their message; another writer's gets the path named, without Node's
+    // `, open '<path>'` tail.
+    if (err instanceof OutputError) throw err;
+    const reason = err instanceof Error ? err.message.replace(/,\s*open\s+'.*'$/, "") : String(err);
+    throw new OutputError(`Could not write to "${cutForMessage(path)}": ${reason}`, { cause: err });
   }
+  logOf(deps).info("output", `Wrote ${data.length} bytes to ${path}`);
 }
 
 /**
@@ -331,6 +352,8 @@ export function action(
     const command = args[args.length - 1] as Command;
     const positionals = args.slice(0, Math.max(0, args.length - 2)) as string[];
     const global = command.optsWithGlobals() as GlobalOptions;
+    // A refused -o target is a usage error before anything else happens.
+    checkOutputTarget(deps, global);
     const opts = command.opts();
     const start = startUrl(positionals, opts);
     const cleartext = start === undefined ? undefined : cleartextProblem(start);

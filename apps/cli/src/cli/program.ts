@@ -84,7 +84,8 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
       parseLogFormat,
     )
     .option("--compact", "print JSON on a single line instead of pretty-printed")
-    .option("-o, --output <file>", "write output to this file instead of stdout (- = stdout)", parseNonEmpty)
+    .option("-o, --output <file>", "write output to this file instead of stdout (- = stdout); an existing file needs --force", parseNonEmpty)
+    .option("--force", "with -o, overwrite the file if it exists")
     .showHelpAfterError();
 
   registerCommands(program, deps);
