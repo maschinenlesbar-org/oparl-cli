@@ -61,6 +61,25 @@ export function parseNonEmpty(value: string): string {
 }
 
 /**
+ * commander value-parser for `-o, --output <file>`: a blank path is a usage error, and `-` is
+ * stdout. Any other value that starts with a dash is refused too, as the next option taken for
+ * the file name: commander hands a value option the next argument whatever it looks like, so
+ * `oparl -o --compact system …` wrote a pretty-printed file named "--compact" with exit 0. It
+ * gets the same string for `-o -x` and `--output=-x`, so a file whose name starts with a dash
+ * is written as `./-x`.
+ */
+export function parseOutputPath(value: string): string {
+  parseNonEmpty(value);
+  if (value !== "-" && value.startsWith("-")) {
+    throw new InvalidArgumentError(
+      `looks like a missing value — ${JSON.stringify(cutForMessage(value))} is the next option, taken because ` +
+        "this one was left without a value. For a file whose name starts with a dash, write ./-name.",
+    );
+  }
+  return value;
+}
+
+/**
  * Turn a library check into a commander value-parser: an OparlValidationError it throws
  * becomes the usage error (exit 2), with the library's own words.
  */

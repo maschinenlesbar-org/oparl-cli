@@ -10,7 +10,7 @@ import { defaultIO } from "./io.js";
 import { OparlClient } from "@maschinenlesbar.org/oparl-client/internal/client";
 import { MAX_TIMEOUT_MS } from "@maschinenlesbar.org/oparl-client/internal/http";
 import { MAX_REDIRECTS, MAX_RETRIES } from "@maschinenlesbar.org/oparl-client/internal/engine";
-import { forbidRepeatedOptions, parseBoundedInt, parseHeaderValue, parseIntArg, parseNonEmpty } from "./shared.js";
+import { forbidRepeatedOptions, parseBoundedInt, parseHeaderValue, parseIntArg, parseOutputPath } from "./shared.js";
 import { registerCommands } from "./commands/oparl.js";
 import { DEFAULT_LOG_FORMAT, logFormatProblem } from "./log.js";
 
@@ -84,7 +84,7 @@ export function buildProgram(deps: CliDeps = defaultDeps): Command {
       parseLogFormat,
     )
     .option("--compact", "print JSON on a single line instead of pretty-printed")
-    .option("-o, --output <file>", "write output to this file instead of stdout (- = stdout); an existing file needs --force", parseNonEmpty)
+    .option("-o, --output <file>", "write output to this file instead of stdout (- = stdout); an existing file needs --force", parseOutputPath)
     .option("--force", "with -o, overwrite the file if it exists")
     .showHelpAfterError();
 

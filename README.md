@@ -256,7 +256,7 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `-V, --version` | Print the version number |
 | `-h, --help` | Show help for the program or a command |
 | `--compact` | Print JSON on a single line instead of pretty-printed |
-| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout); an existing file is refused (exit `2`, no request sent) unless `--force` is given; a directory, and a file whose directory is missing or not writable, are refused either way. A device, a FIFO or the shell's own descriptor (`/dev/null`, `/dev/stdout`, `>(…)`) is written in place, without `--force` |
+| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout; any other value starting with a dash is refused as the next option, so write a file named `-x` as `./-x`); an existing file is refused (exit `2`, no request sent) unless `--force` is given; a directory, and a file whose directory is missing or not writable, are refused either way. A device, a FIFO or the shell's own descriptor (`/dev/null`, `/dev/stdout`, `>(…)`) is written in place, without `--force` |
 | `--force` | With `-o`, replace an existing file (atomically; its mode is kept; a symlink is written through, to the file it points at, which is created if the link dangles). Without `-o` it is a usage error |
 | `--log-format <format>` | How errors, warnings and notes are written to stderr: `text` (default; log4j style, `2026-10-09T14:03:12.481Z WARN  [oparl.http] …`) or `jsonl` (one JSON object per line: `ts`, `level`, `topic`, `msg`). stdout is not affected |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |

@@ -197,7 +197,8 @@ request (exit `2`), and so does one whose directory is missing or not writable. 
 to replace it on the next sync — the new file is written beside the old one and renamed over
 it, so a run that fails halfway, or is interrupted (Ctrl-C: exit `130`), leaves the old file as
 it was and no temporary file. A device, a FIFO or `/dev/stdout` is written in place, without
-`--force`.
+`--force`. A value that starts with a dash (other than `-`, stdout) is refused as the next
+option taken for the file name; write a file named `-x` as `./-x`.
 
 Deleted objects may appear with `deleted: true` — apply them to your copy as deletions.
 Each object appears once per `id`, and where a page repeated it (a list that changes while

@@ -724,3 +724,22 @@ test("a registry that cannot be read is a WARN of the failure's own area, with i
     else assert.equal(err.length, 1, err.join("\n"));
   }
 });
+
+test("-o refuses a value that starts with a dash: the next option, taken as the file name (T13)", async () => {
+  // commander hands a value option the next argument whatever it looks like: `-o --compact`
+  // wrote a file named "--compact" with exit 0.
+  for (const argv of [["-o", "--compact", "system", fx.SYSTEM_URL], ["--output=-v", "system", fx.SYSTEM_URL], ["get", fx.SYSTEM_URL, "-o", "-x"]]) {
+    const cli = makeCli();
+    assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
+    assert.equal(cli.mt.calls.length, 0, `${argv.join(" ")} sent a request`);
+    assert.deepEqual(Object.keys(cli.files), [], argv.join(" "));
+    assert.match(cli.err.join("\n"), /ERROR \[oparl\.cli\] .*is the next option.*write \.\/-name/, argv.join(" "));
+  }
+  // `-` is stdout, and `./-x` a file named -x.
+  const stdout = makeCli();
+  assert.equal(await run(["-o", "-", "system", fx.SYSTEM_URL], stdout.deps), 0);
+  assert.equal(stdout.out.length, 1);
+  const dashed = makeCli();
+  assert.equal(await run(["-o", "./-x", "system", fx.SYSTEM_URL], dashed.deps), 0);
+  assert.deepEqual(Object.keys(dashed.files), ["./-x"]);
+});
