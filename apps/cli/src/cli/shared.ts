@@ -7,7 +7,7 @@ import { InvalidArgumentError } from "commander";
 import { OutputError, isDirectoryMessage, logOf, refuseOverwrite, type CliDeps } from "./io.js";
 import type { OparlClientOptions } from "@maschinenlesbar.org/oparl-client/internal/client";
 import { normalizeTimestamp } from "@maschinenlesbar.org/oparl-client/internal/client";
-import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, cutForMessage } from "@maschinenlesbar.org/oparl-client/internal/errors";
+import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, cutForMessage, quoteValue } from "@maschinenlesbar.org/oparl-client/internal/errors";
 import { cleartextProblem, isBidiControl, parseHttpUrl, userAgentProblem, type RetryEvent } from "@maschinenlesbar.org/oparl-client/internal/engine";
 import type { Problem } from "@maschinenlesbar.org/oparl-client/internal/validate";
 
@@ -72,7 +72,7 @@ export function parseOutputPath(value: string): string {
   parseNonEmpty(value);
   if (value !== "-" && value.startsWith("-")) {
     throw new InvalidArgumentError(
-      `looks like a missing value — ${JSON.stringify(cutForMessage(value))} is the next option, taken because ` +
+      `looks like a missing value — ${quoteValue(value)} is the next option, taken because ` +
         "this one was left without a value. For a file whose name starts with a dash, write ./-name.",
     );
   }

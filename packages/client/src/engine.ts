@@ -22,6 +22,7 @@ import {
   OparlValidationError,
   MAX_SERVER_TEXT_LENGTH,
   cutForMessage,
+  quoteValue,
   redactUrl,
 } from "./errors.js";
 import { assertValid, intRangeProblem } from "./validate.js";
@@ -303,7 +304,7 @@ export function userAgentProblem(value: string): string | undefined {
  */
 function checkHeader(name: string, value: string): void {
   if (!HEADER_NAME.test(name)) {
-    throw new OparlValidationError(`"${sanitizeServerText(name, 40)}" is not a valid HTTP header name.`);
+    throw new OparlValidationError(`${quoteValue(name, 40)} is not a valid HTTP header name.`);
   }
   assertHeaderValue(name, value);
 }

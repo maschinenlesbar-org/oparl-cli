@@ -24,7 +24,7 @@ import {
   type JsonResponse,
 } from "./engine.js";
 import type { QueryParams } from "./query.js";
-import { OparlError, OparlLinkError, OparlParseError, OparlValidationError, cutForMessage } from "./errors.js";
+import { OparlError, OparlLinkError, OparlParseError, OparlValidationError, cutForMessage, quoteValue } from "./errors.js";
 import { CURATED_ENDPOINTS, REGISTRY_CHECKS } from "./endpoints-list.js";
 import { assertKnownKeys, assertOptionsObject, assertValid, listLimitProblem, maxPagesProblem } from "./validate.js";
 import { checkEndpointFilters, filterEndpoints, shortOparlVersion, type EndpointFilters } from "./endpoints-search.js";
@@ -340,7 +340,7 @@ export function normalizeTimestamp(value: string): string {
     );
   }
   const trimmed = value.trim();
-  const invalid = (reason: string) => new OparlValidationError(`Invalid timestamp "${cutForMessage(value)}": ${reason}`);
+  const invalid = (reason: string) => new OparlValidationError(`Invalid timestamp ${quoteValue(value)}: ${reason}`);
   const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
   const dateTime = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?([Zz]|[+-]\d{2}(?::?\d{2})?)?$/.exec(trimmed);
   const parts = date ?? dateTime;
@@ -686,7 +686,7 @@ export class OparlClient {
    */
   async list(bodyUrl: string, type: ListType, options: ListOptions = {}): Promise<ListResult<OparlObject>> {
     if (!isListType(type)) {
-      throw new OparlValidationError(`Unknown list type "${String(type)}". Use one of: ${Object.keys(LIST_TYPES).join(", ")}.`);
+      throw new OparlValidationError(`Unknown list type ${quoteValue(String(type))}. Use one of: ${Object.keys(LIST_TYPES).join(", ")}.`);
     }
     const field = LIST_TYPES[type];
     const query = listQuery(options); // checks the options' shape and keys first
@@ -777,7 +777,7 @@ export class OparlClient {
     assertKnownKeys("endpoints option", options, ENDPOINTS_OPTION_NAMES);
     const source = options.source ?? "all";
     if (source !== "all" && source !== "registry" && source !== "curated") {
-      throw new OparlValidationError(`Unknown endpoint source "${String(source)}". Use all, registry or curated.`);
+      throw new OparlValidationError(`Unknown endpoint source ${quoteValue(String(source))}. Use all, registry or curated.`);
     }
     const filters = checkEndpointFilters(options);
     let fetched: RegistryEntry[] = [];

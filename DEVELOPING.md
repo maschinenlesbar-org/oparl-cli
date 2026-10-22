@@ -304,6 +304,13 @@ CLI's commander parsers call the same functions and turn the reason into a usage
 `run.ts` maps an `OparlValidationError` raised in an action to exit 2 and logs it as an
 `ERROR` record of `oparl.cli`.
 
+A refusal quotes the user's value with `quoteValue` (`errors.ts`): as JSON writes it, with
+DEL, C1, U+2028/U+2029 and every format character (a zero-width space, a soft hyphen, a bidi
+control) escaped (`"2026-09-0\u200b1"`), cut at 200 characters with the "…" after the closing
+quote, so a value that looks valid but holds an invisible character reads as what it is.
+commander's own echo of a refused value (`argument '…' is invalid`) is escaped the same way
+before it becomes a record (`escapeCommanderError` in `run.ts`).
+
 Server text that reaches an error message goes through `sanitizeServerText`: control
 characters are dropped, whitespace (newlines and the Unicode line separators included) is
 collapsed to single spaces, and the result is cut to 200 characters, never inside a

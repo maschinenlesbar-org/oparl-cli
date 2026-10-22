@@ -410,3 +410,28 @@ test("parity: list rejects an Object.prototype name as type alike, with no reque
     assert.equal(cli.requests.length + lib.requests.length, 0, type);
   }
 });
+
+test("a refusal shows invisible and format characters in the value escaped, on both sides (T10)", async () => {
+  const ZWSP = "​";
+  const cases: Array<[string, string[], (c: OparlClient) => Promise<unknown>]> = [
+    ["a timestamp", ["list", "meeting", fx.BODY_URL, "--modified-since", `2026-09-0${ZWSP}1`], (c) => c.list(fx.BODY_URL, "meeting", { modifiedSince: `2026-09-0${ZWSP}1` })],
+    ["a soft hyphen in a timestamp", ["list", "meeting", fx.BODY_URL, "--created-until", "2026-09-­01"], (c) => c.list(fx.BODY_URL, "meeting", { createdUntil: "2026-09-­01" })],
+  ];
+  for (const [label, argv, call] of cases) {
+    const o = await parity(argv, (t) => call(libClient(t)), () => jsonResponse(fx.body));
+    assert.equal(o.cli.code, 2, `${label}: ${o.cli.err}`);
+    const raw = [...(argv.at(-1) as string)].find((ch) => /\p{Cf}/u.test(ch)) as string;
+    const escape = `\\u${raw.charCodeAt(0).toString(16).padStart(4, "0")}`;
+    assert.ok(o.cli.err.includes(escape) && !o.cli.err.includes(raw), `${label}: ${o.cli.err}`);
+    assert.ok(o.lib.error instanceof Error && o.lib.error.message.includes(escape) && !o.lib.error.message.includes(raw), `${label}: ${String(o.lib.error)}`);
+  }
+  // A library option key, an unknown list type and an unknown source are quoted the same way.
+  const c = libClient(routes({}).transport);
+  for (const call of [
+    () => c.list(fx.BODY_URL, "meeting", { [`limit${ZWSP}`]: 5 } as never),
+    () => c.list(fx.BODY_URL, `meeting${ZWSP}` as never),
+    () => c.endpoints({ source: `all${ZWSP}` as never }),
+  ]) {
+    await assert.rejects(call(), (err: Error) => err.message.includes("\\u200b") && !err.message.includes(ZWSP));
+  }
+});

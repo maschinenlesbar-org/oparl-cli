@@ -75,6 +75,34 @@ function commandPath(command: Command): string {
 }
 
 /**
+ * `text` with every control character but TAB (LF and CR as `\n`, `\r`), DEL, C1 and every
+ * Unicode format character (a zero-width space, a soft hyphen, a bidi control) written as an
+ * escape. commander quotes a refused value raw (`argument '…' is invalid`): a zero-width space
+ * in it read exactly like a valid value, and the record escapes only what can split or steer a
+ * line.
+ */
+function escapeTerminalText(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000a-\u001f\u007f-\u009f]|\p{Cf}/gu, (ch) =>
+    ch === "\n"
+      ? "\\n"
+      : ch === "\r"
+        ? "\\r"
+        : Array.from({ length: ch.length }, (_, i) => `\\u${ch.charCodeAt(i).toString(16).padStart(4, "0")}`).join(""),
+  );
+}
+
+/**
+ * escapeTerminalText for one commander error message, except for the `\n(Did you mean …?)`
+ * line commander appends after an unknown command or option. That hint is built from this
+ * CLI's own command and option names, and it can only end the message.
+ */
+function escapeCommanderError(message: string): string {
+  const hint = /\n\(Did you mean [^\n]*\?\)$/.exec(message);
+  if (hint === null) return escapeTerminalText(message);
+  return escapeTerminalText(message.slice(0, hint.index)) + hint[0];
+}
+
+/**
  * commander's stderr output as log records, one per line. Its `error: …` is an ERROR of
  * `cli`, with a following `(Did you mean …?)` line appended to that same record; the
  * help it shows after an error is one INFO record per non-blank line. A run with options
@@ -89,7 +117,7 @@ function writeCommanderErr(command: Command, deps: CliDeps, state: { errorLogged
   if (text.trim() === "") return;
   if (text.startsWith("error: ")) {
     state.errorLogged = true;
-    log.error("cli", text.slice("error: ".length).replace(/\n(\(Did you mean .*\?\))$/, " $1"));
+    log.error("cli", escapeCommanderError(text.slice("error: ".length)).replace(/\n(\(Did you mean .*\?\))$/, " $1"));
     return;
   }
   if (!state.errorLogged) {
@@ -196,6 +224,7 @@ export function redactionFor(argv: readonly string[], valueOptions: ReadonlySet<
     for (const secret of credentialsIn(source)) {
       secrets.add(secret);
       secrets.add(stripTerminalControls(secret));
+      secrets.add(escapeTerminalText(secret));
       secrets.add(JSON.stringify(secret).slice(1, -1));
     }
   }
