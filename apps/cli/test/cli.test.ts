@@ -744,3 +744,21 @@ test("-o refuses a value that starts with a dash: the next option, taken as the 
   assert.equal(await run(["-o", "./-x", "system", fx.SYSTEM_URL], dashed.deps), 0);
   assert.deepEqual(Object.keys(dashed.files), ["./-x"]);
 });
+
+test("a password in a URL anywhere in an argument is redacted in every message: padded, dash-led or mid-phrase (T15)", async () => {
+  // A pattern can't delimit a password holding a space; the exact userinfo can, but it was only
+  // looked for in an argument that starts with a scheme.
+  const cases = [
+    ["endpoints", "--source", "curated", "--oparl-version", " https://bob:p w@x.example/one/"],
+    ["endpoints", "--source", "curated", "--search", " https://bob:p w@x.example/​"],
+    ["endpoints", "--source", "curated", "--search", "see https://bob:p w@x.example/ now​"],
+    ["endpoints", "--source", "curated", "--search", "-https://bob:p w@x.example/​"],
+  ];
+  for (const argv of cases) {
+    const cli = makeCli();
+    assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
+    const stderr = cli.err.join("\n");
+    assert.ok(stderr.length > 0, argv.join(" "));
+    assert.doesNotMatch(stderr, /p w|p%20w/, `${argv.join(" ")}: ${stderr}`);
+  }
+});

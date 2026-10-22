@@ -220,7 +220,7 @@ export function redactionFor(argv: readonly string[], valueOptions: ReadonlySet<
   // A URL argument typed without its scheme is read as if it had one.
   const urls = urlArguments(argv, valueOptions).map((value) => (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value) ? value : `http://${value}`));
   const secrets = new Set<string>();
-  for (const source of [...values, ...urls]) {
+  for (const source of [...values.flatMap(urlsWithin), ...urls]) {
     for (const secret of credentialsIn(source)) {
       secrets.add(secret);
       secrets.add(stripTerminalControls(secret));
@@ -231,6 +231,21 @@ export function redactionFor(argv: readonly string[], valueOptions: ReadonlySet<
   const list = [...secrets];
   const out = (text: string): string => (list.length === 0 ? text : redactCredentials(text, list));
   return { out, err: (text) => redactUserinfo(out(text)) };
+}
+
+/** Where a scheme (`https://`) starts inside a value: anywhere, not only at its start. */
+const SCHEME_START = /[A-Za-z][A-Za-z0-9+.-]*:\/\//g;
+
+/**
+ * `value` and the rest of it from each place a URL starts inside it, for `credentialsIn`
+ * (which reads a URL at the start of its input only). A padded `" https://user:pw@host"`, one
+ * after a dash (`"-https://…"`) or inside a phrase (`--search "see https://…"`) is quoted by a
+ * refusal or by commander's echo of it, and a password holding a space escaped the pattern.
+ */
+function urlsWithin(value: string): string[] {
+  const found = [value];
+  for (const match of value.matchAll(SCHEME_START)) if (match.index > 0) found.push(value.slice(match.index));
+  return found;
 }
 
 /**

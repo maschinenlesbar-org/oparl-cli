@@ -42,8 +42,9 @@ a search text or a User-Agent as often as a credential); `redactUrl`, whose valu
 by definition, reads one without a scheme as if it had one. The CLI goes further, because
 commander quotes rejected arguments raw: `run()` wraps its output and builds the log
 (`redactionFor`, `withRedactedOutput`) so that the exact userinfo of every URL in argv —
-also in an `--option=value` token, and in its terminal-stripped and JSON-escaped forms — is
-printed as `***` on stdout and stderr. A URL argument (a positional, the `--registry-url`
+also in an `--option=value` token, a URL that starts anywhere inside a value (padded,
+after a dash, mid-phrase: `urlsWithin`), and in its terminal-stripped, escaped and
+JSON-escaped forms — is printed as `***` on stdout and stderr. A URL argument (a positional, the `--registry-url`
 value) typed without its scheme still counts; the value of any other option
 (`-o run:2026-10-09@x.json`, `--user-agent`) does not. The log replaces it in each
 record's *message*, before the record is cut and escaped, and writes to the raw stderr: the
