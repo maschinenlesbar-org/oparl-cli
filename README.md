@@ -161,9 +161,12 @@ oparl get "$next" | jq '.data | length'
 
 Use `--compact` for single-line JSON and `-o <file>` to write to a file — both are
 **global options** that work before or after the command. `-o` refuses an existing file (or
-a directory) before sending any request, with exit `2`; `--force` replaces it. The file is
-written beside the target and renamed over it, so a failed write (a full disk) leaves the old
-file as it was and no half-written one. Every option takes one value:
+a directory, or a file whose directory is missing or not writable) before sending any
+request, with exit `2`; `--force` replaces an existing file. The file is written beside the
+target and renamed over it, so a failed write (a full disk) or an interrupted one (Ctrl-C,
+`SIGTERM`, `SIGHUP`: exit `130`, `143`, `129`) leaves the old file as it was and no
+half-written or temporary one. A device, a FIFO or the shell's own descriptor (`-o /dev/null`,
+`-o /dev/stdout`, `-o >(gzip > x.gz)`) is written in place, without `--force`. Every option takes one value:
 giving one twice (`--limit 2 --limit 5`) is a usage error rather than "the last one wins".
 
 **Exit codes** make the CLI easy to use in scripts:
@@ -253,8 +256,8 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `-V, --version` | Print the version number |
 | `-h, --help` | Show help for the program or a command |
 | `--compact` | Print JSON on a single line instead of pretty-printed |
-| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout); an existing file is refused (exit `2`, no request sent) unless `--force` is given |
-| `--force` | With `-o`, replace an existing file (atomically; its mode is kept, a symlink is written through). Without `-o` it is a usage error |
+| `-o, --output <file>` | Write output to this file instead of stdout (`-` = stdout); an existing file is refused (exit `2`, no request sent) unless `--force` is given; a directory, and a file whose directory is missing or not writable, are refused either way. A device, a FIFO or the shell's own descriptor (`/dev/null`, `/dev/stdout`, `>(…)`) is written in place, without `--force` |
+| `--force` | With `-o`, replace an existing file (atomically; its mode is kept; a symlink is written through, to the file it points at, which is created if the link dangles). Without `-o` it is a usage error |
 | `--log-format <format>` | How errors, warnings and notes are written to stderr: `text` (default; log4j style, `2026-10-09T14:03:12.481Z WARN  [oparl.http] …`) or `jsonl` (one JSON object per line: `ts`, `level`, `topic`, `msg`). stdout is not affected |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
 | `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji, an en dash or a blank value is rejected with exit `2`) |

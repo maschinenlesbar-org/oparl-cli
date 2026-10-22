@@ -495,11 +495,19 @@ shaped after real 1.1 and 1.0 servers and the registry, moved to example hosts.
   a text filter or path id is canonicalised or refused — both lists are empty here, since the
   one text filter, `endpoints --search`, is matched client-side and objects are addressed by
   absolute URL, never by an id in a path; the adapter maps `parity` to the kit's shape), P25
-  (`conformance-p25-response-corpus`: a number a double can't carry exactly, and an empty
-  answer, are errors on both sides; `get` on a File object's `size`) and P26
+  (`conformance-p25-response-corpus`: a number a double can't carry exactly, a subnormal one
+  that prints changed, and an empty answer, are errors on both sides that name the request;
+  `get` on a File object's `size`; no `bigIntegerKeys`), P26
   (`conformance-p26-output-integrity`: `-o` under `ulimit -f` leaves the old file and no
-  temporary file; an existing file without `--force` is refused before any request; spawns
-  the built bin against a local server).
+  temporary file, and stdout redirected to a file and cut short exits 1; an existing file
+  without `--force`, and a missing directory, are refused before any request; `/dev/null`, a
+  FIFO and `/dev/stdout` are written in place; `--force` through a dangling link creates its
+  target; a signal during the write leaves no claim and no temporary file; spawns the built
+  bin against a local server; oparl's adapter points `get` at the mock instead of a
+  `--base-url`) and, from the fix round of 2026-10-21, P27
+  (`conformance-p27-big-and-odd-answers`: a large flat answer prints with `--compact` within a
+  256 MB heap, 20 MB of DEL characters print escaped within 512 MB and 90 MB of them are an
+  ERROR record, not a crash; a lone surrogate or invalid bytes become U+FFFD with a WARN).
 - **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
   real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
   file holds only filtered objects.
@@ -573,13 +581,21 @@ an OParl error object; the notes on a walk that stopped early or on the registry
 network errors and their hints, a refused link or redirect, the cleartext warning) and
 `output` (`-o`: "Wrote N bytes", and every failure to write the file, an `OutputError`).
 `-o` is checked before any request (`checkOutputTarget` in `shared.ts`): `--force` without
-`-o`, a directory, and an existing path (a dangling link too) without `--force` are usage
-errors (exit 2, `cli`). The write (`nodeFiles` in `io.ts`, behind `CliIO.writeFile` and
-`CliIO.outputState`) is atomic: without `--force` the name is claimed with an exclusive
-create, then a temporary file beside it is renamed over it; the old file's mode is kept,
-`--force` writes through a symlink, and a failure leaves neither a temporary file nor the
-claimed name behind (`Could not write to "<path>": …`, exit 1). A file that appears during
-the request is refused at the write (`Refusing to overwrite existing file …`, exit 1).
+`-o`, a directory, an existing path (a dangling link too) without `--force`, and a file whose
+directory is missing, not a directory or not writable (or, with `--force`, whose links loop)
+are usage errors (exit 2, `cli`; `Cannot write to "<path>": the directory "<dir>" does not
+exist.`). The write (`nodeFiles` in `io.ts`, behind `CliIO.writeFile`, `CliIO.outputState`
+and `CliIO.outputParentProblem`) is atomic for a file: without `--force` the name is claimed
+with an exclusive create, then a temporary file beside it (`.<name>.<pid>-<hex>.tmp`, the name
+cut to stay within 255 bytes) is renamed over it; the old file's mode is kept, `--force`
+writes through a symlink (`linkTarget`: to the file it points at, created if the link
+dangles; the link stays), and a failure leaves neither a temporary file nor the claimed name
+behind (`Could not write to "<path>": …`, exit 1, without Node's tail naming the temporary
+file). SIGINT, SIGTERM and SIGHUP during a file write remove the claim and the temporary file,
+then exit 130, 143 or 129. A stream — a character device, a FIFO, a socket, `/dev/stdout`,
+`/dev/fd/N` — is written in place (`writeInPlace`, every byte), with no claim, no temporary
+file and no `--force` needed. A file that appears during the request is refused at the write
+(`Refusing to overwrite existing file …`, exit 1).
 A registry that cannot be read with `--source all` is a `WARN` of the failure's own area
 (`http` for the connection, `api` for the registry's answer; `failureArea`), followed by
 the failure's hint where it has one (`networkHint`: raise `--timeout` or

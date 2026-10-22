@@ -193,9 +193,11 @@ oparl list paper "$BODY" --max-pages 0 --modified-since 2026-09-01T00:00:00+02:0
 ```
 
 `-o` never overwrites a file by accident: a run whose file already exists stops before any
-request (exit `2`). Add `--force` to replace it on the next sync — the new file is written
-beside the old one and renamed over it, so a run that fails halfway leaves the old file as
-it was.
+request (exit `2`), and so does one whose directory is missing or not writable. Add `--force`
+to replace it on the next sync — the new file is written beside the old one and renamed over
+it, so a run that fails halfway, or is interrupted (Ctrl-C: exit `130`), leaves the old file as
+it was and no temporary file. A device, a FIFO or `/dev/stdout` is written in place, without
+`--force`.
 
 Deleted objects may appear with `deleted: true` — apply them to your copy as deletions.
 Each object appears once per `id`, and where a page repeated it (a list that changes while

@@ -307,8 +307,10 @@ function outputFile(global: GlobalOptions): string | undefined {
 
 /**
  * Check `-o` before any request, so a refused target costs none: `--force` without `-o`, a
- * directory, and an existing path (a dangling link too) without `--force` are usage errors
- * (an OparlValidationError, exit 2). `-o -` is stdout. The write checks again: a file that
+ * directory, an existing path (a dangling link too) without `--force`, and a file whose
+ * directory is missing or not writable are usage errors (an OparlValidationError, exit 2). A
+ * stream (`/dev/null`, a FIFO, `/dev/stdout`, `>(…)`) needs no `--force`: it is written in
+ * place, and nothing in it can be lost. `-o -` is stdout. The write checks again: a file that
  * appears during the request is not overwritten either (an OutputError then, exit 1).
  */
 export function checkOutputTarget(deps: CliDeps, global: GlobalOptions): void {
@@ -319,7 +321,10 @@ export function checkOutputTarget(deps: CliDeps, global: GlobalOptions): void {
   if (path === undefined || deps.io.outputState === undefined) return;
   const state = deps.io.outputState(path);
   if (state === "directory") throw new OparlValidationError(isDirectoryMessage(path));
+  if (state === "stream") return;
   if (state === "exists" && global.force !== true) throw new OparlValidationError(refuseOverwrite(path));
+  const problem = deps.io.outputParentProblem?.(path, global.force === true);
+  if (problem !== undefined) throw new OparlValidationError(problem);
 }
 
 /**
