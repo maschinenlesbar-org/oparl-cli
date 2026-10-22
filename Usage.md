@@ -38,7 +38,10 @@ checked, it is the registry's own last fetch (`fetched`). A server that moved ha
 `--search ratsinfomanagement`). The search covers the title, the URL and the note, and
 ignores case and accents, so `köln` and `koln` match the same entries. Only when nothing
 matches literally does it try the umlaut spellings, so `koeln` still finds `Köln` while an
-ordinary word like `Aue` keeps its own meaning. When dev.oparl.org cannot be reached,
+ordinary word like `Aue` keeps its own meaning. A search that is blank, or holds only
+invisible characters, or a control or format character (a zero-width space pasted along) is a
+usage error, shown with the character escaped (`"k\u200bln"`), since it could only match
+everything or nothing. When dev.oparl.org cannot be reached,
 `endpoints` warns about that on stderr (a `WARN` record, of `oparl.http` for a network
 failure, with the timeout hint where one applies) and lists the curated servers alone, as
 of their last check — `--source curated` does the same without trying the network.
@@ -65,8 +68,14 @@ oparl endpoints --source curated --working | jq -r '.[] | "\(.title)\t\(.url)"'
 ```
 
 `--oparl-version` takes the short form (`1.0`, `1.1`) or the whole version URI a System
-reports (`https://schema.oparl.org/1.1/`); anything else is a usage error rather than an
-empty result.
+reports (`https://schema.oparl.org/1.1/`, in the form `n.n`); anything else, an invisible
+character in it included, is a usage error rather than an empty result.
+
+A URL argument (a System, Body or object URL, `--registry-url`) is used as given: URL parsing
+drops surrounding whitespace and inner tabs and line breaks, nothing else is trimmed or
+normalised. A URL that holds a control or format character (an ESC from a hostile id, a
+zero-width space) or half a character is a usage error before any request, shown escaped,
+where it was sent percent-encoded and named another URL.
 
 Not listed at all? Any System URL works: `oparl system <url>`. Council portals often link
 their OParl interface, and many vendors use fixed paths (e.g. `…/webservice/oparl/v1.1/system`

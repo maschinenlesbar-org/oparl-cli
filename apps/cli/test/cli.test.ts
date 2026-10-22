@@ -526,9 +526,9 @@ test("a bare invocation prints help and exits 0", async () => {
   assert.match(cli.out.join("\n"), /Usage: oparl/);
 });
 
-test("control characters in a URL argument never reach stderr", async () => {
-  // `oparl system "$(jq -r .data[0].id)"`: jq -r decodes a hostile id's \u001b, and the
-  // "is not an OParl System/Body" errors quote the argument as typed.
+test("control characters in a URL argument never reach stderr, and the URL is refused before any request", async () => {
+  // `oparl system "$(jq -r .data[0].id)"`: jq -r decodes a hostile id's \u001b. Such a URL is
+  // refused (T8): URL parsing would percent-encode the controls silently, naming another URL.
   const esc = String.fromCharCode(0x1b);
   const hostile = `?x=${esc}]0;pwned${String.fromCharCode(0x07)}${esc}[31mRED${String.fromCharCode(0x9b)}2J`;
   for (const argv of [
@@ -536,12 +536,13 @@ test("control characters in a URL argument never reach stderr", async () => {
     ["list", "meeting", `${fx.SYSTEM_URL}${hostile}`],
   ]) {
     const cli = makeCli();
-    assert.equal(await run(argv, cli.deps), 1, argv.join(" "));
+    assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
+    assert.equal(cli.mt.calls.length, 0, argv.join(" "));
     const stderr = cli.err.join("\n");
-    assert.match(stderr, /is not an OParl (System|Body)/);
     assert.ok(!hasControlChar(stderr.replaceAll("\n", " ")), JSON.stringify(stderr));
-    // The message quotes the URL as the client used it, so the controls are percent-encoded.
-    assert.match(stderr, /%1B\]0;pwned%07%1B\[31mRED%C2%9B2J/);
+    // The refusal quotes the URL with the controls escaped.
+    assert.match(stderr, /\\u001b\]0;pwned\\u0007\\u001b\[31mRED\\u009b2J/);
+    assert.match(stderr, /contains an invisible or control character \(U\+001B\)/);
   }
 });
 

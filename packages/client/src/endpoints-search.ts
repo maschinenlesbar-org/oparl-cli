@@ -4,7 +4,7 @@
 // its value parsers use these same functions.
 
 import { OparlValidationError } from "./errors.js";
-import { assertValid } from "./validate.js";
+import { assertValid, textProblem, tokenProblem } from "./validate.js";
 import type { RegistryEntry } from "./types.js";
 
 /** The filters `endpoints()` takes besides `source`. */
@@ -26,11 +26,14 @@ export function shortOparlVersion(version: string): string {
   return /\/(\d+\.\d+)\/?$/.exec(version)?.[1] ?? version;
 }
 
-/** Why a search term is unusable: blank (it would match every entry), or not a string. */
+/**
+ * Why a search term is unusable: blank (it would match every entry), also when it holds only
+ * invisible characters or combining marks, a lone surrogate, or a control or format character
+ * (a zero-width space, a soft hyphen, a bidi control; ZWJ and ZWNJ are kept), which makes it
+ * match nothing; or not a string. The kit's `textProblem`.
+ */
 export function searchTextProblem(value: string): string | undefined {
-  if (typeof value !== "string") return "Expected a string.";
-  if (value.trim() === "") return "Expected a non-empty value.";
-  return undefined;
+  return textProblem(value);
 }
 
 /**
@@ -40,7 +43,9 @@ export function searchTextProblem(value: string): string | undefined {
  * such servers".
  */
 export function oparlVersionProblem(value: string): string | undefined {
-  if (typeof value !== "string") return "Expected a string.";
+  // A token first: blank, or an invisible, control or half character in it, is refused visibly.
+  const token = tokenProblem(value);
+  if (token !== undefined) return token;
   if (!/^\d+\.\d+$/.test(shortOparlVersion(value.trim()))) {
     return "Expected an OParl version such as 1.0 or 1.1, or the version URI a System reports (https://schema.oparl.org/1.1/).";
   }

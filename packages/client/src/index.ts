@@ -39,6 +39,7 @@ export {
   isBidiControl,
   parseHttpUrl,
   parseRetryAfter,
+  parseUrlArgument,
   resolveLink,
   sanitizeServerText,
   upgradeSameHostUrls,
@@ -49,7 +50,20 @@ export type { EngineOptions, JsonResponse, RetryEvent } from "./engine.js";
 export { MAX_TIMEOUT_MS, nodeHttpTransport } from "./http.js";
 export type { Transport, HttpRequest, HttpResponse } from "./http.js";
 export { buildQueryString } from "./query.js";
-export { MAX_LIST_LIMIT, assertValid, intRangeProblem, listLimitProblem, maxPagesProblem } from "./validate.js";
+export {
+  MAX_LIST_LIMIT,
+  assertValid,
+  intRangeProblem,
+  listLimitProblem,
+  listProblem,
+  maxPagesProblem,
+  normalizeText,
+  normalizeToken,
+  splitList,
+  textProblem,
+  tokenProblem,
+  urlArgumentProblem,
+} from "./validate.js";
 export type { Problem } from "./validate.js";
 export type { QueryParams, QueryPrimitive, QueryValue } from "./query.js";
 export {

@@ -304,6 +304,16 @@ CLI's commander parsers call the same functions and turn the reason into a usage
 `run.ts` maps an `OparlValidationError` raised in an action to exit 2 and logs it as an
 `ERROR` record of `oparl.cli`.
 
+The kit's value rules are in `validate.ts` (fix round 2026-10-21, decision D8): `textProblem`
+for free text (`--search`: blank, also only invisible characters or combining marks, a lone
+surrogate, a control character but TAB/LF/CR, or a format character but ZWJ/ZWNJ is refused),
+`tokenProblem`/`normalizeToken` for a code or enum (`--oparl-version`: any control or format
+character is refused), `splitList`/`listProblem` for a comma list (none in oparl yet), and
+`urlArgumentProblem` for a URL a caller gives (`parseUrlArgument`, used by every client method
+and the CLI's URL arguments): an OParl id is used as given, not trimmed or normalised beyond
+URL parsing, but a control, format or half character, which parsing would percent-encode
+silently, is refused. All exported from the package.
+
 A refusal quotes the user's value with `quoteValue` (`errors.ts`): as JSON writes it, with
 DEL, C1, U+2028/U+2029 and every format character (a zero-width space, a soft hyphen, a bidi
 control) escaped (`"2026-09-0\u200b1"`), cut at 200 characters with the "…" after the closing
@@ -499,9 +509,11 @@ shaped after real 1.1 and 1.0 servers and the registry, moved to example hosts.
   P21 (`conformance-p21-readme-links`): every relative link in `README.md` points to a file
   `apps/cli/package.json` `files` ships, since npmjs.com shows the README; other documents are linked
   by their GitHub URL. The kit round of 2026-10-21 added P24 (`conformance-p24-input-corpus`:
-  a text filter or path id is canonicalised or refused — both lists are empty here, since the
-  one text filter, `endpoints --search`, is matched client-side and objects are addressed by
-  absolute URL, never by an id in a path; the adapter maps `parity` to the kit's shape), P25
+  a text filter, token or list is canonicalised or refused — the three lists are empty here,
+  since the one text filter, `endpoints --search`, and the one enum, `--oparl-version`, are
+  matched client-side, and objects are addressed by absolute URL, never by an id in a path;
+  `parity.test.ts` runs P24's REFUSED corpus through `--search`, `--oparl-version` and the URL
+  arguments instead; the adapter maps `parity` to the kit's shape), P25
   (`conformance-p25-response-corpus`: a number a double can't carry exactly, a subnormal one
   that prints changed, and an empty answer, are errors on both sides that name the request;
   `get` on a File object's `size`; no `bigIntegerKeys`), P26

@@ -435,3 +435,58 @@ test("a refusal shows invisible and format characters in the value escaped, on b
     await assert.rejects(call(), (err: Error) => err.message.includes("\\u200b") && !err.message.includes(ZWSP));
   }
 });
+
+/** The kit's P24 values every input refuses: blank, only invisible characters or combining marks, a lone surrogate, a control or format character. */
+const REFUSED = [
+  "", " ", " ", "\n\t", "　", "​", "­", "‍", "﻿", "́̈", " ​ ",
+  "a​b", "Mül­ler", "‮abc", "a\u0000b", "a\u001bb", "a\u0085b", "\ud800", "a\udc00b", "x\ud83d",
+];
+/** A control, format or lone-surrogate character in `value`, or undefined. */
+const INVISIBLE_CHAR = /[\p{Cc}\p{Cf}]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/u;
+
+test("--search, --oparl-version and every URL argument refuse an invisible, control or half character, before any request, showing it escaped (T8)", async () => {
+  const site: Record<string, ReturnType<typeof jsonResponse>> = { [fx.REGISTRY_URL]: jsonResponse(fx.registryPage1), [`${fx.HOST}/oparl/x`]: jsonResponse(fx.system) };
+  const respond = (req: { url: string }) => site[req.url] ?? jsonResponse({}, 404);
+  /** Whether a URL keeps `value`'s invisible character: URL parsing drops tabs and line breaks. */
+  const inUrl = (value: string): boolean => INVISIBLE_CHAR.test(value.replace(/[\t\n\r]/g, ""));
+  const inputs: Array<{ name: string; argv: (v: string) => string[]; lib: (c: OparlClient, v: string) => Promise<unknown>; url: boolean }> = [
+    // Free text, matched client-side: blank (also only invisible characters) or holding one is refused.
+    { name: "endpoints --search", argv: (v) => ["endpoints", "--source", "curated", "--search", v], lib: (c, v) => c.endpoints({ source: "curated", search: v }), url: false },
+    // An enum: a token, so blank or holding any control or format character is refused.
+    { name: "endpoints --oparl-version", argv: (v) => ["endpoints", "--source", "curated", "--oparl-version", v], lib: (c, v) => c.endpoints({ source: "curated", oparlVersion: v }), url: false },
+    // A URL is not trimmed or normalised beyond what URL parsing does (it drops surrounding
+    // whitespace and inner tabs and line breaks, and percent-encodes the rest), so only a value
+    // that keeps a control, format or half character is refused.
+    { name: "get <url>", argv: (v) => ["get", `${fx.HOST}/oparl/${v}x`], lib: (c, v) => c.get(`${fx.HOST}/oparl/${v}x`), url: true },
+    { name: "system <url>", argv: (v) => ["system", `${fx.HOST}/oparl/x?q=${v}`], lib: (c, v) => c.system(`${fx.HOST}/oparl/x?q=${v}`), url: true },
+    {
+      name: "endpoints --registry-url",
+      argv: (v) => ["endpoints", "--source", "registry", "--registry-url", `${fx.REGISTRY_URL}${v}`],
+      lib: async (_c, v) => new OparlClient({ registryUrl: `${fx.REGISTRY_URL}${v}`, transport: async () => jsonResponse({}) }).endpoints({ source: "registry" }),
+      url: true,
+    },
+  ];
+  for (const input of inputs) {
+    for (const value of REFUSED.filter((v) => !input.url || inUrl(v))) {
+      const label = `${input.name} ${JSON.stringify(value)}`;
+      const o = await parity(input.argv(value), (t) => input.lib(libClient(t), value), respond);
+      assert.equal(o.cli.code, 2, `${label}: CLI exit ${o.cli.code}: ${o.cli.err}`);
+      assert.deepEqual(o.cli.requests, [], `${label}: the CLI sent a request`);
+      assert.equal(o.lib.ok, false, `${label}: the library resolved`);
+      assert.deepEqual(o.lib.requests, [], `${label}: the library sent a request`);
+      assert.ok(o.lib.error instanceof OparlValidationError, `${label}: ${String(o.lib.error)}`);
+      // A blank text is "Expected a non-empty value."; anything else shows the character escaped.
+      if (!input.url && value.replace(/[\s\p{Cc}\p{Cf}\p{M}]/gu, "") === "") continue;
+      const ch = INVISIBLE_CHAR.exec(input.url ? value.replace(/[\t\n\r]/g, "") : value.trim())?.[0];
+      if (ch === undefined) continue;
+      const escape = `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`;
+      assert.ok(o.cli.err.toLowerCase().includes(escape) && !o.cli.err.includes(ch), `${label}: the CLI's refusal doesn't show ${escape}: ${o.cli.err}`);
+      assert.ok(o.lib.error.message.toLowerCase().includes(escape) && !o.lib.error.message.includes(ch), `${label}: ${o.lib.error.message}`);
+    }
+  }
+  // What stays accepted: a search with ZWJ (emoji, scripts) or padding, a padded URL.
+  for (const argv of [["endpoints", "--source", "curated", "--search", "a\u200db"], ["endpoints", "--source", "curated", "--search", " k\u00f6ln "], ["get", ` ${fx.HOST}/oparl/x `]]) {
+    const o = await parity(argv, async () => undefined, respond);
+    assert.equal(o.cli.code, 0, `${argv.join(" ")}: ${o.cli.err}`);
+  }
+});

@@ -25,7 +25,7 @@ import {
   quoteValue,
   redactUrl,
 } from "./errors.js";
-import { assertValid, intRangeProblem } from "./validate.js";
+import { assertValid, intRangeProblem, urlArgumentProblem } from "./validate.js";
 
 const DEFAULT_USER_AGENT = "oparl-cli";
 
@@ -335,6 +335,18 @@ export function parseHttpUrl(value: string): URL {
     throw new OparlValidationError(`Only http: and https: URLs are supported: ${cutForMessage(shown)}.${hint}`);
   }
   return url;
+}
+
+/**
+ * A URL a caller gives (a System, Body, object or registry URL), checked: `urlArgumentProblem`
+ * (no control, format or half character, which URL parsing would percent-encode silently),
+ * then `parseHttpUrl`. The client and the CLI's URL arguments use it; links a server hands out
+ * go through `resolveLink`.
+ */
+export function parseUrlArgument(value: string): URL {
+  const problem = urlArgumentProblem(value);
+  if (problem !== undefined) throw new OparlValidationError(problem);
+  return parseHttpUrl(value);
 }
 
 const effectivePort = (url: URL): string => url.port || (url.protocol === "https:" ? "443" : "80");

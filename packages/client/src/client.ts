@@ -18,6 +18,7 @@ import {
   carryQuery,
   encodeTimestampPlus,
   parseHttpUrl,
+  parseUrlArgument,
   resolveLink,
   sanitizeServerText,
   type EngineOptions,
@@ -216,7 +217,7 @@ const str = (value: JsonValue | undefined): string | null => (typeof value === "
  * (an absolute http/https URL, else an OparlValidationError) and without any
  * `user:password@`, so credentials in a URL are never sent nor echoed.
  */
-const callerUrl = (url: string): string => parseHttpUrl(url).href;
+const callerUrl = (url: string): string => parseUrlArgument(url).href;
 
 /** The OParl list parameters: the filters a list URL can carry. */
 const LIST_PARAMS = ["created_since", "created_until", "modified_since", "modified_until", "limit", "omit_internal"];
@@ -283,7 +284,7 @@ function checkedEndpointList<T extends { url: string }>(list: readonly T[], opti
  */
 function checkedRegistryUrl(url: string): string {
   try {
-    return parseHttpUrl(url).href;
+    return parseUrlArgument(url).href;
   } catch (err) {
     if (err instanceof OparlValidationError) throw new OparlValidationError(`Invalid registryUrl: ${err.message}`);
     throw err;

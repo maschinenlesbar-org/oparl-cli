@@ -44,9 +44,12 @@ test("oparlVersionProblem takes a short version or a version URI, padded or not"
   for (const ok of ["1.0", "1.1", " 1.1 ", "https://schema.oparl.org/1.1/", "https://schema.oparl.org/1.0"]) {
     assert.equal(oparlVersionProblem(ok), undefined, ok);
   }
-  for (const bad of ["", "1", "v1.1", "1.0.0", "https://schema.oparl.org/", "eins", "2"]) {
+  for (const bad of ["1", "v1.1", "1.0.0", "https://schema.oparl.org/", "eins", "2"]) {
     assert.match(oparlVersionProblem(bad) ?? "", /^Expected an OParl version such as 1\.0 or 1\.1/, bad);
   }
+  // A token first: blank, or an invisible character in it, is said as such (T8).
+  assert.equal(oparlVersionProblem(""), "Expected a non-empty value.");
+  assert.equal(oparlVersionProblem("1.\u200b1"), '"1.\\u200b1" contains an invisible or control character (U+200B).');
   assert.equal(oparlVersionProblem(1.1 as unknown as string), "Expected a string.");
 });
 

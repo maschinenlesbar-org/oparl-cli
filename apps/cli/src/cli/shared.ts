@@ -8,7 +8,7 @@ import { OutputError, isDirectoryMessage, logOf, refuseOverwrite, type CliDeps }
 import type { OparlClientOptions } from "@maschinenlesbar.org/oparl-client/internal/client";
 import { normalizeTimestamp } from "@maschinenlesbar.org/oparl-client/internal/client";
 import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, cutForMessage, quoteValue } from "@maschinenlesbar.org/oparl-client/internal/errors";
-import { cleartextProblem, isBidiControl, parseHttpUrl, userAgentProblem, type RetryEvent } from "@maschinenlesbar.org/oparl-client/internal/engine";
+import { cleartextProblem, isBidiControl, parseUrlArgument, userAgentProblem, type RetryEvent } from "@maschinenlesbar.org/oparl-client/internal/engine";
 import type { Problem } from "@maschinenlesbar.org/oparl-client/internal/validate";
 
 /**
@@ -99,7 +99,7 @@ export function fromLibrary<T>(check: (value: string) => T): (value: string) => 
  * the library's parseHttpUrl, so a typo fails at parse time (exit 2) with the message a
  * library caller gets, and any `user:password@` is dropped (never sent nor echoed).
  */
-export const parseUrl: (value: string) => string = fromLibrary((value) => parseHttpUrl(value).href);
+export const parseUrl: (value: string) => string = fromLibrary((value) => parseUrlArgument(value).href);
 
 /**
  * Replace the userinfo of any URL in a text with `***`, by pattern: the fallback for a URL
