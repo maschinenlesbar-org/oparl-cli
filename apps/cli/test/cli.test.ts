@@ -762,3 +762,17 @@ test("a password in a URL anywhere in an argument is redacted in every message: 
     assert.doesNotMatch(stderr, /p w|p%20w/, `${argv.join(" ")}: ${stderr}`);
   }
 });
+
+// T15b of the 2026-10-21 fix round (dip-bundestag-cli 420b79c): the URL search of the redaction
+// runs once per argument on every run. A pattern retried at every position of a long argument
+// without "://" took seconds (40 000 characters ~3 s, 1 MB hung), and a slice per "://" grew
+// quadratic memory; indexOf keeps it linear, and at most 64 URLs are read from one argument.
+test("the URL search of the redaction is linear: a long argument, with or without ://, is read fast (T15b)", async () => {
+  for (const big of ["b".repeat(40_000), "b".repeat(1024 * 1024), "a://".repeat(100_000)]) {
+    const cli = makeCli();
+    const started = performance.now();
+    await run(["endpoints", "--source", "curated", "--search", big], cli.deps);
+    const took = performance.now() - started;
+    assert.ok(took < 1000, `${big.length} characters took ${Math.round(took)} ms`);
+  }
+});

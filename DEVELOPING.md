@@ -44,7 +44,7 @@ commander quotes rejected arguments raw: `run()` wraps its output and builds the
 (`redactionFor`, `withRedactedOutput`) so that the exact userinfo of every URL in argv —
 also in an `--option=value` token, a URL that starts anywhere inside a value (padded,
 after a dash, mid-phrase: `urlsWithin`), and in its terminal-stripped, escaped and
-JSON-escaped forms — is printed as `***` on stdout and stderr. A URL argument (a positional, the `--registry-url`
+JSON-escaped forms — is printed as `***` on stdout and stderr. Each `://` is found with `indexOf` and its scheme by walking back, so the search stays linear in a long argument, and at most 64 URLs are read from one argument. A URL argument (a positional, the `--registry-url`
 value) typed without its scheme still counts; the value of any other option
 (`-o run:2026-10-09@x.json`, `--user-agent`) does not. The log replaces it in each
 record's *message*, before the record is cut and escaped, and writes to the raw stderr: the
