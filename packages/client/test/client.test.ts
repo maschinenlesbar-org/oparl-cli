@@ -811,6 +811,23 @@ test("endpointKey ignores host case, a default port and a trailing slash, but ke
   assert.notEqual(endpointKey("http://ris.example.org/oparl/system"), endpointKey("https://ris.example.org/oparl/system"));
 });
 
+test("endpointKey trims a long run of slashes in linear time (security audit 2026-10-27)", () => {
+  // The trailing slashes were trimmed with /\/+$/, which V8 retries from every slash of a run
+  // that doesn't end the path: one registry entry http://ris.example/<60 000 slashes>x held
+  // `oparl endpoints` for about 10 s, past --timeout (the merge runs after the registry answer).
+  const run = "/".repeat(200_000);
+  const start = performance.now();
+  assert.equal(endpointKey(`http://ris.example/${run}x`), `http://ris.example/${run}x`);
+  assert.equal(endpointKey(`http://ris.example/a${run}`), "http://ris.example/a");
+  assert.equal(endpointKey(`http://ris.example/a${run}?q=1`), "http://ris.example/a?q=1");
+  const ms = performance.now() - start;
+  assert.ok(ms < 1000, `${Math.round(ms)} ms`);
+  // The root path and an all-slash path key without a path; inner slashes stay.
+  assert.equal(endpointKey("https://ris.example.org/"), "https://ris.example.org");
+  assert.equal(endpointKey("https://ris.example.org///"), "https://ris.example.org");
+  assert.equal(endpointKey("https://ris.example.org/a//b//"), "https://ris.example.org/a//b");
+});
+
 test("the shipped curated list is consistent", () => {
   const day = /^\d{4}-\d{2}-\d{2}$/;
   const curatedKeys = new Set<string>();

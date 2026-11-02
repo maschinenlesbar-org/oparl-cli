@@ -922,7 +922,13 @@ export function endpointKey(url: string): string {
   try {
     const u = new URL(url);
     const port = u.port === "" || u.port === "80" || u.port === "443" ? "" : `:${u.port}`;
-    return `${u.protocol}//${u.hostname.toLowerCase()}${port}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+    // The trailing slashes are counted with an index loop: `/\/+$/` tried a match at every slash
+    // of a run that doesn't end the path, quadratic in the run, and one registry entry with a
+    // long slash run held `oparl endpoints` for seconds, past --timeout.
+    const path = u.pathname;
+    let end = path.length;
+    while (end > 0 && path.charCodeAt(end - 1) === 0x2f) end--;
+    return `${u.protocol}//${u.hostname.toLowerCase()}${port}${path.slice(0, end)}${u.search}`;
   } catch {
     return url.trim();
   }
