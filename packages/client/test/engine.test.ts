@@ -824,6 +824,23 @@ test("bigIntegerKeys: a declared member's number is its exact literal as a strin
   assert.deepEqual(await client.get(URL_1), { id: "x", size: "12345678901234567890" });
 });
 
+test("a number with a long run of zeros is checked in linear time (security audit 2026-10-27, class A)", async () => {
+  // decimalOf trimmed trailing zeros with /0+$/, which V8 retries from every zero of a run that
+  // doesn't end the text: 1.<100 000 zeros>1e300 took about 15 s, past --timeout (the scan runs
+  // once the answer is in). The same answer through the engine is refused in milliseconds.
+  const start = performance.now();
+  const literal = `1${"0".repeat(100_000)}1e-100400`;
+  assert.equal(scanNumbers(`{"x":${literal}}`).inexact, literal);
+  assert.equal(scanNumbers(`{"x":1.${"0".repeat(100_000)}1e300}`).inexact, `1.${"0".repeat(100_000)}1e300`);
+  const e = new RequestEngine({ transport: makeMockTransport(() => rawResponse(`{"x":1.${"0".repeat(100_000)}1e300}`, "application/json")).transport });
+  await assert.rejects(() => e.getJson(URL_1), (err: unknown) => err instanceof OparlParseError && /cannot be represented exactly/.test(err.message) && err.message.length < 1000);
+  const ms = performance.now() - start;
+  assert.ok(ms < 1000, `${Math.round(ms)} ms`);
+  // Leading and trailing zeros still don't count: these are exact.
+  assert.equal(firstInexactNumber('{"a":0.000,"b":-0e5,"c":10000000000000000000000,"d":5e-324,"e":0.00500e-321}'), undefined);
+  assert.equal(firstInexactNumber('{"a":12345678901234567890}'), "12345678901234567890");
+});
+
 test("text that is not valid is replaced with U+FFFD and reported through onWarning, never silently (D2)", async () => {
   const cases: Array<[string, Buffer, string, unknown, number]> = [
     // A lone surrogate written as an escape (high alone, low alone); a real pair and an escaped backslash stay.
