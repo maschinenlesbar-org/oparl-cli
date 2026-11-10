@@ -31,7 +31,9 @@ import {
   OparlParseError,
   OparlValidationError,
   TextBuilder,
+  credentialsIn,
   cutText,
+  redactUrl,
   redactUrlUserinfo,
   toWellFormed,
 } from "../src/errors.js";
@@ -1155,5 +1157,41 @@ test("a Basic credential without a password is a token: scrubbed in every echoed
       const seen = loggedOf(err);
       assert.ok(!seen.includes(TOKEN) && !seen.includes(basic), `${value} ${echo}: ${seen.slice(0, 1000)}`);
     }
+  }
+});
+
+test("credentialsIn ends the authority of a special scheme at a backslash, as WHATWG does (F)", () => {
+  for (const scheme of ["http", "https", "HTTPS", "ws", "wss", "ftp"]) {
+    assert.deepEqual(credentialsIn(`${scheme}://u:p@a.example\\@b.example/x`), ["u:p"], scheme);
+    assert.equal(new URL(`${scheme}://u:p@a.example\\@b.example/x`).password, "p", scheme);
+  }
+  // Another scheme's authority runs on to "/", "?" or "#".
+  assert.deepEqual(credentialsIn("foo://u:p@a.example\\@b.example/x"), ["u:p@a.example\\"]);
+  assert.deepEqual(credentialsIn("https://u:p@a.example/x\\@y"), ["u:p"]);
+});
+
+test("credentialsIn skips the slashes and backslashes WHATWG skips after a special scheme (F3)", () => {
+  // `http:///u:pw@h`, `https:\\u:pw@h` and `http:u:pw@h` all carry `u:pw` for WHATWG; read
+  // after "://", the userinfo was missed, so a refused URL echoed the password in clear.
+  for (const value of [
+    "http:alice:pw@h.example",
+    "http:/alice:pw@h.example",
+    "http:///alice:pw@h.example/x",
+    "https:////alice:pw@h.example",
+    "HTTPS:\\\\alice:pw@h.example",
+    "wss:\\/alice:pw@h.example",
+    "ftp:alice:pw@h.example",
+  ]) {
+    assert.deepEqual(credentialsIn(value), ["alice:pw"], value);
+    assert.equal(new URL(value).password, "pw", value);
+    assert.ok(!redactUrl(value).includes("pw"), redactUrl(value));
+  }
+  // Another scheme needs "//" before an authority: `foo:u:p@h` and `foo:///u:p@h` carry none.
+  assert.deepEqual(credentialsIn("foo:u:p@h.example"), []);
+  assert.deepEqual(credentialsIn("foo:///u:p@h.example"), []);
+  assert.equal(new URL("foo:///u:p@h.example").password, "");
+  // redactUrl reads a URL that doesn't parse the same way: no `http://` put in front of it.
+  for (const value of ["https:\\\\alice:pw12@h.example:99999", "http:alice:pw12@h.example:99999", "http:///alice:pw12@h.example:99999/x"]) {
+    assert.ok(!redactUrl(value).includes("pw12"), `${value}: ${redactUrl(value)}`);
   }
 });

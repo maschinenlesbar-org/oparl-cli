@@ -89,3 +89,41 @@ test("maxPagesProblem accepts a non-negative safe integer and nothing else", () 
     assert.equal(maxPagesProblem(bad), "Expected a non-negative integer.", String(bad));
   }
 });
+
+// Classes F, F3 and F4 of .reviews/2026-10-27-security-audit (portfolio round). WHATWG ends an
+// http(s) authority at "\" and skips any "/" and "\" after a special scheme (`http:///u:pw@h`,
+// `https:\\u:pw@h`, `http:u:pw@h`), repairing the URL silently: the host requested was not the
+// one typed, and the userinfo read after "://" was missed, so a refused URL echoed its password.
+test("a URL with a backslash, or whose scheme is not followed by exactly // and the host, is refused by the CLI and the library, never echoing the password (F, F3, F4)", async () => {
+  const pw = "s3cret-Pw";
+  const cases: Array<[string, RegExp]> = [
+    [`https://alice:${pw}@ris.example\\@evil.example/oparl/system`, /backslash/],
+    ["https://ris.example\\evil/oparl/system", /backslash/],
+    [`https:\\\\alice:${pw}@ris.example/oparl/system`, /backslash/],
+    [`http:alice:${pw}@127.0.0.1:9/oparl/system`, /"https:\/\/" and the host/],
+    [`http:/alice:${pw}@127.0.0.1:9/oparl/system`, /"https:\/\/" and the host/],
+    [`http:///alice:${pw}@127.0.0.1:9/oparl/system`, /"https:\/\/" and the host/],
+    [`HTTPS:alice:${pw}@ris.example/oparl/system`, /"https:\/\/" and the host/],
+    ["https:/ris.example/oparl/system", /"https:\/\/" and the host/],
+    // A refusal for another reason quotes the value: its userinfo is found after the slashes.
+    [`http:///alice:${pw}@ris.example/oparl/system​`, /invisible/],
+  ];
+  for (const [url, reason] of cases) {
+    const o = await parity(["system", url], (t) => new OparlClient({ transport: t }).system(url));
+    assert.equal(o.cli.code, 2, `${url}: ${o.cli.err}`);
+    assert.equal(o.cli.requests.length + o.lib.requests.length, 0, url);
+    assert.match(o.cli.err, reason, url);
+    assert.ok(!o.cli.err.includes(pw) && !o.cli.out.includes(pw), o.cli.err);
+    assert.ok(o.lib.error instanceof OparlValidationError, `${url}: ${String(o.lib.error)}`);
+    assert.match(o.lib.error.message, reason, url);
+    assert.ok(!o.lib.error.message.includes(pw), o.lib.error.message);
+  }
+  // The registry URL is checked by the same rule, as a client option and as --registry-url.
+  assert.throws(() => new OparlClient({ registryUrl: `http:///alice:${pw}@reg.example/api` }), /Invalid registryUrl: .*"https:\/\/" and the host/);
+  // A plain URL, any case, is accepted as before.
+  const ok = await parity(["get", "HTTPS://RIS.Example.de/oparl/system"], (t) => new OparlClient({ transport: t }).get("HTTPS://RIS.Example.de/oparl/system"), () =>
+    jsonResponse({ id: "https://ris.example.de/oparl/system", type: "https://schema.oparl.org/1.1/System" }),
+  );
+  assert.equal(ok.cli.code, 0, ok.cli.err);
+  assert.equal(ok.cli.requests[0]?.url, "https://ris.example.de/oparl/system");
+});

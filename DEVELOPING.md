@@ -314,7 +314,11 @@ character is refused), `splitList`/`listProblem` for a comma list (none in oparl
 `urlArgumentProblem` for a URL a caller gives (`parseUrlArgument`, used by every client method
 and the CLI's URL arguments): an OParl id is used as given, not trimmed or normalised beyond
 URL parsing, but a control, format or half character, which parsing would percent-encode
-silently, is refused. All exported from the package.
+silently, is refused, and so is what parsing would repair silently into another URL: a
+backslash (WHATWG ends an http(s) authority there, so `https://u:pw@a.example\@b.example` names
+a.example) and an `http:`/`https:` not followed by exactly `//` and the host (`http:host`,
+`http:/host`, `http:///host` parse as `http://host`). `credentialsIn` reads a URL's userinfo
+where WHATWG does: after the slashes and backslashes a special scheme skips, up to a backslash. All exported from the package.
 
 A refusal quotes the user's value with `quoteValue` (`errors.ts`): as JSON writes it, with
 DEL, C1, U+2028/U+2029 and every format character (a zero-width space, a soft hyphen, a bidi

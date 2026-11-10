@@ -198,7 +198,10 @@ const URL_STRIPPED = /^[\u0000-\u0020]+|[\u0000-\u0020]+$|[\t\n\r]/g;
  * refused instead: a control character, a format character (a zero-width space, a soft hyphen,
  * a bidi control) and a lone surrogate, which only ever make the URL name something else
  * (`%E2%80%8B` in a path) or nothing. The reason quotes the value visibly, its credentials
- * replaced by `***`.
+ * replaced by `***`. What URL parsing would repair silently is refused too, without repeating
+ * the value: a backslash (an http(s) authority ends there, and a path reads it as "/"), and an
+ * `http:`/`https:` not followed by exactly `//` and the host (`http:host`, `http:/host`,
+ * `http:///host`), which parses as `http://host`.
  */
 export function urlArgumentProblem(value: string): string | undefined {
   if (typeof value !== "string") return undefined; // parseHttpUrl's own message
@@ -206,5 +209,10 @@ export function urlArgumentProblem(value: string): string | undefined {
   const shown = (): string => quoteValue(redactCredentials(value, credentialsIn(value.trim())));
   if (LONE_SURROGATE.test(kept)) return `${shown()} contains half of a character (a lone surrogate).`;
   if (TOKEN_INVISIBLE.test(kept)) return `${shown()} contains an invisible or control character (${codePointOf(kept, TOKEN_INVISIBLE)}).`;
+  // WHATWG ends an http(s) authority at "\" and reads it as "/" in a path, and it skips any
+  // slashes and backslashes after "http:" (`http:host`, `http:///host`), repairing the URL
+  // silently: the URL requested is not the one typed. Neither reason repeats the value.
+  if (kept.includes("\\")) return 'A URL cannot contain a backslash (\\); write "/" instead.';
+  if (/^https?:/i.test(kept) && !/^https?:\/\/[^/]/i.test(kept)) return 'Expected an absolute http(s) URL ("https://" and the host).';
   return undefined;
 }

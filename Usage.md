@@ -75,7 +75,10 @@ A URL argument (a System, Body or object URL, `--registry-url`) is used as given
 drops surrounding whitespace and inner tabs and line breaks, nothing else is trimmed or
 normalised. A URL that holds a control or format character (an ESC from a hostile id, a
 zero-width space) or half a character is a usage error before any request, shown escaped,
-where it was sent percent-encoded and named another URL.
+where it was sent percent-encoded and named another URL. So is what URL parsing would repair
+silently into another URL: a backslash (`https://host\path`), and `http:`/`https:` not followed
+by exactly `//` and the host (`https:/host`, `http:///host`, `http:host`); these refusals don't
+repeat the value.
 
 Not listed at all? Any System URL works: `oparl system <url>`. Council portals often link
 their OParl interface, and many vendors use fixed paths (e.g. `…/webservice/oparl/v1.1/system`

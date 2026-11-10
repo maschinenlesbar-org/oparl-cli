@@ -15,7 +15,10 @@ const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
  * every `user:password@` before it sends a request, and this keeps it out of messages too.
  */
 export function redactUrl(url: string): string {
-  const found = (): string[] => credentialsIn(SCHEME.test(url) ? url : `http://${url}`);
+  // A value with a special scheme but not "//" (`http:///u:pw@h`, `https:\\u:pw@h`) has one:
+  // credentialsIn reads its userinfo as WHATWG does, where a prefixed `http://` would end the
+  // authority at "http:".
+  const found = (): string[] => (SCHEME.test(url) || credentialsIn(url).length > 0 ? credentialsIn(url) : credentialsIn(`http://${url}`));
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -29,18 +32,29 @@ export function redactUrl(url: string): string {
 }
 
 /**
+ * A scheme WHATWG parses as special (`ftp`, `file`, `http(s)`, `ws(s)`) at the start of a value,
+ * with the slashes and backslashes it skips after it (`http:`, `http:///`, `https:\\` all start
+ * the authority): a special scheme's authority starts after them, and also ends at a backslash.
+ */
+const SPECIAL_SCHEME = /^(?:ftp|file|https?|wss?):[/\\]*/i;
+
+/**
  * The userinfo a URL carries, exactly as written — `["alice:pa#ss"]` for
  * `https://alice:pa#ss@host` — or `[]` when it carries none. Only a value that starts
- * with a scheme (`^[A-Za-z][A-Za-z0-9+.-]*://`) counts: a bare `a:b@c` is a file name
- * (`-o run:2026-10-09@x.json`), a search text or a User-Agent as often as a credential,
- * and every URL oparl takes has a scheme (`parseHttpUrl` requires `http:`/`https:`). It
- * works on URLs that don't parse too: the userinfo is everything between `://` and the
- * last `@` before the host. Used to redact those exact strings from text that echoes the
- * value (usage errors, help), whatever characters the password contains — a pattern
- * can't delimit one holding a space, `/`, `#`, `?` or `@`.
+ * with a scheme counts (`^[A-Za-z][A-Za-z0-9+.-]*://`, or a special one such as `http:` with
+ * any slashes or backslashes after it, as WHATWG reads `http:///alice:pw@host` and
+ * `http:alice:pw@host`): a bare `a:b@c` is a file name (`-o run:2026-10-09@x.json`), a search
+ * text or a User-Agent as often as a credential, and every URL oparl takes has a scheme
+ * (`parseHttpUrl` requires `http:`/`https:`). It works on URLs that don't parse too: the
+ * userinfo is everything between the scheme's slashes and the last `@` before the host. Used
+ * to redact those exact strings from text that echoes the value (usage errors, help), whatever
+ * characters the password contains — a pattern can't delimit one holding a space, `/`, `#`,
+ * `?` or `@`.
  */
 export function credentialsIn(value: string): string[] {
-  const scheme = SCHEME.exec(value);
+  // WHATWG skips any number of "/" and "\" after a special scheme, so its userinfo starts after them.
+  const special = SPECIAL_SCHEME.exec(value);
+  const scheme = special ?? SCHEME.exec(value);
   if (scheme === null) return [];
   const rest = value.slice(scheme[0].length);
   let parses = false;
@@ -51,10 +65,13 @@ export function credentialsIn(value: string): string[] {
     // Doesn't parse: the password may hold "/", "?", "#" or spaces.
   }
   // In a URL that parses, the userinfo ends at the last "@" of the authority (before the
-  // first "/", "?" or "#"); in one that doesn't, at the last "@" of the value.
-  const authority = parses ? rest.slice(0, rest.search(/[/?#]|$/)) : rest;
-  const end = authority.lastIndexOf("@");
-  return end > 0 ? [rest.slice(0, end)] : [];
+  // first "/", "?" or "#", and for a special scheme such as http(s) a "\", where WHATWG ends
+  // it too: `https://u:pw@a.example\@b.example` has the userinfo `u:pw` and the host
+  // a.example); in one that doesn't, at the last "@" of the value.
+  const end = special !== null ? /[/?#\\]|$/ : /[/?#]|$/;
+  const authority = parses ? rest.slice(0, rest.search(end)) : rest;
+  const at = authority.lastIndexOf("@");
+  return at > 0 ? [rest.slice(0, at)] : [];
 }
 
 /** A scheme character (RFC 3986: letters, digits, `+`, `.`, `-`). */
