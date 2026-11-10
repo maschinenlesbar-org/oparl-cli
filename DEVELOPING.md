@@ -631,7 +631,9 @@ behind (`Could not write to "<path>": …`, exit 1, without Node's tail naming t
 file). SIGINT, SIGTERM and SIGHUP during a file write remove the claim and the temporary file,
 then exit 130, 143 or 129. A stream — a character device, a FIFO, a socket, `/dev/stdout`,
 `/dev/fd/N` — is written in place (`writeInPlace`, every byte), with no claim, no temporary
-file and no `--force` needed. A file that appears during the request is refused at the write
+file and no `--force` needed; it is opened without `O_CREAT` and checked on the descriptor, so
+a path switched to a regular file after the check takes the way of a file (refused without
+`--force`). A file that appears during the request is refused at the write
 (`Refusing to overwrite existing file …`, exit 1).
 A registry that cannot be read with `--source all` is a `WARN` of the failure's own area
 (`http` for the connection, `api` for the registry's answer; `failureArea`), followed by
