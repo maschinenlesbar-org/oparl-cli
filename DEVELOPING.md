@@ -54,6 +54,11 @@ is matched in its raw form. A pattern can't delimit a password holding a space, 
 pattern (`redactUrlUserinfo` in `errors.ts`, one linear pass; the scheme regex it replaced was
 quadratic on a run of scheme characters such as `a.a.a.…`).
 
+A URL argument (`get <url>`, `--registry-url` and the other options that take a URL) is read as
+a URL however its scheme is typed (`typedUrlCredentials`): missing (`alice:pw@host`) or
+mistyped (`http//alice:pw@host`, the colon left out, whose userinfo is everything between the
+first slashes and the last `@`), so commander's echo of a refused one shows no password.
+
 "The URL it came from" is the URL the request **ended** on: `RequestEngine.fetchJson`
 returns the last redirect target alongside the decoded body (`getJson` is the same call
 without it), and `client.ts` resolves `System.body`, a Body's list URLs and `links.next`

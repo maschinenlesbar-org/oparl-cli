@@ -15,10 +15,9 @@ const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
  * every `user:password@` before it sends a request, and this keeps it out of messages too.
  */
 export function redactUrl(url: string): string {
-  // A value with a special scheme but not "//" (`http:///u:pw@h`, `https:\\u:pw@h`) has one:
-  // credentialsIn reads its userinfo as WHATWG does, where a prefixed `http://` would end the
-  // authority at "http:".
-  const found = (): string[] => (SCHEME.test(url) || credentialsIn(url).length > 0 ? credentialsIn(url) : credentialsIn(`http://${url}`));
+  // Read as a URL however its scheme is typed: missing, special without "//" (`http:///u:pw@h`,
+  // as WHATWG reads it) or mistyped (`http//u:pw@h`, the colon left out).
+  const found = (): string[] => typedUrlCredentials(url);
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -72,6 +71,26 @@ export function credentialsIn(value: string): string[] {
   const authority = parses ? rest.slice(0, rest.search(end)) : rest;
   const at = authority.lastIndexOf("@");
   return at > 0 ? [rest.slice(0, at)] : [];
+}
+
+/**
+ * The userinfo of a value meant as a URL (a base URL, a request URL), however its scheme is
+ * typed: as `credentialsIn` reads it when the value has a scheme; else as if it had `http://`
+ * (`user:password@host`, `TOKEN:@host`); else, for a scheme mistyped before slashes
+ * (`http//user:pw@host` with the colon left out, `http/…`, `htp:/…`), everything between the
+ * first run of slashes or backslashes and the last `@`, as `credentialsIn` reads a URL that
+ * doesn't parse. Such a value is refused, but the refusal (commander's, the transport's) quotes
+ * it, so its userinfo has to be found to be redacted. Only for a value known to be a URL: in
+ * other text a bare `a/b@c` is no credential.
+ */
+export function typedUrlCredentials(value: string): string[] {
+  if (value === "" || credentialsIn(value).length > 0 || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value)) return credentialsIn(value);
+  const prefixed = credentialsIn(`http://${value}`);
+  if (prefixed.length > 0) return prefixed;
+  const slashes = /[/\\]+/.exec(value);
+  const at = value.lastIndexOf("@");
+  if (slashes === null || slashes.index + slashes[0].length >= at) return [];
+  return [value.slice(slashes.index + slashes[0].length, at)];
 }
 
 /** A scheme character (RFC 3986: letters, digits, `+`, `.`, `-`). */

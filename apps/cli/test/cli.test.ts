@@ -640,6 +640,9 @@ test("a URL argument typed without its scheme still has its password kept out of
     ["endpoints", "--registry-url", "bob:hunter2@ris.example/oparl"],
     ["endpoints", "--registry-url=bob:hunter2@ris.example/oparl"],
     ["--timeout", "5", "get", "--", "bob:hunter2@ris.example/oparl"],
+    // A mistyped scheme (the colon left out) too.
+    ["get", "http//bob:hunter2@ris.example/oparl"],
+    ["endpoints", "--registry-url=https//bob:hunter2@ris.example/oparl"],
   ]) {
     const cli = makeCli();
     assert.equal(await run(argv, cli.deps), 2, argv.join(" "));
@@ -647,6 +650,7 @@ test("a URL argument typed without its scheme still has its password kept out of
   }
   // The library's URL check knows its value is a URL, scheme or not.
   assert.doesNotMatch(redactUrl("bob:hunter2@ris.example/oparl"), /hunter2/);
+  assert.doesNotMatch(redactUrl("http//bob:hunter2@ris.example/oparl"), /hunter2/);
 });
 
 test("a run without a command, or help for an unknown one, logs an ERROR before the help (L5)", async () => {

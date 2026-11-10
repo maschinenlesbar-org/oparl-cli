@@ -175,7 +175,15 @@ test("a TLS failure (https to a plain-http server) is one line, without OpenSSL'
 test("a URL typed without its scheme is refused without its user name, token or password (F6)", async () => {
   // `my_user:pw@h` doesn't parse ("_" is no scheme character) and was quoted with its password;
   // `T0kenS3cret:@h` parses with the token as its scheme, which the message named, lower-cased.
-  for (const url of ["my_user:s3cret-pw@h.example/x", "T0kenS3cret:@h.example/x", "alice:s3cret-pw@h.example/x"]) {
+  // A mistyped scheme (`http//`, the colon left out; `htp:/`) left the userinfo unfound too.
+  for (const url of [
+    "my_user:s3cret-pw@h.example/x",
+    "T0kenS3cret:@h.example/x",
+    "alice:s3cret-pw@h.example/x",
+    "http//alice:s3cret-pw@h.example/x",
+    "http/alice:s3cret-pw@h.example/x",
+    "htp:/alice:s3cret-pw@h.example/x",
+  ]) {
     const err = await nodeHttpTransport({ method: "GET", url, headers: {} }).then(
       () => assert.fail(`${url}: accepted`),
       (caught: unknown) => caught,

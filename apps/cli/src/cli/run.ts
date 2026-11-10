@@ -17,6 +17,7 @@ import {
   credentialsIn,
   redactCredentials,
   redactUrlUserinfo,
+  typedUrlCredentials,
 } from "@maschinenlesbar.org/oparl-client/internal/errors";
 
 /**
@@ -209,7 +210,8 @@ export interface Redaction {
  * credential takes, the exact userinfo of each argument (as `credentialsIn` finds it, also
  * in an `--option=value` token, plus its terminal-stripped and JSON-escaped forms) is
  * replaced by `***`. Only a value with a scheme is a URL anywhere in argv; a URL argument
- * (`urlArguments`) typed without its scheme is read as if it had one. A pattern alone
+ * (`urlArguments`) is read as a URL however its scheme is typed, missing or mistyped
+ * (`typedUrlCredentials`). A pattern alone
  * can't delimit a password holding a space, `/`, `#` or `@`; the exact strings can. On
  * stderr any other `scheme://user@` is redacted by pattern too (`redactUrlUserinfo`, linear). stdout otherwise passes
  * unchanged: it carries the server's data as escaped JSON. `valueOptions` names the
@@ -218,11 +220,12 @@ export interface Redaction {
 export function redactionFor(argv: readonly string[], valueOptions: ReadonlySet<string> = new Set()): Redaction {
   // An `--option=value` token is echoed as its value alone.
   const values = argv.map((token) => (token.startsWith("-") && token.includes("=") ? token.slice(token.indexOf("=") + 1) : token));
-  // A URL argument typed without its scheme is read as if it had one.
-  const urls = urlArguments(argv, valueOptions).map((value) => (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(value) ? value : `http://${value}`));
+  // A URL argument is read as a URL however its scheme is typed (typedUrlCredentials): missing
+  // (`bob:pw@host`), special without "//" or mistyped (`http//bob:pw@host`, the colon left out).
+  const urls = urlArguments(argv, valueOptions);
   const secrets = new Set<string>();
-  for (const source of [...values.flatMap(urlsWithin), ...urls]) {
-    for (const secret of credentialsIn(source)) {
+  for (const found of [...values.flatMap(urlsWithin).map(credentialsIn), ...urls.map(typedUrlCredentials)]) {
+    for (const secret of found) {
       secrets.add(secret);
       secrets.add(stripTerminalControls(secret));
       secrets.add(escapeTerminalText(secret));

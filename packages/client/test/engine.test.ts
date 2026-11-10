@@ -36,6 +36,7 @@ import {
   redactUrl,
   redactUrlUserinfo,
   toWellFormed,
+  typedUrlCredentials,
 } from "../src/errors.js";
 import { OparlClient, normalizeTimestamp } from "../src/client.js";
 import { nodeHttpTransport } from "../src/http.js";
@@ -1211,4 +1212,26 @@ test("an error answer with a 16 MB message is cleaned within a small heap", STAR
   const [name, length] = out.split(" ");
   assert.equal(name, "OparlApiError");
   assert.ok(Number(length) < 1000, out);
+});
+
+test("typedUrlCredentials reads a value meant as a URL whatever its scheme: missing, special without //, mistyped (F7)", () => {
+  for (const [value, userinfo] of [
+    ["https://alice:pw@h.example/x", "alice:pw"],
+    ["http:///alice:pw@h.example", "alice:pw"],
+    ["alice:pw@h.example/x", "alice:pw"],
+    ["my_user:pw@h.example", "my_user:pw"],
+    ["T0ken:@h.example", "T0ken:"],
+    ["http//alice:pw@h.example", "alice:pw"],
+    ["https//alice:pw@h.example/v1", "alice:pw"],
+    ["http/alice:pw@h.example", "alice:pw"],
+    ["htp:/alice:pw@h.example", "alice:pw"],
+    ["http\\\\alice:pw@h.example", "alice:pw"],
+    ["http//alice:p/w@h.example", "alice:p/w"],
+  ] as const) {
+    assert.deepEqual(typedUrlCredentials(value), [userinfo], value);
+  }
+  // No "@" after the slashes, or a scheme spelled with "//" and no userinfo: none.
+  for (const value of ["", "h.example/x", "http//h.example/x", "@h.example/x", "http//@h.example", "https://h.example/a@b"]) {
+    assert.deepEqual(typedUrlCredentials(value), [], value);
+  }
 });
