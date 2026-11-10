@@ -621,7 +621,12 @@ and `CliIO.outputParentProblem`) is atomic for a file: without `--force` the nam
 with an exclusive create, then a temporary file beside it (`.<name>.<pid>-<hex>.tmp`, the name
 cut to stay within 255 bytes) is renamed over it; the old file's mode is kept, `--force`
 writes through a symlink (`linkTarget`: to the file it points at, created if the link
-dangles; the link stays), and a failure leaves neither a temporary file nor the claimed name
+dangles; the link stays) — but not through a link another user made in a directory others can
+write to (sticky or writable by others, as `/tmp`), at any hop: the rule of Linux's
+`fs.protected_symlinks`, which the kernel can't apply as the link is resolved by hand
+(`nodeFilesFor(owners)`, `LinkOwners`; a usage error before the request, an `OutputError` at
+the write). A path that can't be inspected (EACCES on the way) is reported as that, never as an
+existing file. A failure leaves neither a temporary file nor the claimed name
 behind (`Could not write to "<path>": …`, exit 1, without Node's tail naming the temporary
 file). SIGINT, SIGTERM and SIGHUP during a file write remove the claim and the temporary file,
 then exit 130, 143 or 129. A stream — a character device, a FIFO, a socket, `/dev/stdout`,

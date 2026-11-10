@@ -318,7 +318,9 @@ function outputFile(global: GlobalOptions): string | undefined {
  * directory, an existing path (a dangling link too) without `--force`, and a file whose
  * directory is missing or not writable are usage errors (an OparlValidationError, exit 2). A
  * stream (`/dev/null`, a FIFO, `/dev/stdout`, `>(…)`) needs no `--force`: it is written in
- * place, and nothing in it can be lost. `-o -` is stdout. The write checks again: a file that
+ * place, and nothing in it can be lost. A path that can't be inspected (EACCES) and, with
+ * `--force`, a link another user made in a directory others can write to are refused too.
+ * `-o -` is stdout. The write checks again: a file that
  * appears during the request is not overwritten either (an OutputError then, exit 1).
  */
 export function checkOutputTarget(deps: CliDeps, global: GlobalOptions): void {
@@ -327,7 +329,13 @@ export function checkOutputTarget(deps: CliDeps, global: GlobalOptions): void {
   }
   const path = outputFile(global);
   if (path === undefined || deps.io.outputState === undefined) return;
-  const state = deps.io.outputState(path);
+  let state: ReturnType<typeof deps.io.outputState>;
+  try {
+    state = deps.io.outputState(path);
+  } catch (err) {
+    // A path that can't be told (EACCES on the way) is refused as that, before any request.
+    throw new OparlValidationError(err instanceof Error ? err.message : String(err));
+  }
   if (state === "directory") throw new OparlValidationError(isDirectoryMessage(path));
   if (state === "stream") return;
   if (state === "exists" && global.force !== true) throw new OparlValidationError(refuseOverwrite(path));

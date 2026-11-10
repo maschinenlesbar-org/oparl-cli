@@ -46,7 +46,8 @@ export interface CliIO {
   writeFile(path: string, data: Buffer, overwrite: boolean): void;
   /**
    * What is at an `-o` path, checked before any request (`nodeFiles.state` in `defaultIO`).
-   * A test double without it skips that early check; the write still refuses.
+   * A test double without it skips that early check; the write still refuses. Throws an Error
+   * naming the path when it can't be told (EACCES on the way), never calling it existing.
    */
   outputState?(path: string): OutputState;
   /**
@@ -74,54 +75,37 @@ const DESCRIPTOR_PATH = /^\/dev\/(?:stdout|stderr|fd\/\d+)$|^\/proc\/self\/fd\/\
 /** The longest file name (in bytes) most file systems take (NAME_MAX). */
 const NAME_MAX = 255;
 
-/** The real file system for `-o`. */
-export const nodeFiles = {
-  /** What is at `path`, without following a dangling link into "absent". */
-  state(path: string): OutputState {
-    // A descriptor path is the shell's redirection (`-o /dev/stdout`, `-o >(gzip > x.gz)`):
-    // written in place even when it leads to a regular file, which the shell opened.
-    if (DESCRIPTOR_PATH.test(path)) return "stream";
-    try {
-      const stats = statSync(path);
-      if (stats.isDirectory()) return "directory";
-      return stats.isFIFO() || stats.isCharacterDevice() || stats.isSocket() ? "stream" : "exists";
-    } catch {
-      // statSync follows a link; a dangling one is still something an exclusive create
-      // refuses, so lstat decides between "exists" and "absent".
-      try {
-        lstatSync(path);
-        return "exists";
-      } catch {
-        return "absent";
-      }
-    }
-  },
+/**
+ * Whose links `--force` follows (`linkTarget`): the caller's user id, and how a path's owner and
+ * mode are read. The seam of the link rule, so a test can be another user without root.
+ */
+export interface LinkOwners {
+  /** The caller's user id; undefined where there is none (Windows), where no link is refused. */
+  uid: number | undefined;
+  /** The owner and mode of `path`: through links with `follow` (a directory), of the link itself without. */
+  ownerOf(path: string, follow: boolean): { uid: number; mode: number };
+}
+
+/** The process's user and the real file system. */
+const processOwners: LinkOwners = {
+  uid: process.getuid?.(),
+  ownerOf: (path, follow) => (follow ? statSync(path) : lstatSync(path)),
+};
+
+/** The file seam for `-o`: what `defaultIO`'s `outputState`, `outputParentProblem` and `writeFile` call. */
+export interface OutputFiles {
+  /**
+   * What `path` names. Throws an Error naming the path when it can't be told (a link into a
+   * directory the caller may not search: EACCES), which is no reason to call it an existing file.
+   */
+  state(path: string): OutputState;
   /**
    * Why the file `path` names (through any links, with `overwrite`) cannot be created where it
    * would go, or undefined: its directory is missing, not a directory, or not writable; or the
-   * link chain loops. Checked before the request, so a typo in the path costs none.
+   * link chain loops, or a link on it is refused (`linkTarget`). Checked before the request, so
+   * a typo in the path costs none.
    */
-  parentProblem(path: string, overwrite: boolean): string | undefined {
-    let target: string;
-    try {
-      target = overwrite ? linkTarget(path) : path;
-    } catch (err) {
-      return `Cannot write to "${cutForMessage(path)}": ${reasonOf(err)}`;
-    }
-    const dir = dirname(target);
-    try {
-      if (!statSync(dir).isDirectory()) return `Cannot write to "${cutForMessage(path)}": "${cutForMessage(dir)}" is not a directory.`;
-      accessSync(dir, constants.W_OK | constants.X_OK);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") return `Cannot write to "${cutForMessage(path)}": the directory "${cutForMessage(dir)}" does not exist.`;
-      if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
-        return `Cannot write to "${cutForMessage(path)}": no permission to create files in "${cutForMessage(dir)}".`;
-      }
-      return `Cannot write to "${cutForMessage(path)}": ${reasonOf(err)}`;
-    }
-    return undefined;
-  },
+  parentProblem(path: string, overwrite: boolean): string | undefined;
   /**
    * Write `data` to `path`. A stream is written in place, with no claim and no temporary file.
    * A file is written atomically: the old one stays as it was until the new one is complete.
@@ -129,26 +113,103 @@ export const nodeFiles = {
    * the race with a file appearing meanwhile. Throws an OutputError naming the file and the
    * reason (`refuseOverwrite`, `isDirectoryMessage`, `Could not write to …`).
    */
-  write(path: string, data: Buffer, overwrite: boolean): void {
-    const state = nodeFiles.state(path);
-    if (state === "directory") throw new OutputError(isDirectoryMessage(path));
-    try {
-      // A device, a FIFO or a pipe can't be renamed over, and nothing in it can be lost:
-      // written in place, with no claim and no temporary file.
-      if (state === "stream") return writeInPlace(path, data);
-      // With --force the file a link points at is written, even when it doesn't exist yet.
-      if (overwrite) return replaceFile(linkTarget(path), data);
-      // Without --force the name is claimed first with an exclusive create, which fails for
-      // any existing path (a dangling link too, since it never follows one). Until the rename
-      // the claim is an empty file: it is removed on a failure and on a signal.
-      writeClaimed(path, data);
-    } catch (cause) {
-      const code = (cause as NodeJS.ErrnoException | undefined)?.code;
-      if (code === "EEXIST" && !overwrite) throw new OutputError(refuseOverwrite(path), { cause });
-      throw new OutputError(`Could not write to "${cutForMessage(path)}": ${reasonOf(cause)}`, { cause });
-    }
-  },
-};
+  write(path: string, data: Buffer, overwrite: boolean): void;
+}
+
+/** The real file system for `-o`, following links by the rule of `owners`. */
+export function nodeFilesFor(owners: LinkOwners = processOwners): OutputFiles {
+  return {
+    /** What is at `path`, without following a dangling link into "absent". */
+    state(path: string): OutputState {
+      // A descriptor path is the shell's redirection (`-o /dev/stdout`, `-o >(gzip > x.gz)`):
+      // written in place even when it leads to a regular file, which the shell opened.
+      if (DESCRIPTOR_PATH.test(path)) return "stream";
+      try {
+        const stats = statSync(path);
+        if (stats.isDirectory()) return "directory";
+        return stats.isFIFO() || stats.isCharacterDevice() || stats.isSocket() ? "stream" : "exists";
+      } catch (err) {
+        // statSync follows a link; a dangling one (or a loop) is still something an exclusive
+        // create refuses, so lstat decides between "exists" and "absent". A link that can't be
+        // followed for another reason (EACCES: a directory on its way the caller may not search,
+        // or a kernel that refuses another user's link) is not called existing: that let
+        // --force through to it.
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT" && code !== "ENOTDIR" && code !== "ELOOP") {
+          throw new Error(`Cannot write to "${cutForMessage(path)}": ${reasonOf(err)}`, { cause: err });
+        }
+        try {
+          lstatSync(path);
+          return "exists";
+        } catch {
+          return "absent";
+        }
+      }
+    },
+    /**
+     * Why the file `path` names (through any links, with `overwrite`) cannot be created where it
+     * would go, or undefined: its directory is missing, not a directory, or not writable; or the
+     * link chain loops, or a link on it is refused (`linkTarget`). Checked before the request, so
+     * a typo in the path costs none.
+     */
+    parentProblem(path: string, overwrite: boolean): string | undefined {
+      let target: string;
+      try {
+        target = overwrite ? linkTarget(path, owners) : path;
+      } catch (err) {
+        return `Cannot write to "${cutForMessage(path)}": ${reasonOf(err)}`;
+      }
+      const dir = dirname(target);
+      try {
+        if (!statSync(dir).isDirectory()) return `Cannot write to "${cutForMessage(path)}": "${cutForMessage(dir)}" is not a directory.`;
+        accessSync(dir, constants.W_OK | constants.X_OK);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") return `Cannot write to "${cutForMessage(path)}": the directory "${cutForMessage(dir)}" does not exist.`;
+        if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
+          return `Cannot write to "${cutForMessage(path)}": no permission to create files in "${cutForMessage(dir)}".`;
+        }
+        return `Cannot write to "${cutForMessage(path)}": ${reasonOf(err)}`;
+      }
+      return undefined;
+    },
+    /**
+     * Write `data` to `path`. A stream is written in place, with no claim and no temporary file.
+     * A file is written atomically: the old one stays as it was until the new one is complete.
+     * Without `overwrite` an existing path is refused, checked by an exclusive create that closes
+     * the race with a file appearing meanwhile. Throws an OutputError naming the file and the
+     * reason (`refuseOverwrite`, `isDirectoryMessage`, `Could not write to …`).
+     */
+    write(path: string, data: Buffer, overwrite: boolean): void {
+      let state: OutputState;
+      try {
+        state = this.state(path);
+      } catch (cause) {
+        // A path that can't be told (EACCES on the way) is reported as that.
+        throw new OutputError(cause instanceof Error ? cause.message : String(cause), { cause });
+      }
+      if (state === "directory") throw new OutputError(isDirectoryMessage(path));
+      try {
+        // A device, a FIFO or a pipe can't be renamed over, and nothing in it can be lost:
+        // written in place, with no claim and no temporary file.
+        if (state === "stream") return writeInPlace(path, data);
+        // With --force the file a link points at is written, even when it doesn't exist yet.
+        if (overwrite) return replaceFile(linkTarget(path, owners), data);
+        // Without --force the name is claimed first with an exclusive create, which fails for
+        // any existing path (a dangling link too, since it never follows one). Until the rename
+        // the claim is an empty file: it is removed on a failure and on a signal.
+        writeClaimed(path, data);
+      } catch (cause) {
+        const code = (cause as NodeJS.ErrnoException | undefined)?.code;
+        if (code === "EEXIST" && !overwrite) throw new OutputError(refuseOverwrite(path), { cause });
+        throw new OutputError(`Could not write to "${cutForMessage(path)}": ${reasonOf(cause)}`, { cause });
+      }
+    },
+  };
+}
+
+/** The real file system for `-o`, for the process's own user. */
+export const nodeFiles: OutputFiles = nodeFilesFor();
 
 /**
  * Node's error text without its `, open '<path>'` tail, which named the hidden temporary file
@@ -250,12 +311,20 @@ function modeOf(path: string): number | undefined {
 /** Most links followed for one `-o` path, as the kernel's ELOOP limit. */
 const MAX_LINKS = 40;
 
+/** The mode bits of a directory others share: sticky, or writable by others. */
+const SHARED_DIRECTORY = 0o1002;
+
 /**
  * The file a path names, through any symlinks, so --force writes where a link points: also
  * when the link dangles, where the file it names is created (the link stays). A loop throws
- * (ELOOP).
+ * (ELOOP). A link is followed only when the caller or the owner of its directory made it, or
+ * nobody else can write to that directory (neither sticky nor writable by others): the rule of
+ * Linux's fs.protected_symlinks, checked at every hop, the last dangling one too. The kernel
+ * never sees these links (they are read here and the file is renamed onto the target), so its
+ * own check can't apply: a link another user planted in /tmp sent the answer over any file the
+ * caller could replace. Such a link throws (EACCES), naming it.
  */
-function linkTarget(path: string): string {
+function linkTarget(path: string, owners: LinkOwners): string {
   let current = resolve(path);
   for (let hops = 0; hops <= MAX_LINKS; hops++) {
     let link: string;
@@ -264,6 +333,16 @@ function linkTarget(path: string): string {
       link = readlinkSync(current);
     } catch {
       return current; // nothing there (yet): this is the file to create
+    }
+    if (owners.uid !== undefined) {
+      const owner = owners.ownerOf(current, false).uid;
+      const dir = owners.ownerOf(dirname(current), true);
+      if (owner !== owners.uid && owner !== dir.uid && (dir.mode & SHARED_DIRECTORY) !== 0) {
+        throw Object.assign(
+          new Error(`"${cutForMessage(current)}" is a link another user made in a directory others can write to; it is not followed`),
+          { code: "EACCES" },
+        );
+      }
     }
     current = resolve(dirname(current), link);
   }
