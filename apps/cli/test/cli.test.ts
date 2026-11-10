@@ -776,3 +776,21 @@ test("the URL search of the redaction is linear: a long argument, with or withou
     assert.ok(took < 1000, `${big.length} characters took ${Math.round(took)} ms`);
   }
 });
+
+// Class B of .reviews/2026-10-27-security-audit (portfolio round): the pattern pass over stderr
+// (any `scheme://user@` the run's own arguments don't hold) was a regex tried at every word start,
+// quadratic on a run of scheme characters: commander echoes a refused value whole, and 200 000
+// characters of `a.a.…` held the run for seconds. The client's linear redactUrlUserinfo replaces it.
+test("the userinfo pattern pass over stderr is linear, and hides a URL glued onto the one before it (B, B2)", async () => {
+  const cli = makeCli();
+  const started = performance.now();
+  assert.equal(await run(["endpoints", "--source", "curated", "--search", `${"a.".repeat(100_000)}\u200b`], cli.deps), 2);
+  const took = performance.now() - started;
+  assert.ok(took < 1500, `${Math.round(took)} ms`);
+  // A server's error detail is no argument: only the pattern hides its URLs' userinfo.
+  const glued = makeCli(() => jsonResponse({ message: "see https://host://u:p1@h and https://u:p2@x://v:q3@w" }, 404));
+  assert.equal(await run(["get", fx.SYSTEM_URL], glued.deps), 4);
+  const stderr = glued.err.join("\n");
+  assert.ok(stderr.includes("https://host://***@h and https://***@x://***@w"), stderr);
+  for (const secret of ["u:p1", "u:p2", "v:q3"]) assert.ok(!stderr.includes(secret), stderr);
+});

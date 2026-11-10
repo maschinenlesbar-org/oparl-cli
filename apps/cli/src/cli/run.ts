@@ -6,7 +6,7 @@ import { CommanderError, type Command } from "commander";
 import { buildProgram, defaultDeps } from "./program.js";
 import { OutputError, logOf, type CliDeps } from "./io.js";
 import { DEFAULT_LOG_FORMAT, createLogger, logFormatFromArgv, type LogFormat, type Logger } from "./log.js";
-import { networkHint, redactUserinfo, stripTerminalControls } from "./shared.js";
+import { networkHint, stripTerminalControls } from "./shared.js";
 import {
   OparlApiError,
   OparlError,
@@ -16,6 +16,7 @@ import {
   OparlValidationError,
   credentialsIn,
   redactCredentials,
+  redactUrlUserinfo,
 } from "@maschinenlesbar.org/oparl-client/internal/errors";
 
 /**
@@ -210,7 +211,7 @@ export interface Redaction {
  * replaced by `***`. Only a value with a scheme is a URL anywhere in argv; a URL argument
  * (`urlArguments`) typed without its scheme is read as if it had one. A pattern alone
  * can't delimit a password holding a space, `/`, `#` or `@`; the exact strings can. On
- * stderr any other `scheme://user@` is redacted by pattern too. stdout otherwise passes
+ * stderr any other `scheme://user@` is redacted by pattern too (`redactUrlUserinfo`, linear). stdout otherwise passes
  * unchanged: it carries the server's data as escaped JSON. `valueOptions` names the
  * options that take a value (`valueOptionsOf`).
  */
@@ -230,7 +231,7 @@ export function redactionFor(argv: readonly string[], valueOptions: ReadonlySet<
   }
   const list = [...secrets];
   const out = (text: string): string => (list.length === 0 ? text : redactCredentials(text, list));
-  return { out, err: (text) => redactUserinfo(out(text)) };
+  return { out, err: (text) => redactUrlUserinfo(out(text)) };
 }
 
 /** The most URLs `urlsWithin` reads inside one argument, after the one it may start with. */

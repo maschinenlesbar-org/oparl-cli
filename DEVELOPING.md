@@ -51,7 +51,8 @@ record's *message*, before the record is cut and escaped, and writes to the raw 
 frame (time, level, topic) is never touched, and a password with DEL, C1 or bidi characters
 is matched in its raw form. A pattern can't delimit a password holding a space, `/`, `#` or
 `@`; the exact strings can. Anything else shaped `scheme://user@` on stderr is redacted by
-pattern (`redactUserinfo`).
+pattern (`redactUrlUserinfo` in `errors.ts`, one linear pass; the scheme regex it replaced was
+quadratic on a run of scheme characters such as `a.a.a.…`).
 
 "The URL it came from" is the URL the request **ended** on: `RequestEngine.fetchJson`
 returns the last redirect target alongside the decoded body (`getJson` is the same call

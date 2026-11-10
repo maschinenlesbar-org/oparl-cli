@@ -102,17 +102,6 @@ export function fromLibrary<T>(check: (value: string) => T): (value: string) => 
 export const parseUrl: (value: string) => string = fromLibrary((value) => parseUrlArgument(value).href);
 
 /**
- * Replace the userinfo of any URL in a text with `***`, by pattern: the fallback for a URL
- * the run's own arguments don't hold (`withRedactedOutput` in run.ts redacts the exact
- * userinfo of every argument first, which a pattern can't delimit when the password holds a
- * space, `/` or `#`). `parseUrl` drops `user:password@` from every URL the client uses, but
- * commander quotes the raw argument back in its own parse errors ("argument '…' is invalid").
- */
-export function redactUserinfo(text: string): string {
-  return text.replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#']*@/gi, "$1***@");
-}
-
-/**
  * Drop the characters a terminal may act on from text bound for stderr: C0 controls
  * other than tab and newline (ESC, BEL, CR, …), DEL and C1 (U+009B is the 8-bit CSI).
  * Server text is sanitised where it enters a message, but messages also quote the
