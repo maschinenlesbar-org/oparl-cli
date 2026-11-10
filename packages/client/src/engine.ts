@@ -21,7 +21,9 @@ import {
   OparlParseError,
   OparlValidationError,
   MAX_SERVER_TEXT_LENGTH,
+  TextBuilder,
   cutForMessage,
+  cutText,
   quoteValue,
   redactUrl,
 } from "./errors.js";
@@ -161,39 +163,65 @@ const MAX_JSON_DEPTH = 256;
 export { MAX_SERVER_TEXT_LENGTH };
 
 /**
+ * The most server text (in UTF-16 units) `sanitizeServerText` reads; a longer text is cut first.
+ * Every message keeps far less of it (`maxLength`, MAX_SERVER_TEXT_LENGTH: 200 characters), and
+ * cleaning all of a 16 MB error detail, one string node per character, exhausted a small heap.
+ */
+const MAX_SERVER_TEXT = 16 * 1024;
+
+/**
+ * A whole terminal escape sequence: a CSI (`ESC [` or the 8-bit U+009B, parameters,
+ * intermediates, final byte), a terminated control string (OSC/DCS/SOS/PM/APC, `ESC ]` …
+ * up to BEL or ST, or their 8-bit forms) or a short `ESC` sequence. Dropping only the
+ * control bytes left the printable rest behind (`ESC ] 0 ; title BEL` became `]0;title`).
+ * An unterminated control string is left to the per-character filter, so it cannot
+ * swallow the rest of the message. A control string's body ends at an ESC or at another
+ * introducer: with the introducers allowed inside it, an unterminated run of them was matched
+ * from each one to the end of the text, quadratic (100 000 × U+009D took 16 s). Written with
+ * escapes, so the source holds no control bytes.
+ */
+const ESCAPE_SEQUENCE =
+  /(?:\u001b\[|\u009b)[\u0030-\u003f]*[\u0020-\u002f]*[\u0040-\u007e]|(?:\u001b[\]PX^_]|[\u0090\u0098\u009d-\u009f])[^\u0007\u001b\u0090\u0098\u009c-\u009f]*(?:\u0007|\u001b\\|\u009c)|\u001b[\u0020-\u002f]*[\u0030-\u007e]/g;
+
+/**
+ * What `sanitizeServerText` drops once the escape sequences are gone: the C0 controls but the
+ * whitespace ones (TAB to CR), DEL, the C1 controls, and every format character (General
+ * Category Cf: bidi controls, zero-width characters, U+00AD, U+FEFF, …).
+ */
+const DROPPED_CHAR = /[\u0000-\u0008\u000e-\u001f\u007f-\u009f\p{Cf}]/gu;
+
+/**
  * Make a string that originates in an attacker-controlled response body safe to put
  * into an error message printed raw to stderr by run.ts — an error `detail` snippet,
- * an object `type`, a link, a `Content-Type`. Three things happen:
+ * an object `type`, a link, a `Content-Type`:
  *
- * - Control characters are dropped (all C0/C1 plus DEL). Without this, a hostile or
- *   spoofed server could drive ANSI/OSC escape sequences (display spoofing, terminal
- *   title changes) into the user's terminal.
+ * - Whole escape sequences (CSI, OSC and other control strings) are dropped first, then any
+ *   remaining control character (all C0 and C1 but the whitespace ones, plus DEL). Without
+ *   this, a hostile or spoofed server could drive ANSI/OSC escape sequences (display
+ *   spoofing, terminal title changes) into the user's terminal.
+ * - Unicode format characters (General Category Cf) are dropped: the bidi controls, so
+ *   server text cannot reorder the visible message, and the invisible ones (zero-width
+ *   space and joiners, word joiner, soft hyphen, BOM), so two messages that look identical
+ *   are identical.
  * - Every run of whitespace — newlines and Unicode line separators included — becomes
  *   a single space, so the result is one line and a server cannot forge a second
  *   log record of its own next to ours.
  * - The result is capped at `maxLength` characters, so a 3 KB "message" cannot bury
  *   the diagnostic the CLI printed. The cut never splits a surrogate pair (`cutText`),
  *   so the message stays well-formed.
+ * - Only the first MAX_SERVER_TEXT (16 384) units are read, and every step is a linear regex
+ *   replace: a hostile error body costs neither seconds nor the heap. A caller that scrubs
+ *   credentials does so first, so a cut never splits one.
  *
  * Every server-supplied string that reaches a message goes through here. The CLI's
  * JSON output is escaped separately (escapeControlChars in cli/shared.ts):
- * JSON.stringify alone leaves DEL and the C1 range raw.
- *
- * Written as a char-code filter so no raw control byte ever appears in this source.
+ * JSON.stringify alone leaves DEL and the C1 range raw. Written with escapes so no raw
+ * control byte appears in this source.
  */
 export function sanitizeServerText(text: string, maxLength: number = MAX_SERVER_TEXT_LENGTH): string {
-  let out = "";
-  for (const ch of text) {
-    const n = ch.codePointAt(0) ?? 0;
-    // Tab, LF, VT, FF and CR become spaces (collapsed below) so words stay apart;
-    // every other control character is dropped.
-    if (n === 0x09 || (n >= 0x0a && n <= 0x0d)) out += " ";
-    else if (n <= 0x1f || (n >= 0x7f && n <= 0x9f)) continue;
-    else out += ch;
-  }
-  out = out.replace(/\s+/g, " ").trim();
+  const clean = cutText(text, MAX_SERVER_TEXT).replace(ESCAPE_SEQUENCE, "").replace(DROPPED_CHAR, "").replace(/\s+/g, " ").trim();
   // Never cut inside a surrogate pair: half a character makes the message ill-formed.
-  return cutForMessage(out, maxLength);
+  return cutForMessage(clean, maxLength);
 }
 
 /**
@@ -1310,7 +1338,7 @@ function escapeAt(json: string, at: number): number {
  */
 function wellFormedEscapes(json: string): { json: string; replaced: number } {
   if (!SURROGATE_ESCAPE.test(json)) return { json, replaced: 0 };
-  let out = "";
+  const out = new TextBuilder();
   let copied = 0;
   let replaced = 0;
   for (let i = 0; i < json.length; i++) {
@@ -1325,12 +1353,14 @@ function wellFormedEscapes(json: string): { json: string; replaced: number } {
       i += 11;
       continue;
     }
-    out += json.slice(copied, i) + "\\ufffd";
+    out.push(json.slice(copied, i), "\\ufffd");
     copied = i + 6;
     replaced++;
     i += 5;
   }
-  return replaced === 0 ? { json, replaced } : { json: out + json.slice(copied), replaced };
+  if (replaced === 0) return { json, replaced };
+  out.push(json.slice(copied));
+  return { json: out.toString(), replaced };
 }
 
 function isLowSurrogate(code: number): boolean {
@@ -1438,7 +1468,7 @@ function skipSpace(json: string, i: number): number {
 export function scanNumbers(json: string, bigIntegerKeys: ReadonlySet<string> = NO_KEYS): NumberScan {
   const keys = bigIntegerKeys.size === 0 ? undefined : [...bigIntegerKeys];
   let inexact: string | undefined;
-  let out: string | undefined;
+  let out: TextBuilder | undefined;
   let copied = 0;
   for (let i = 0; i < json.length; i++) {
     const c = json.charCodeAt(i);
@@ -1462,7 +1492,8 @@ export function scanNumbers(json: string, bigIntegerKeys: ReadonlySet<string> = 
       STRICT_JSON_NUMBER.lastIndex = at;
       const literal = STRICT_JSON_NUMBER.exec(json)?.[0];
       if (literal === undefined) continue;
-      out = (out ?? "") + json.slice(copied, at) + '"' + literal + '"';
+      out ??= new TextBuilder();
+      out.push(json.slice(copied, at), '"', literal, '"');
       copied = at + literal.length;
       i = copied - 1;
     } else if (c === 0x2d || (c >= 0x30 && c <= 0x39)) {
@@ -1477,7 +1508,9 @@ export function scanNumbers(json: string, bigIntegerKeys: ReadonlySet<string> = 
       i += literal.length - 1;
     }
   }
-  return { json: out === undefined ? json : out + json.slice(copied), inexact };
+  if (out === undefined) return { json, inexact };
+  out.push(json.slice(copied));
+  return { json: out.toString(), inexact };
 }
 
 /** A member name written with an escape, decoded; a name JSON.parse can't read matches nothing. */

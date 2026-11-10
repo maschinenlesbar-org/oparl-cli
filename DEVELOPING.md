@@ -323,10 +323,16 @@ quote, so a value that looks valid but holds an invisible character reads as wha
 commander's own echo of a refused value (`argument '…' is invalid`) is escaped the same way
 before it becomes a record (`escapeCommanderError` in `run.ts`).
 
-Server text that reaches an error message goes through `sanitizeServerText`: control
-characters are dropped, whitespace (newlines and the Unicode line separators included) is
-collapsed to single spaces, and the result is cut to 200 characters, never inside a
-surrogate pair (`cutText`), so the message stays well-formed. A value an own message
+Server text that reaches an error message goes through `sanitizeServerText`: it reads at most
+the first 16 384 characters (`MAX_SERVER_TEXT`), drops whole terminal escape sequences
+(`ESCAPE_SEQUENCE`; a control string ends at the next introducer, so a run of them is cleaned
+in linear time), then every other control character and every format character (bidi controls,
+zero-width characters), collapses whitespace (newlines and the Unicode line separators
+included) to single spaces, and cuts the result to 200 characters, never inside a surrogate
+pair (`cutText`), so the message stays well-formed. Each step is one regex replace, so a 16 MB
+error detail costs neither seconds nor the heap; the repair of lone surrogate escapes
+(`wellFormedEscapes`) and the quoting of declared big integers (`scanNumbers`) collect their
+pieces in a `TextBuilder` for the same reason. A value an own message
 quotes from the user's input (a URL with another scheme, a timestamp, an unknown option
 key) is cut the same way, at `MAX_SERVER_TEXT_LENGTH` (200, `cutForMessage`), and so is
 the request URL a message names (`HTTP 500 for GET <url>`, `Refusing to follow … from

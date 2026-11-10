@@ -132,7 +132,7 @@ not the URL the request started at.
 
 **Server text in messages.** Anything a server sends that ends up in an error message —
 an object's `type`, an error `message`, a link, a content type — is first stripped of
-control characters, folded onto one line and cut to 200 characters. A hostile or
+terminal escape sequences, control and invisible format characters, folded onto one line and cut to 200 characters. A hostile or
 man-in-the-middled endpoint could otherwise write terminal escape sequences (window
 title, colours, screen clearing) or fake a log record of the CLI's own. In JSON
 output the same characters are escaped instead, so nothing is lost.

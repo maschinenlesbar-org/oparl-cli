@@ -64,7 +64,7 @@ test("an error object served as a list page is reported with its message", async
   const { c } = client({ [fx.BODY_URL]: jsonResponse(fx.body), [fx.MEETINGS_URL]: jsonResponse(error) });
   await assert.rejects(
     () => c.list(fx.BODY_URL, "meeting"),
-    (err) => err instanceof OparlParseError && err.message.endsWith("answered with an error object: Datenbank nicht erreichbar[2J"),
+    (err) => err instanceof OparlParseError && err.message.endsWith("answered with an error object: Datenbank nicht erreichbar"),
   );
   const bare = client({ [fx.SYSTEM_URL]: jsonResponse({ type: "https://schema.oparl.org/1.1/Error" }) });
   await assert.rejects(() => bare.c.get(fx.SYSTEM_URL), (err) => err instanceof OparlParseError && /error object: \(no message\)/.test(err.message));

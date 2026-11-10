@@ -142,7 +142,7 @@ der die Anfrage begann.
 
 **Servertext in Meldungen.** Alles, was ein Server sendet und in einer Fehlermeldung landet –
 der `type` eines Objekts, eine Fehlermeldung, ein Link, ein Content-Type –, wird zuvor von
-Steuerzeichen befreit, auf eine Zeile gefaltet und auf 200 Zeichen gekürzt. Ein bösartiger
+Terminal-Escape-Sequenzen, Steuerzeichen und unsichtbaren Formatzeichen befreit, auf eine Zeile gefaltet und auf 200 Zeichen gekürzt. Ein bösartiger
 oder manipulierter Endpoint könnte sonst Terminal-Escape-Sequenzen (Fenstertitel, Farben,
 Bildschirm löschen) ausführen lassen oder einen Log-Eintrag der CLI vortäuschen. In der
 JSON-Ausgabe werden dieselben Zeichen stattdessen escaped, sodass nichts verloren geht.
