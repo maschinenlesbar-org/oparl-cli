@@ -957,3 +957,23 @@ test("an answer error names the request: GET and the URL, userinfo dropped (D9)"
   const registry = new OparlClient({ registryUrl: url, transport: routes({ [url]: jsonResponse({ nope: 1 }) }).transport });
   await assert.rejects(registry.endpoints({ source: "registry" }), (err: Error) => err.message.startsWith(`GET ${url}?page=1&limit=100: `));
 });
+
+test("a credential header echoed in a type the client quotes from a 2xx answer is scrubbed (D)", async () => {
+  // A 2xx answer can echo a credential as well as an error body; the object `type` a refusal
+  // quotes was cleaned and cut, never scrubbed.
+  const KEY = 'k3y "with" spaces';
+  const escaped = JSON.stringify(KEY).replace(/ /g, "\\u0020");
+  const answers: Array<[string, (c: OparlClient) => Promise<unknown>, string]> = [
+    [fx.SYSTEM_URL, (c) => c.system(fx.SYSTEM_URL), `{"id":"${fx.SYSTEM_URL}","type":${escaped}}`],
+    [fx.MEETINGS_URL, (c) => c.page(fx.MEETINGS_URL), `{"type":${escaped}}`],
+    [fx.BODY_URL, (c) => c.list(fx.BODY_URL, "meeting"), `{"id":"${fx.BODY_URL}","type":${escaped}}`],
+    [fx.MEETINGS_URL, (c) => c.page(fx.MEETINGS_URL), `{"type":"https://schema.oparl.org/1.1/Error","message":${escaped}}`],
+  ];
+  for (const [url, call, body] of answers) {
+    const mt = routes({ [url]: rawResponse(body, "application/json") });
+    const c = new OparlClient({ transport: mt.transport, defaultHeaders: { "X-API-Key": KEY } });
+    const err = await call(c).catch((caught: unknown) => caught);
+    assert.ok(err instanceof OparlParseError, String(err));
+    for (const secret of [KEY, "k3y", "spaces"]) assert.ok(!err.message.includes(secret), err.message);
+  }
+});

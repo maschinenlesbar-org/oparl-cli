@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { TextDecoder } from "node:util";
+import { TextDecoder, inspect } from "node:util";
 import assert from "node:assert/strict";
 import zlib from "node:zlib";
 import http from "node:http";
@@ -1028,4 +1028,79 @@ test("an answer of millions of lone surrogate escapes is repaired within a small
     `process.stdout.write(String(value.x.length));`;
   const out = execFileSync(process.execPath, ["--max-old-space-size=128", "--input-type=module", "-e", script], { encoding: "utf8" });
   assert.equal(out, String(n));
+});
+
+// Class D of .reviews/2026-10-27-security-audit (portfolio round): the credential headers'
+// secrets were scrubbed from an error body as sent, then the body was decoded, so a JSON-escaped
+// echo (`\"`, `\u00e4`, any `\uXXXX`) reached `.message`, `.detail` and the decoded `.body`.
+const D_PW = 'pä"s\'s-W0rd';
+const D_BASIC = Buffer.from(`alice:${D_PW}`, "utf8").toString("base64");
+/** A key with inner spaces: scrubbed whole, never word by word (jobsuche-cli 5da338b). */
+const D_KEY = "k3y with inner spaces";
+const D_HEADERS = { Authorization: `Basic ${D_BASIC}`, "X-API-Key": D_KEY };
+/** Every form of the secrets an error must not carry: decoded, and as a JSON string spells them. */
+const D_SECRETS = [D_PW, `alice:${D_PW}`, D_BASIC, D_KEY, "k3y with"].flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]);
+
+/** Everything a library user may log of an error: inspect, message, detail, location, and the decoded body. */
+function loggedOf(err: unknown): string {
+  let text = inspect(err, { depth: 10, showHidden: true });
+  const e = err as { message?: unknown; detail?: unknown; location?: unknown; body?: unknown };
+  text += [e.message, e.detail, e.location, e.body].map(String).join("\n");
+  try {
+    const walk = (v: unknown): void => {
+      if (typeof v === "string") text += `\n${v}`;
+      else if (v !== null && typeof v === "object") for (const [k, w] of Object.entries(v)) text += `\n${k}${walk(w) ?? ""}`;
+    };
+    walk(typeof e.body === "string" ? JSON.parse(e.body) : undefined);
+  } catch {
+    // not JSON: the body as sent is all a caller reads
+  }
+  return text;
+}
+
+/** `text` as a JSON writer that escapes every non-ASCII character writes it. */
+const asciiJson = (text: string): string =>
+  JSON.stringify(text).replace(/[\u0080-\uffff]/g, (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`);
+/** `text` with every character written as a \uXXXX escape: no spelling of it as sent matches. */
+const escapedJson = (text: string): string => `"${[...text].map((ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`).join("")}"`;
+
+test("a credential header echoed with JSON escapes is scrubbed from the message, the detail and the decoded body (D)", async () => {
+  const echoes: Array<[string, string]> = [
+    ["the password, ASCII-only JSON", asciiJson(`wrong password ${D_PW}`)],
+    ["the user:password, minimal JSON", JSON.stringify(`bad login alice:${D_PW}`)],
+    ["the password, every character escaped", escapedJson(D_PW)],
+    ["the key, every character escaped", escapedJson(D_KEY)],
+    ["the key, its spaces escaped", JSON.stringify(`bad key ${D_KEY}`).replace(/ /g, "\\u0020")],
+  ];
+  for (const status of [401, 500]) {
+    for (const [label, json] of echoes) {
+      const e = new RequestEngine({
+        defaultHeaders: D_HEADERS,
+        maxRetries: 0,
+        transport: async () => rawResponse(`{"message":${json}}`, "application/json", status),
+      });
+      const err = await e.getJson(URL_1).catch((caught: unknown) => caught);
+      assert.ok(err instanceof OparlApiError && err.status === status, `${label}: ${String(err)}`);
+      const seen = loggedOf(err);
+      for (const secret of D_SECRETS) assert.ok(!seen.includes(secret), `${status} ${label}: ${seen.slice(0, 2000)}`);
+    }
+  }
+});
+
+test("an error body keeps its spelling unless a credential hides behind an escape (D)", async () => {
+  const bodyOf = async (body: string, headers: Record<string, string> = { "X-API-Key": "s3cret-key" }): Promise<string> => {
+    const e = new RequestEngine({ defaultHeaders: headers, maxRetries: 0, transport: async () => rawResponse(body, "application/json", 500) });
+    const err = await e.getJson(URL_1).catch((caught: unknown) => caught);
+    assert.ok(err instanceof OparlApiError, String(err));
+    return err.body;
+  };
+  // No escape, or an escape that hides nothing: as sent (the plain echo scrubbed).
+  assert.equal(await bodyOf('{ "message": "bad key s3cret-key" }'), '{ "message": "bad key ***" }');
+  assert.equal(await bodyOf('{ "message": "Stra\\u00dfe", "n": 1 }'), '{ "message": "Stra\\u00dfe", "n": 1 }');
+  // An escape that hides the key: the decoded JSON written again, the key scrubbed.
+  assert.equal(await bodyOf('{ "message": "bad key s3cret\\u002dkey" }'), '{"message":"bad key ***"}');
+  // Not JSON: text nobody decodes, as sent.
+  assert.equal(await bodyOf("s3cret\\u002dkey <html>"), "s3cret\\u002dkey <html>");
+  // Without a credential header nothing is rewritten.
+  assert.equal(await bodyOf('{ "message": "s3cret\\u002dkey" }', {}), '{ "message": "s3cret\\u002dkey" }');
 });

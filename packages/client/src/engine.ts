@@ -737,7 +737,10 @@ export function isCredentialHeader(name: string): boolean {
 /**
  * The secret parts of the credential headers among `headers`: the whole value, the part
  * after an auth scheme (`Bearer <token>` → the token), and for `Basic` the decoded
- * `user:password` and the password.
+ * `user:password` and the password. Each is also kept as a URL (`encodeURIComponent`: a
+ * redirect's Location, a link) and as a JSON string (`\"`, `\\`) spell it, so an echo in
+ * those spellings is scrubbed too. A value with inner spaces is a secret whole, never word by
+ * word.
  */
 function credentialSecrets(headers: Record<string, string>): string[] {
   const secrets = new Set<string>();
@@ -747,13 +750,38 @@ function credentialSecrets(headers: Record<string, string>): string[] {
     const token = value.trim().replace(/^\S+\s+/, "");
     secrets.add(token);
     if (/^basic\s/i.test(value.trim())) {
-      const pair = Buffer.from(token, "base64").toString("latin1");
-      secrets.add(pair);
-      if (pair.includes(":")) secrets.add(pair.slice(pair.indexOf(":") + 1));
+      // The bytes as UTF-8 (how a server reads them today) and as Latin-1 (RFC 7617's old default).
+      const bytes = Buffer.from(token, "base64");
+      for (const pair of new Set([bytes.toString("utf8"), bytes.toString("latin1")])) {
+        secrets.add(pair);
+        if (pair.includes(":")) secrets.add(pair.slice(pair.indexOf(":") + 1));
+      }
     }
   }
+  const spelled = [...secrets].filter((secret) => secret.length >= 4).flatMap(urlSpellings).flatMap(jsonSpellings);
   // The longest first, so a value is replaced before a part of it.
-  return [...secrets].filter((secret) => secret.length >= 4).sort((a, b) => b.length - a.length);
+  return [...new Set(spelled)].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * `form` and its spelling in a URL (`encodeURIComponent`): a server that puts a credential into
+ * a URL, a redirect's Location, percent-encodes it. A form that has no such spelling (a lone
+ * surrogate) is kept as it is.
+ */
+function urlSpellings(form: string): string[] {
+  try {
+    return [form, encodeURIComponent(form)];
+  } catch {
+    return [form];
+  }
+}
+
+/**
+ * `form` and its spelling inside a JSON string (`\"`, `\\`): an error body kept as its decoded
+ * JSON written again (`scrubBody`) spells a credential with a quote in it with a backslash.
+ */
+function jsonSpellings(form: string): string[] {
+  return [form, JSON.stringify(form).slice(1, -1)];
 }
 
 /**
@@ -1144,6 +1172,32 @@ export class RequestEngine {
   }
 
   /**
+   * An error body, already scrubbed as sent, as `OparlApiError.body` keeps it: when it is JSON
+   * with an escape in it, checked decoded too. An escape (`\"`, `\u00e4`) hides an echoed
+   * credential from the scrub of the text as sent, while a caller who parses the body sees it.
+   * Such a body is kept as the decoded JSON written again (`JSON.stringify`, one spelling per
+   * character) with the credential scrubbed in that spelling. A body that doesn't parse is text
+   * nobody decodes, and stays as sent; one too deeply nested to write again is left out.
+   */
+  private scrubBody(scrubbed: string): string {
+    if (this.#secrets.length === 0 || !scrubbed.includes("\\")) return scrubbed;
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(scrubbed);
+    } catch {
+      return scrubbed;
+    }
+    let rewritten: string;
+    try {
+      rewritten = JSON.stringify(decoded);
+    } catch {
+      return "";
+    }
+    const spelled = this.#secrets.map((form) => JSON.stringify(form).slice(1, -1));
+    return spelled.some((form) => rewritten.includes(form)) ? redactSecrets(rewritten, spelled) : scrubbed;
+  }
+
+  /**
    * An error as the `cause` of the error the engine raises: the original when its text
    * carries no secret, otherwise a copy with them scrubbed (message, `code` and the cause
    * chain kept), so logging the error with its causes can't reveal a credential header.
@@ -1229,8 +1283,9 @@ export class RequestEngine {
       if (snippet.length > 0 && !snippet.startsWith("<")) detail = snippet;
     }
     if (detail !== undefined) {
-      // sanitizeServerText collapses the whitespace and caps the length.
-      detail = sanitizeServerText(detail);
+      // The detail came from the body decoded: scrubbed again (a JSON escape hid the credential
+      // from the scrub above), then sanitizeServerText collapses the whitespace and caps the length.
+      detail = sanitizeServerText(this.redact(detail));
       if (detail === "") detail = undefined;
     }
     const target = status >= 300 && status < 400 && location !== undefined ? redirectTarget(url, location) : undefined;
@@ -1238,7 +1293,7 @@ export class RequestEngine {
       status,
       url,
       method: "GET",
-      body: text,
+      body: this.scrubBody(text),
       ...(detail ? { detail } : {}),
       ...(target !== undefined ? { location: target } : {}),
       ...(redirectsFollowed !== undefined ? { redirectsFollowed } : {}),

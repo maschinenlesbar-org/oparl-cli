@@ -465,7 +465,7 @@ export class OparlClient {
     const type = str(system["type"]) ?? "";
     if (!/\/System$/.test(type)) {
       throw new OparlParseError(
-        `${requestOf(url)}: this is not an OParl System (type: ${sanitizeServerText(type) || "missing"}). Use the endpoint's System ` +
+        `${requestOf(url)}: this is not an OParl System (type: ${sanitizeServerText(this.engine.redact(type)) || "missing"}). Use the endpoint's System ` +
           "URL, e.g. from `oparl endpoints`.",
       );
     }
@@ -506,7 +506,7 @@ export class OparlClient {
       }
       const type = isObject(value) ? str(value["type"]) : null;
       throw new OparlParseError(
-        `${request}: this is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(type)})` : ""}.`,
+        `${request}: this is not an OParl object list${type ? ` (got an object of type ${sanitizeServerText(this.engine.redact(type))})` : ""}.`,
       );
     }
     listItems(request, value["data"]);
@@ -697,7 +697,7 @@ export class OparlClient {
     const bodyType = str(body["type"]) ?? "";
     if (!/\/Body$/.test(bodyType)) {
       throw new OparlParseError(
-        `${requestOf(bodyUrl)}: this is not an OParl Body (type: ${sanitizeServerText(bodyType) || "missing"}). ` +
+        `${requestOf(bodyUrl)}: this is not an OParl Body (type: ${sanitizeServerText(this.engine.redact(bodyType)) || "missing"}). ` +
           "Use a body URL from `oparl bodies`.",
       );
     }
@@ -850,7 +850,7 @@ export class OparlClient {
         entries,
         note:
           `the endpoint registry was read up to page ${MAX_REGISTRY_PAGES}, the most this client reads, and goes on ` +
-          `(meta.next: ${sanitizeServerText(url)}); the registry entries listed are incomplete.`,
+          `(meta.next: ${sanitizeServerText(this.engine.redact(url))}); the registry entries listed are incomplete.`,
       };
     }
     return { entries };
