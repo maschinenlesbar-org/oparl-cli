@@ -748,7 +748,7 @@ export function isCredentialHeader(name: string): boolean {
 /**
  * The secret parts of the credential headers among `headers`: the whole value, the part
  * after an auth scheme (`Bearer <token>` → the token), and for `Basic` the decoded
- * `user:password` and the password. Each is also kept as a URL (`encodeURIComponent`: a
+ * `user:password` and the password, or the user name when there is no password (a token). Each is also kept as a URL (`encodeURIComponent`: a
  * redirect's Location, a link) and as a JSON string (`\"`, `\\`) spell it, so an echo in
  * those spellings is scrubbed too. A value with inner spaces is a secret whole, never word by
  * word.
@@ -765,7 +765,11 @@ function credentialSecrets(headers: Record<string, string>): string[] {
       const bytes = Buffer.from(token, "base64");
       for (const pair of new Set([bytes.toString("utf8"), bytes.toString("latin1")])) {
         secrets.add(pair);
-        if (pair.includes(":")) secrets.add(pair.slice(pair.indexOf(":") + 1));
+        // The password; without one (`TOKEN:`, or no colon at all) the user name is the secret,
+        // a token, as Node sends `https://TOKEN@host`.
+        const colon = pair.indexOf(":");
+        const password = colon < 0 ? "" : pair.slice(colon + 1);
+        secrets.add(password === "" ? (colon < 0 ? pair : pair.slice(0, colon)) : password);
       }
     }
   }

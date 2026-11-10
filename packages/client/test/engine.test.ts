@@ -1137,3 +1137,23 @@ function decodeURIComponentSafe(text: string): string {
     }
   });
 }
+
+test("a Basic credential without a password is a token: scrubbed in every echoed form (E)", async () => {
+  // Basic `TOKEN:` (a token sent as the user name, as Node sends a URL's `https://TOKEN@host`)
+  // gave the pair `TOKEN:` and an empty password, so the token alone was no secret.
+  const TOKEN = "T0kenS3cret";
+  const basic = Buffer.from(`${TOKEN}:`, "utf8").toString("base64");
+  for (const value of [`Basic ${basic}`, `Basic ${Buffer.from(TOKEN, "utf8").toString("base64")}`]) {
+    for (const echo of [`bad token ${TOKEN}`, `Authorization: ${value}`, `user ${TOKEN}: unknown`]) {
+      const e = new RequestEngine({
+        defaultHeaders: { Authorization: value },
+        maxRetries: 0,
+        transport: async () => rawResponse(JSON.stringify({ message: echo }), "application/json", 401),
+      });
+      const err = await e.getJson(URL_1).catch((caught: unknown) => caught);
+      assert.ok(err instanceof OparlApiError, String(err));
+      const seen = loggedOf(err);
+      assert.ok(!seen.includes(TOKEN) && !seen.includes(basic), `${value} ${echo}: ${seen.slice(0, 1000)}`);
+    }
+  }
+});
