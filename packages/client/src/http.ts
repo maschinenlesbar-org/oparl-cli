@@ -8,7 +8,7 @@
 
 import http from "node:http";
 import https from "node:https";
-import { OparlNetworkError } from "./errors.js";
+import { OparlNetworkError, redactUrl } from "./errors.js";
 
 export interface HttpRequest {
   method: string;
@@ -99,14 +99,19 @@ export const nodeHttpTransport: Transport = (request) =>
     try {
       url = new URL(request.url);
     } catch {
-      reject(new OparlNetworkError(`Invalid URL: ${request.url}`));
+      // A URL is quoted without its userinfo, also one typed without its scheme (`user:pw@host`):
+      // redactUrl reads such a value as if it had one.
+      reject(new OparlNetworkError(`Invalid URL: ${redactUrl(request.url)}`));
       return;
     }
 
     // Only http/https are supported. Reject anything else up front with a clear,
     // typed error instead of letting Node throw an opaque ERR_INVALID_PROTOCOL.
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-      reject(new OparlNetworkError(`Unsupported protocol "${url.protocol}" in URL: ${request.url}`));
+      // `user:password@host` without a scheme parses with the user name as the scheme: name a
+      // scheme only when the value spells one (`<scheme>://`).
+      const named = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(request.url) ? ` "${url.protocol}"` : "";
+      reject(new OparlNetworkError(`Unsupported protocol${named} in URL: ${redactUrl(request.url)}`));
       return;
     }
 
