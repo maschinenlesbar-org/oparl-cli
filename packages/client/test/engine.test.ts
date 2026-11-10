@@ -1104,3 +1104,36 @@ test("an error body keeps its spelling unless a credential hides behind an escap
   // Without a credential header nothing is rewritten.
   assert.equal(await bodyOf('{ "message": "s3cret\\u002dkey" }', {}), '{ "message": "s3cret\\u002dkey" }');
 });
+
+test("a credential header in a redirect's Location is scrubbed, in its path and its query (D2)", async () => {
+  const locations = [
+    `https://elsewhere.example/login?user=alice&pw=${encodeURIComponent(D_PW)}`,
+    `https://elsewhere.example/login?pw=${D_PW}`,
+    `https://elsewhere.example/${encodeURIComponent(`alice:${D_PW}`)}/x`,
+    `https://elsewhere.example/auth?basic=${D_BASIC}`,
+    `ftp://ris.example.de/${D_KEY}`,
+    `/relative/${D_PW}`,
+    `/relative/${encodeURIComponent(D_KEY)}`,
+  ];
+  for (const location of locations) {
+    // Refused (another host or scheme), and past the redirect limit on the same host.
+    for (const maxRedirects of [3, 0]) {
+      const e = new RequestEngine({ defaultHeaders: D_HEADERS, maxRetries: 0, maxRedirects, transport: async () => redirect(location, 302) });
+      const err = await e.getJson(URL_1).catch((caught: unknown) => caught);
+      assert.ok(err instanceof OparlLinkError || err instanceof OparlApiError, `${location}: ${String(err)}`);
+      const seen = decodeURIComponentSafe(loggedOf(err));
+      for (const secret of D_SECRETS) assert.ok(!seen.includes(secret), `${location} (${maxRedirects}): ${seen.slice(0, 2000)}`);
+    }
+  }
+});
+
+/** `text` with every run of percent escapes decoded where it is valid UTF-8. */
+function decodeURIComponentSafe(text: string): string {
+  return text.replace(/(?:%[0-9a-fA-F]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+}

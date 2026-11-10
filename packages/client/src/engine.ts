@@ -385,26 +385,39 @@ const effectivePort = (url: URL): string => url.port || (url.protocol === "https
  * it. Links stay on the same host: another hostname or port is refused. An `http:`
  * link on the same host as an `https:` page is upgraded to `https:` — several
  * servers publish `http://` ids while serving https — and a downgrade is never
- * followed.
+ * followed. A refusal quotes the link with `scrub` applied to it as sent, before it is
+ * resolved (resolving percent-encodes what is left in a new spelling): the engine passes
+ * its scrub of the credential headers' secrets, so a link that echoes one never shows it.
  */
-export function resolveLink(from: string, link: string): string {
+export function resolveLink(from: string, link: string, scrub: (text: string) => string = (text) => text): string {
   const base = new URL(from);
   base.username = "";
   base.password = "";
+  /** The link as a message shows it: scrubbed as sent, then resolved, without userinfo. */
+  const shown = (): string => {
+    try {
+      const url = new URL(scrub(link), base);
+      url.username = "";
+      url.password = "";
+      return sanitizeServerText(url.href);
+    } catch {
+      return sanitizeServerText(scrub(link));
+    }
+  };
   let target: URL;
   try {
     target = new URL(link, base);
   } catch {
-    throw new OparlLinkError(`The server returned an invalid link: ${sanitizeServerText(link)}`);
+    throw new OparlLinkError(`The server returned an invalid link: ${shown()}`);
   }
   target.username = "";
   target.password = "";
   if (target.protocol !== "http:" && target.protocol !== "https:") {
-    throw new OparlLinkError(`Refusing to follow a non-http link: ${sanitizeServerText(target.href)}`);
+    throw new OparlLinkError(`Refusing to follow a non-http link: ${shown()}`);
   }
   if (target.hostname.toLowerCase() !== base.hostname.toLowerCase()) {
     throw new OparlLinkError(
-      `Refusing to follow ${sanitizeServerText(target.href)} from ${cutForMessage(base.href)}: it points to another host. ` +
+      `Refusing to follow ${shown()} from ${cutForMessage(base.href)}: it points to another host. ` +
         "Links are only followed on the server they came from; fetch it directly with `get` if you trust it.",
     );
   }
@@ -418,9 +431,7 @@ export function resolveLink(from: string, link: string): string {
   const upgradedOnDefaultPorts =
     base.protocol === "http:" && target.protocol === "https:" && effectivePort(base) === "80" && effectivePort(target) === "443";
   if (!upgradedOnDefaultPorts && effectivePort(target) !== effectivePort(base)) {
-    throw new OparlLinkError(
-      `Refusing to follow ${sanitizeServerText(target.href)} from ${cutForMessage(base.href)}: it points to another port.`,
-    );
+    throw new OparlLinkError(`Refusing to follow ${shown()} from ${cutForMessage(base.href)}: it points to another port.`);
   }
   return target.href;
 }
@@ -925,6 +936,10 @@ export class RequestEngine {
     let dropped: { from: string; to: string } | undefined;
 
     let current = requested;
+    // `current` as messages name it: each redirect's Location scrubbed of the credential
+    // headers' secrets as sent, before it is resolved (resolving spells what is left anew), so a
+    // server that steers the client to a URL holding one never gets it quoted.
+    let shown = requested;
     let redirects = 0;
     let attempt = 0;
     for (;;) {
@@ -947,17 +962,17 @@ export class RequestEngine {
         // asked again at once.
         if (hasTransientCode(cause) && attempt < this.maxRetries) {
           attempt += 1;
-          await this.backOff(attempt, this.retryDelayMs * attempt, current);
+          await this.backOff(attempt, this.retryDelayMs * attempt, shown);
           continue;
         }
-        throw this.toNetworkError(current, cause);
+        throw this.toNetworkError(shown, cause);
       }
 
       // An injected transport may resolve with anything; a malformed response would
       // otherwise surface below as a raw TypeError, or — without a status — as a success.
       const invalid = responseProblem(raw);
       if (invalid !== undefined) {
-        throw new OparlNetworkError(`GET ${cutForMessage(current)} failed: the transport returned an invalid response (${invalid}).`);
+        throw new OparlNetworkError(`GET ${cutForMessage(shown)} failed: the transport returned an invalid response (${invalid}).`);
       }
       const response = raw as HttpResponse;
       // A transport that followed a redirect itself (fetch's default) took the request to a
@@ -966,7 +981,7 @@ export class RequestEngine {
       const reported = (response as { url?: unknown }).url;
       if (typeof reported === "string" && reported !== "" && originOf(reported) !== originOf(current)) {
         throw new OparlNetworkError(
-          `GET ${cutForMessage(current)} failed: the transport followed a redirect to ${originOf(reported) ?? "an unparseable URL"}, ` +
+          `GET ${cutForMessage(shown)} failed: the transport followed a redirect to ${originOf(reported) ?? "an unparseable URL"}, ` +
             'another origin. A transport must not follow redirects (HttpRequest.redirect is "manual"); the engine ' +
             "follows them and decides where credential headers may go.",
         );
@@ -977,12 +992,12 @@ export class RequestEngine {
       // The size cap holds whatever the transport did: the built-in one aborts early, a
       // custom one may have read everything.
       if (this.maxResponseBytes > 0 && body.byteLength > this.maxResponseBytes) {
-        throw new OparlNetworkError(`GET ${cutForMessage(current)} failed: ${sizeLimitMessage(this.maxResponseBytes)}`);
+        throw new OparlNetworkError(`GET ${cutForMessage(shown)} failed: ${sizeLimitMessage(this.maxResponseBytes)}`);
       }
 
       if ((status === 429 || status === 503) && attempt < this.maxRetries) {
         attempt += 1;
-        await this.backOff(attempt, this.retryDelay(status, responseHeaders["retry-after"], attempt), current, status);
+        await this.backOff(attempt, this.retryDelay(status, responseHeaders["retry-after"], attempt), shown, status);
         continue;
       }
 
@@ -993,10 +1008,10 @@ export class RequestEngine {
           if (redirects >= this.maxRedirects) {
             // A loop or a long chain: say how far it got. (With maxRedirects 0 nothing
             // was followed, and the plain text says enough.)
-            throw this.toApiError(current, status, body, responseHeaders, location, redirects || undefined, dropped);
+            throw this.toApiError(shown, status, body, responseHeaders, location, redirects || undefined, dropped);
           }
           redirects += 1;
-          const next = encodeTimestampPlus(carryQuery(resolveLink(current, location), query));
+          const next = encodeTimestampPlus(carryQuery(resolveLink(current, location, (text) => this.redact(text)), query));
           // resolveLink keeps a redirect on the same host and port, but upgrades http to
           // https: another origin, so the credential headers stay behind for the rest of
           // the chain, and a 401/403 there says why.
@@ -1004,18 +1019,19 @@ export class RequestEngine {
           if (hasCredentials && dropped === undefined && nextOrigin !== credentialOrigin) {
             dropped = { from: new URL(current).origin, to: nextOrigin };
           }
+          shown = shownLink(shown, this.redact(location), query);
           current = next;
           continue;
         }
         // Any other 3xx, or one without a Location: nothing to follow.
-        throw this.toApiError(current, status, body, responseHeaders, location, undefined, dropped);
+        throw this.toApiError(shown, status, body, responseHeaders, location, undefined, dropped);
       }
 
       if (status < 200 || status >= 300) {
-        throw this.toApiError(current, status, body, responseHeaders, undefined, undefined, dropped);
+        throw this.toApiError(shown, status, body, responseHeaders, undefined, undefined, dropped);
       }
 
-      const value = upgradeSameHostUrls(this.decode<T>(current, body, responseHeaders), current);
+      const value = upgradeSameHostUrls(this.decode<T>(shown, body, responseHeaders), current);
       return { value, url: current };
     }
   }
@@ -1288,7 +1304,8 @@ export class RequestEngine {
       detail = sanitizeServerText(this.redact(detail));
       if (detail === "") detail = undefined;
     }
-    const target = status >= 300 && status < 400 && location !== undefined ? redirectTarget(url, location) : undefined;
+    // The Location is scrubbed as sent, before it is resolved (which percent-encodes what is left).
+    const target = status >= 300 && status < 400 && location !== undefined ? redirectTarget(url, this.redact(location)) : undefined;
     return new OparlApiError({
       status,
       url,
@@ -1439,6 +1456,19 @@ function redirectTarget(requestUrl: string, location: string): string | undefine
   }
   const clean = sanitizeServerText(shown);
   return clean === "" ? undefined : clean;
+}
+
+/**
+ * The URL a redirect leads to as messages name it: `location`, already scrubbed, resolved against
+ * the hop before (as shown) as resolveLink resolves it, with the caller's `query` set again. A
+ * Location that no longer resolves once scrubbed is shown cleaned as it is.
+ */
+function shownLink(from: string, location: string, query: QueryParams | undefined): string {
+  try {
+    return encodeTimestampPlus(carryQuery(resolveLink(from, location), query));
+  } catch {
+    return sanitizeServerText(location);
+  }
 }
 
 /** A JSON number token, matched at a given position (sticky). */

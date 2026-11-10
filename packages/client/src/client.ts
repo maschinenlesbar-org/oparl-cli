@@ -410,6 +410,8 @@ export class OparlClient {
   private readonly registryUrl: string;
   private readonly curatedEndpoints: readonly CuratedEndpoint[];
   private readonly registryChecks: readonly RegistryCheck[];
+  /** The engine's scrub of the credential headers' secrets, for the links a refusal quotes. */
+  private readonly scrub = (text: string): string => this.engine.redact(text);
 
   constructor(options: OparlClientOptions = {}) {
     // A JavaScript caller may pass null for "no options"; treat it like undefined.
@@ -624,7 +626,7 @@ export class OparlClient {
       try {
         // Relative links belong to the document that carried them, so they are resolved
         // against the URL the page was read from, not the one the request started at.
-        next = encodeTimestampPlus(carryQuery(resolveLink(pageUrl, link), query));
+        next = encodeTimestampPlus(carryQuery(resolveLink(pageUrl, link, this.scrub), query));
       } catch (err) {
         if (!(err instanceof OparlLinkError)) throw err;
         next = null; // keep the pages already fetched and say why the walk stopped
@@ -671,7 +673,7 @@ export class OparlClient {
     assertKnownKeys("bodies option", options, ["maxPages"]);
     const maxPages = assertValid("maxPages", options.maxPages ?? 0, maxPagesProblem);
     const { system, url } = await this.systemFrom(callerUrl(systemUrl));
-    return this.walk<OparlBody>(resolveLink(url, system.body), undefined, maxPages);
+    return this.walk<OparlBody>(resolveLink(url, system.body, this.scrub), undefined, maxPages);
   }
 
   /**
@@ -738,7 +740,7 @@ export class OparlClient {
     }
     // Resolved against the URL the Body was read from: a relative list URL belongs to
     // the document that carried it, which a redirect may have moved.
-    return this.walk(resolveLink(from, listUrl), query, maxPages);
+    return this.walk(resolveLink(from, listUrl, this.scrub), query, maxPages);
   }
 
   /**
@@ -842,7 +844,7 @@ export class OparlClient {
       }
       const meta = isObject(value["meta"]) ? value["meta"] : {};
       const nextLink = str(meta["next"]);
-      url = nextLink ? resolveLink(from, nextLink) : null;
+      url = nextLink ? resolveLink(from, nextLink, this.scrub) : null;
       if (url !== null && seen.has(url)) url = null;
     }
     if (url !== null) {
