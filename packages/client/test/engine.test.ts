@@ -1195,3 +1195,20 @@ test("credentialsIn skips the slashes and backslashes WHATWG skips after a speci
     assert.ok(!redactUrl(value).includes("pw12"), `${value}: ${redactUrl(value)}`);
   }
 });
+
+test("an error answer with a 16 MB message is cleaned within a small heap", STARTS_A_PROCESS, () => {
+  // One `+=` per character over the whole detail exhausted a 128 MB heap before the cut to 200.
+  // (Conformance test P28's bin run of this case is skipped here: oparl adds an INFO hint
+  // record after a 5xx, where P28 expects exactly one record.)
+  const engine = new URL("../src/engine.js", import.meta.url).href;
+  const script =
+    `const { RequestEngine } = await import(${JSON.stringify(engine)});` +
+    `const body = Buffer.from(JSON.stringify({ message: "x ".repeat(8_000_000) }));` +
+    `const transport = async () => ({ status: 500, headers: { "content-type": "application/json" }, body });` +
+    `const err = await new RequestEngine({ transport, maxRetries: 0 }).getJson("https://ris.example/x").catch((e) => e);` +
+    `process.stdout.write(err.constructor.name + " " + err.message.length);`;
+  const out = execFileSync(process.execPath, ["--max-old-space-size=128", "--input-type=module", "-e", script], { encoding: "utf8" });
+  const [name, length] = out.split(" ");
+  assert.equal(name, "OparlApiError");
+  assert.ok(Number(length) < 1000, out);
+});

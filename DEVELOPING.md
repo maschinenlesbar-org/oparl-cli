@@ -540,7 +540,21 @@ shaped after real 1.1 and 1.0 servers and the registry, moved to example hosts.
   (`conformance-p27-big-and-odd-answers`: a large flat answer prints with `--compact` within a
   256 MB heap, 20 MB of DEL characters print escaped within 512 MB and 90 MB of them are an
   ERROR record, not a crash; a lone surrogate or invalid bytes become U+FFFD with a WARN; an
-  answer in two million one-byte chunks is read within a 256 MB heap).
+  answer in two million one-byte chunks is read within a 256 MB heap), and, from the security
+  audit of 2026-10-27, P28 (`conformance-p28-hostile-error-answers`: a number with a long run
+  of zeros and a run of control-string introducers are handled in linear time, millions of lone
+  surrogate escapes within a 128 MB heap; a credential echoed behind a JSON escape, in a value a
+  refusal quotes from a 2xx answer, or in a redirect's Location never reaches an error), P29
+  (`conformance-p29-base-url-credentials`: a token is scrubbed in every echoed form; a URL with a
+  backslash or without `//` after `http(s):` is refused, never echoing the password; requests go
+  to the parsed host), P30 (`conformance-p30-output-links`: `--force` follows no other user's
+  link in a shared directory, EACCES is not "exists", a stream is checked on its descriptor) and
+  P31 (`conformance-p31-release-pipeline`: release.yml's three jobs and the locked
+  `tools/sbom/`). oparl has no base URL, so the adapters of P28 and P29 read a base URL as the
+  start of the URL `get` names, its userinfo as the Basic credential header it stands for (the
+  only credential oparl sends), and `--base-url` in argv the same way; P28 skips the 16 MB
+  record count (a 5xx adds an INFO hint record; `engine.test.ts` checks the heap bound) and P29
+  the two stdout/echo cases a userinfo oparl never sends can't reach.
 - **`redirect-filters.test.ts`** — a filtered walk whose later page redirects, against two
   real local servers: the filters are re-applied, nothing reaches the other host, the `-o`
   file holds only filtered objects.
