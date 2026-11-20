@@ -85,6 +85,10 @@ test("findEndpoints: no match is not 'no server': the answer says why and names 
   assert.match(answer.reason ?? "", /does not mean there is no OParl server/);
   assert.ok((answer.sharedServers ?? []).length > 0);
   assert.ok((answer.sharedServers ?? []).every((s) => s.bodyCount > 1));
+  const urls = (answer.sharedServers ?? []).map((s) => s.url);
+  assert.ok(urls.includes("https://ris-oparl.itk-rheinland.de/Oparl/system"));
+  assert.ok(!urls.some((u) => /politik-bei-uns|muenchen-transparent|kleineanfragen/.test(u)), "aggregators and archives are no council's server");
+  assert.ok((answer.sharedServers ?? []).find((s) => s.url.startsWith(DUS))?.title.includes("(ris-oparl.itk-rheinland.de)"));
 });
 
 test("findEndpoints: a registry that can't be read leaves the curated list, with a note to say so", async () => {

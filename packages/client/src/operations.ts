@@ -298,11 +298,16 @@ export async function findEndpoints(client: OparlClient, params: FindEndpointsPa
   if (hits.some((h) => !h.working)) notes.push("working is a snapshot of the last check (checked, else the registry's fetched): checkEndpoint tells whether a server answers now.");
   if (hits.length === 0) {
     // The shipped lists' shared servers (no request): their bodies are not searched by name.
+    // Aggregators and archives are no council's own server; a registry check has no title, so its
+    // System's name stands in, with the host (several are just "OParl-Schnittstelle").
     const shared = [
-      ...CURATED_ENDPOINTS.map((e) => ({ title: e.title, url: e.url, working: e.working, bodyCount: e.bodyCount })),
-      ...REGISTRY_CHECKS.map((e) => ({ title: e.systemName ?? e.url, url: e.replacedBy ?? e.url, working: e.working, bodyCount: e.bodyCount ?? null })),
+      ...CURATED_ENDPOINTS.map((e) => ({ title: e.title, url: e.url, working: e.working, bodyCount: e.bodyCount, note: e.note })),
+      ...REGISTRY_CHECKS.map((e) => {
+        const url = e.replacedBy ?? e.url;
+        return { title: `${e.systemName ?? "OParl"} (${hostOf(url)})`, url, working: e.working, bodyCount: e.bodyCount ?? null, note: e.note };
+      }),
     ]
-      .filter((e) => e.working && (e.bodyCount ?? 0) > 1)
+      .filter((e) => e.working && (e.bodyCount ?? 0) > 1 && !/aggregator|archive/i.test(e.note ?? ""))
       .sort((a, b) => (b.bodyCount ?? 0) - (a.bodyCount ?? 0))
       .slice(0, 15)
       .map((e) => ({ title: e.title, url: e.url, bodyCount: e.bodyCount ?? 0 }));
