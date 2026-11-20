@@ -87,7 +87,7 @@ const LIST_FIELD_FALLBACKS: Partial<Record<ListType, string>> = {
 };
 
 /** The list URL a Body links for `type`, under the spec field or its known fallback. */
-function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
+export function bodyListUrl(body: JsonObject, type: ListType): JsonValue | undefined {
   const url = body[LIST_TYPES[type]];
   if (typeof url === "string") return url;
   const fallback = Object.hasOwn(LIST_FIELD_FALLBACKS, type) ? LIST_FIELD_FALLBACKS[type] : undefined;
@@ -407,7 +407,8 @@ export function listQuery(options: ListOptions): QueryParams {
 
 export class OparlClient {
   private readonly engine: RequestEngine;
-  private readonly registryUrl: string;
+  /** The endpoint registry `endpoints()` reads (`registryUrl`, else dev.oparl.org's). */
+  readonly registryUrl: string;
   private readonly curatedEndpoints: readonly CuratedEndpoint[];
   private readonly registryChecks: readonly RegistryCheck[];
   /** The engine's scrub of the credential headers' secrets, for the links a refusal quotes. */

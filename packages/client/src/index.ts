@@ -3,6 +3,7 @@
 export {
   OparlClient,
   DEFAULT_REGISTRY_URL,
+  bodyListUrl,
   LIST_TYPES,
   MAX_PAGES_HARD_LIMIT,
   MAX_REGISTRY_PAGES,
@@ -79,3 +80,42 @@ export {
 } from "./errors.js";
 
 export * from "./types.js";
+export {
+  DEFAULT_ENDPOINTS,
+  DEFAULT_MEETINGS,
+  DEFAULT_OBJECTS,
+  DEFAULT_PAPERS,
+  MAX_ENDPOINTS,
+  MAX_MEETINGS,
+  MAX_OBJECTS,
+  MAX_PAPERS,
+  checkEndpoint,
+  findEndpoints,
+  findMeetings,
+  findPapers,
+  getObject,
+  knownHosts,
+  licenceOf,
+  listObjects,
+  reachProblem,
+  requestsOf,
+} from "./operations.js";
+export type {
+  BodyRef,
+  BodySummary,
+  CheckEndpointAnswer,
+  CheckEndpointParams,
+  EndpointHit,
+  FindEndpointsAnswer,
+  FindEndpointsParams,
+  FindMeetingsAnswer,
+  FindMeetingsParams,
+  FindPapersAnswer,
+  FindPapersParams,
+  GetObjectAnswer,
+  LicenceStatement,
+  ListObjectsAnswer,
+  ListObjectsParams,
+  MeetingHit,
+  PaperHit,
+} from "./operations.js";
