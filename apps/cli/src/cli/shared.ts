@@ -7,9 +7,10 @@ import { InvalidArgumentError } from "commander";
 import { OutputError, isDirectoryMessage, logOf, refuseOverwrite, type CliDeps } from "./io.js";
 import type { OparlClientOptions } from "@maschinenlesbar.org/oparl-client/internal/client";
 import { normalizeTimestamp } from "@maschinenlesbar.org/oparl-client/internal/client";
-import { OparlApiError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, cutForMessage, quoteValue } from "@maschinenlesbar.org/oparl-client/internal/errors";
+import { OparlApiError, OparlError, OparlLinkError, OparlNetworkError, OparlParseError, OparlValidationError, cutForMessage, quoteValue } from "@maschinenlesbar.org/oparl-client/internal/errors";
 import { cleartextProblem, isBidiControl, parseUrlArgument, userAgentProblem, type RetryEvent } from "@maschinenlesbar.org/oparl-client/internal/engine";
 import type { Problem } from "@maschinenlesbar.org/oparl-client/internal/validate";
+import { pidsProblem, responseCapFor } from "./limits.js";
 
 /**
  * commander value-parser: a plain base-10 non-negative integer.
@@ -423,6 +424,9 @@ export function startUrl(positionals: readonly string[], opts: Record<string, un
   return typeof registry === "string" && opts["source"] !== "curated" ? registry : undefined;
 }
 
+/** The container can't run the CLI as it is limited (limits.ts): an ERROR record of the cli area and exit 1. */
+export class EnvironmentError extends OparlError {}
+
 /**
  * Wrap an async command action with consistent global-option resolution and
  * client construction. The callback receives a context (client + resolved global
@@ -448,6 +452,14 @@ export function action(
     const global = command.optsWithGlobals() as GlobalOptions;
     // A refused -o target is a usage error before anything else happens.
     checkOutputTarget(deps, global);
+    // In a container: under a pids limit Node can't work with, refuse before any request; under a
+    // memory limit the 100 MiB default can't be held, so cap by the memory instead (an oversized
+    // answer is then the cap's error, not an OOM kill). An explicit --max-response-bytes wins.
+    const limits = deps.limits?.() ?? {};
+    const problem = pidsProblem(limits);
+    if (problem !== undefined) throw new EnvironmentError(problem);
+    const given = command.getOptionValueSourceWithGlobals("maxResponseBytes");
+    const memory = given === undefined || given === "default" ? limits.memoryBytes : undefined;
     const opts = command.opts();
     const start = startUrl(positionals, opts);
     const cleartext = start === undefined ? undefined : cleartextProblem(start);
@@ -455,7 +467,9 @@ export function action(
     const onRetry = (event: RetryEvent): void => logOf(deps).warn("http", retryMessage(event));
     // Text in an answer replaced with U+FFFD is said, never silent (a WARN of oparl.api).
     const onWarning = (message: string): void => logOf(deps).warn("api", message);
-    const client = deps.createClient({ ...toEngineOptions(global), ...clientOptions(opts), onRetry, onWarning });
+    const options = toEngineOptions(global);
+    if (memory !== undefined) options.maxResponseBytes = responseCapFor(memory);
+    const client = deps.createClient({ ...options, ...clientOptions(opts), onRetry, onWarning });
     await fn({ client, global, opts }, positionals);
   };
 }
