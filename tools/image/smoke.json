@@ -1,0 +1,25 @@
+{
+  "comment": "What tools/image/smoke.mjs needs that is particular to this repo: the bin (its log topic), a command that makes one request, the exit code of a network error, the mock's answer to that request (by path), and a string the printed answer contains. The oparl CLI has no --base-url (its commands take whole URLs), so the command carries {base}: the mock's address, or offline https://mock:8080. The answer is the System of the ITK Rheinland OParl server (Düsseldorf), recorded on 2026-11-20.",
+  "bin": "oparl",
+  "command": ["system", "{base}/Oparl/system", "--compact"],
+  "networkErrorExit": 6,
+  "answers": {
+    "/Oparl/system": {
+      "id": "https://ris-oparl.itk-rheinland.de/Oparl/system",
+      "type": "https://schema.oparl.org/1.1/System",
+      "oparlVersion": "https://schema.oparl.org/1.1/",
+      "otherOParlVersions": [],
+      "license": "Open",
+      "body": "https://ris-oparl.itk-rheinland.de/Oparl/bodies",
+      "name": "Schnittstelle OParl 1.6",
+      "contactEmail": "ris@itk-rheinland.de",
+      "contactName": "Team Ratsinformationssystem der ITK-Rheinland",
+      "website": "https://www.itk-rheinland.de",
+      "vendor": "https://www.somacos.de?oparl=v1.6.0",
+      "product": "Sitzungsmanagementsystem Session  Copyright SOMACOS GmbH & Co. KG",
+      "created": "2025-04-22T00:00:00+02:00",
+      "modified": "2025-04-22T00:00:00+02:00"
+    }
+  },
+  "expectStdout": "Schnittstelle OParl 1.6"
+}
