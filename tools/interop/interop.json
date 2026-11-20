@@ -1,0 +1,26 @@
+{
+  "comment": "What tools/interop/interop.mjs needs that is particular to this repo: the mock upstream's answer per path (under --base-url http://127.0.0.1:<port>, which is the endpoint registry findEndpoints reads: its answer is at /), how many tools the server lists, and the calls to make with what each must answer. The tools that take a server's URL get only refused ones here: the mock's port is unknown when this file is written, and a known server's URL would reach the real one.",
+  "answers": {
+    "/": {
+      "data": [
+        {
+          "id": 1,
+          "title": "Stadt Musterstadt",
+          "url": "https://ris.musterstadt.example/oparl/system",
+          "system": { "type": "https://schema.oparl.org/1.1/System", "oparlVersion": "https://schema.oparl.org/1.1/", "body": "https://ris.musterstadt.example/oparl/bodies", "name": "Musterstadt - OParl 1.1" },
+          "bodyCount": 1,
+          "fetched": "2026-11-20T01:00:00+01:00"
+        }
+      ],
+      "meta": { "page": 1, "total": 1, "totalPages": 1 }
+    }
+  },
+  "tools": 6,
+  "calls": [
+    { "name": "findEndpoints", "arguments": { "search": "Musterstadt" }, "expect": { "status": "ok", "total": 1, "endpoints.0.url": "https://ris.musterstadt.example/oparl/system", "endpoints.0.working": true } },
+    { "name": "findEndpoints", "arguments": { "search": "Kleinkleckersdorf" }, "expect": { "status": "empty", "total": 0 } },
+    { "name": "getObject", "arguments": { "url": "http://169.254.169.254/latest/meta-data/" }, "error": true },
+    { "name": "findPapers", "arguments": { "since": "2026-11-16" }, "error": true },
+    { "name": "findEndpoints", "arguments": { "limit": 500 }, "error": true }
+  ]
+}
