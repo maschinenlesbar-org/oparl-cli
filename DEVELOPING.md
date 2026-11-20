@@ -111,7 +111,7 @@ node apps/cli/dist/src/cli/index.js endpoints --search köln    # or: npm start 
 ## Library usage
 
 ```ts
-import { OparlClient, OparlApiError, OparlLinkError } from "@maschinenlesbar.org/oparl-cli";
+import { OparlClient, OparlApiError, OparlLinkError, checkEndpoint, findPapers } from "@maschinenlesbar.org/oparl-cli";
 
 const client = new OparlClient();
 
@@ -126,6 +126,12 @@ const papers = await client.list(bodies[0]!.id, "paper", {
 console.log(papers.data.length, papers.next);
 
 const one = await client.get(papers.data[0]!.id);
+
+// The skills' use cases, with their traps built in (see "MCP server" below): is the server up,
+// its bodies with their lists and licences; papers new since a day (deleted stubs dropped, old
+// papers only edited since told apart, an ignored filter or fake change dates named).
+const check = await checkEndpoint(client, { url: cologne!.url });
+const fresh = await findPapers(client, { body: check.bodies[0]!.id, since: "2026-09-01" });
 ```
 
 ### Client options
@@ -227,14 +233,18 @@ apps/cli/            # @maschinenlesbar.org/oparl-cli — the published package
 packages/client/     # @maschinenlesbar.org/oparl-client — private, shipped inside the CLI's tarball
   src/               # the API client (below)
   scripts/           # check-endpoints.mjs: re-checks the endpoint list (not shipped)
-  test/              # tests that only touch the client, + the transport helpers and fixtures
+  test/              # tests that only touch the client, + the transport helpers and fixtures (oparl.ts: recorded answers)
+apps/mcp/            # @maschinenlesbar.org/oparl-mcp — the MCP server, released with the CLI
+packages/log/        # the log records (text/jsonl), shared by both apps
+tools/image/         # the container images of both apps (build, push, smoke, SBOM)
+tools/interop/       # the built MCP server against the official MCP client (own lockfile)
 tools/pack/          # prepack/postpack: ship the client (dist/node_modules) and commander in the tarball
-tools/bump.mjs       # version bump + commit + tag (npm run bump)
+tools/bump.mjs       # version bump + commit + tag of every published app (npm run bump)
 tools/sbom/          # the CycloneDX SBOM tool, own lockfile (release.yml's sbom job only)
 tsconfig.docs.json   # TypeDoc only: the package entry, with the client read from its sources
 ```
 
-- **The client is its own package** so a later MCP app can share it with the CLI. It is
+- **The client is its own package** so the MCP app shares it with the CLI. It is
   never published on its own: `apps/cli`'s `prepack` copies it into
   `apps/cli/dist/node_modules/`, where the CLI's imports find it, and the tarball ships it
   as plain files — so npm lists only commander (bundled) as a dependency, never the
@@ -248,9 +258,10 @@ tsconfig.docs.json   # TypeDoc only: the package entry, with the client read fro
   the CLI's tests (not bundled). Only `"."` is part of the library.
 - **Dependencies point one way:** the app depends on the client, the client on nothing
   in the workspace.
-- **The version lives in `apps/cli/package.json`.** The root has none; a plain
-  `npm version` at the root is refused. Release with `npm run bump -- <patch|minor|major>`,
-  which bumps the app, commits (the bare version as the message) and tags `vX.Y.Z`.
+- **The version lives in `apps/cli/package.json`** (and, the same, in `apps/mcp/package.json`).
+  The root has none; a plain `npm version` at the root is refused. Release with
+  `npm run bump -- <patch|minor|major>`, which bumps every published app together, commits (the
+  bare version as the message) and tags `vX.Y.Z`.
 - **TypeScript:** `tsconfig.base.json` holds the compiler options; every workspace has a
   `tsconfig.json` (`src/`) and a `tsconfig.test.json` (`test/`), and the root
   `tsconfig.json`/`tsconfig.test.json` reference them, built with `tsc -b`.
@@ -268,7 +279,9 @@ packages/client/src/
     errors.ts    # OparlError / OparlApiError / OparlNetworkError / OparlParseError /
                  # OparlValidationError / OparlLinkError
     validate.ts  # Problem rules + assertValid (input checks before any request)
-    client.ts    # OparlClient — endpoints, System, bodies, lists, get
+    client.ts    # OparlClient — endpoints, System, bodies, lists, get; bodyListUrl
+    operations.ts # the skills' use cases: findEndpoints / checkEndpoint / findPapers /
+                 #   findMeetings / listObjects / getObject; knownHosts, reachProblem, licenceOf
     endpoints-search.ts  # endpoints() filters: accent/umlaut search, OParl version, working
     endpoints-list.ts  # the curated endpoint list (generated, see below)
     index.ts     # the client's public surface (the library entry re-exports it)
@@ -568,9 +581,12 @@ shaped after real 1.1 and 1.0 servers and the registry, moved to example hosts.
 
 GitHub Actions workflows under `.github/workflows/`:
 
-- **ci.yml** — typecheck, build and test on Node 22/24/26 for every push and PR; then pack the
-  real tarball, check the pack left nothing behind, install it globally with the registry out
-  of reach and run the bin.
+- **ci.yml** — typecheck, build and test on Node 22/24/26 for every push and PR; then pack each
+  published app (the CLI and the MCP server), check the pack left nothing behind, install it
+  globally with the registry out of reach and run its bins; its `interop` job runs the MCP
+  server against the official client.
+- **images.yml** — build, smoke-test and scan both container images on every push and weekly
+  (see [Container image](#container-image)).
 - **release.yml** — on a `v*` tag (made by `npm run bump`), three jobs. **pack** (read-only):
   verify the tag matches `apps/cli/package.json`, a changelog, test, `npm pack --workspace
   apps/cli`, and the tarball's and the notes' sha256 as job outputs. **sbom** (read-only):
@@ -582,13 +598,109 @@ GitHub Actions workflows under `.github/workflows/`:
   tarball is built or where the write token is. Update the tool by changing its version in
   `tools/sbom/package.json` and running `npm install --package-lock-only --ignore-scripts`
   there; don't chain its install into an npm script.
-- **publish.yml** — manual dispatch from the release tag (`gh workflow run publish.yml --ref vX.Y.Z`; the version is the tag's): `npm publish --workspace apps/cli` via OIDC **Trusted Publishing** (no
-  stored `NPM_TOKEN`) with provenance.
+  The release also carries both image archives, their SBOMs, `SHA256SUMS` and signed
+  provenance (see [Container image](#container-image)).
+- **publish.yml** — manual dispatch from the release tag (`gh workflow run publish.yml --ref vX.Y.Z`; the version is the tag's): publishes the release's own files, both tarballs to npm via OIDC **Trusted
+  Publishing** (no stored `NPM_TOKEN`) with provenance and both images to ghcr.io, each checked
+  first against the immutable release and the provenance `release.yml` signed.
 - **docs.yml** — build the project website (`site/`, English and German) with the TypeDoc API docs
   under `/api/`, and deploy both to GitHub Pages on each `v*` tag.
   TypeDoc runs from the isolated, lockfile-pinned `tools/docs/` toolchain because it
   needs the TypeScript 6 compiler API, which TypeScript 7 no longer ships; locally,
   run `npm ci --prefix tools/docs` once before `npm run docs`.
+
+## MCP server (apps/mcp)
+
+`apps/mcp` is the second published app, `@maschinenlesbar.org/oparl-mcp` (bin `oparl-mcp`),
+released in lockstep with the CLI: `npm run bump` bumps every published app under `apps/`
+together, one version, one tag. Its npm README is the root `MCP.md` (prepack packs `<APP>.md` for
+an app that has one).
+
+**Which servers.** OParl has no API host, so the tools take the URLs the servers publish (a
+System, a Body, an object, a list's `next`). A URL is taken only on a host of the endpoint lists
+that ship with the client (`knownHosts()`: the curated list and the registry entries
+`check-endpoints` checked, their `replacedBy` URLs included; 124 hosts) or on the host of
+`--base-url` (`extraHosts`); `reachProblem` refuses anything else before any request (a URL with
+a user name or password too), so a caller can't make the server fetch an address of its choosing.
+From there the client keeps every link and redirect on the same host (`resolveLink`,
+`OparlLinkError`), and a `next` must be on the body's host. `--base-url` (the kit's option) is the
+endpoint registry `findEndpoints` reads, the CLI's `endpoints --registry-url` (`api.ts` maps it to
+the client's `registryUrl`; default dev.oparl.org's). A new registry entry the shipped checks don't
+cover is listed but not reachable until `npm run check-endpoints` adds it in a release.
+
+| Module | Role |
+|---|---|
+| `packages/client/src/operations.ts` | The skills' use cases as library functions, with their traps built in. `findEndpoints`: the client's `endpointsReport` (registry and curated list; a registry that fails leaves the curated list, with a note), working first, paged by offset; no match is `empty` with what to try and the shipped lists' shared servers (bodyCount > 1). `checkEndpoint`: the System, then its list of bodies walked directly (two requests); a server that fails is `live: false` with the client's message and the skill's advice (timeout, connection closed or HTTP 101, a certificate, a 404, a 5xx, a broken System, not a System); the shipped list's entry (`known`); per body its lists (`bodyListUrl`, with the plural fallbacks) and its licence. `licenceOf`: a licence URL or recognisable name declares one (CC BY, CC0, DL-DE BY/Zero, ODbL, by URL or name), a URL to own terms is declared with a note, anything else ("Open", "Nutzung nur nach Genehmigung") and a bare `licenseValidSince` declare nothing. `findPapers`: the body (name, licence) and its paper list walked with `modified_since` (the client's `listQuery`); deleted stubs dropped and counted; `dateFilter` honoured, ignored (objects modified before the day came back: filtered here), unusable (every change date today or yesterday: the paper's date decides) or emptyWindow (an HTTP 404 or 400 for the window while the list answers without the filter); `new` by `date`, else `created`, else null (kept); `only: changed` adds papers only edited since; words and a paper type matched over the pages read; a later page failing keeps the pages before it. `findMeetings`: the meeting list read a page at a time (`walk` with one page), up to the first page with no meeting of the window when it is open towards the future, else up to maxPages (`complete`); sorted by start. `listObjects`: `client.list` (a 1.0 body's embedded terms included), deleted dropped, embedded objects named in `embedded`. `getObject`: `client.get`; a 404 is `empty`. Every answer keeps the requests it started (`requestsOf`). Public API of both packages. |
+| `packages/log` | The log records (text/jsonl), shared by both apps; `createLogger({ program })`. |
+| `src/mcp/tools.ts` | This repo's: the six tools (flat input schemas with limits, no root combinators; one object output schema each; descriptions under 2000 characters), the instructions, the licence (per server, strictly read; § 5 UrhG, third-party files, person data; the link to DATA_LICENSE.md), the hints the server's messages give. A tool's maxPages is capped by `--max-pages`. A result's `source` is the requests it started: one as it is, several on one server as `https://host{/path,/path?query}`; `findEndpoints`' is the registry. |
+| `src/mcp/api.ts` | This repo's: how the kit reaches the client (`Client`: `OparlClient` with `baseUrl` as `registryUrl`; `OparlError` as `ClientError`, `OparlNetworkError` as `NetworkError`; `baseUrlProblem` from `parseUrlArgument`; `apiBase`: the registry URL up to its last path segment, whose host is the one extra host). No OParl server publishes a request limit; the kit's limiter (2 at a time, 120 a minute, over all servers) is the pace. |
+| `src/mcp/server.ts` | The McpServer factory, the tool types, `callTool`: deadline (`--call-timeout`) plus the client's cancellation, cleaned and fitted answers, failures as `isError` results. |
+| `src/mcp/result.ts` | `cleanStrings` (control, bidi, zero-width characters dropped in the value), `fitResult` (whole list entries dropped under `--max-result-chars`, `nextOffset`). |
+| `src/mcp/limiter.ts` | One per process around the upstream transport: 2 in flight, 120 a minute, pause on 429, a bounded queue. |
+| `src/mcp/http.ts` | node:http adapter for the SDK's `createMcpHandler`: POST /mcp, /healthz, Host and Origin checks (the SDK does neither), 1 MiB body, 8 requests at once, timeouts. |
+| `src/mcp/config.ts`, `run.ts`, `index.ts` | Options (`node:util` parseArgs), argv -> exit code, the bin (console into log records, SIGINT/SIGTERM, stdin's end). |
+
+The protocol is the SDK's: `@modelcontextprotocol/server` 2.4.0, bundled with its core and zod
+(prepack). It serves the 2026-07-28 revision and the 2025 handshake (2025-11-25, 2025-06-18)
+statelessly, on stdio (`serveStdio`) and HTTP. The SDK bundles AJV 8.18 into its own code to
+validate tool arguments against the input schemas; an SBOM doesn't list that copy.
+
+**The kit.** Everything in `apps/mcp` but `tools.ts`, `api.ts`, `test/helpers.ts`,
+`test/tools.test.ts` and the conformance tests' adapter blocks, plus `packages/log`,
+`apps/cli/src/cli/limits.ts`, `tools/image/` (but `smoke.json`), `tools/interop/` (but
+`interop.json`), `tools/bump.mjs`, `tools/pack/` and the workflows `ci.yml`, `images.yml`,
+`release.yml` and `publish.yml`, is the kit of `create-cli-template` (in the api-cli workspace),
+the same in every repository with an MCP server: a fix lands there first and comes here with
+`npm run sync-kit -- ../oparl-cli` (run in create-cli-template; `--check` lists the drift).
+
+Tests (`apps/mcp/test`) run in-process over the SDK's InMemoryTransport with raw JSON-RPC (the
+kit's `harness.ts`). The rules every server follows are the shared conformance tests
+`conformance-m1-…` to `conformance-m10-…`, each with an adapter block naming this repo's calls and
+mock answers (M9's call is a `getObject` on the registry's host: `findEndpoints` answers from the
+curated list when the registry fails, so it is never an error); `tools.test.ts` holds this
+server's own. The mock is the client's `test/oparl.ts` (`oparlApi`, `oparlAnswer`): live answers
+of the ITK Rheinland server (Düsseldorf: System, bodies, the Body, a page of papers modified since
+2026-11-16, the first meeting page cut into three) and the registry's first page, recorded on
+2026-11-20 and cut to the fields read; the operation tests (`packages/client/test/operations.test.ts`)
+add the traps' variants (an ignored filter, stamped change dates, undated papers, SD.NET's 404,
+a failing later page). `tools/interop/` checks the built server against the official client 2.4.0
+(stdio and HTTP; legacy, auto and pinned 2026-07-28) in ci.yml's `interop` job, with its own
+lockfile; `interop.json` serves a registry at `/` and calls `findEndpoints` and refused URLs only
+(the mock's port isn't known in advance, and a known server's URL would reach the real one).
+
+## Container image
+
+`tools/image/` builds both apps' images (Dockerfile targets `cli` and `mcp`) from their release
+tarballs (`npm pack` output), never from source: `ADD` unpacks it onto distroless Node 24 (Debian
+13, `nonroot`, uid 65532), so the image holds exactly the files npm users get. The base,
+BuildKit, the test registry, skopeo (local runs only), syft and grype are pinned in `pins.json`;
+bump them in the deps round. A Node or Debian security fix reaches the image only through a new
+base digest, so it means a patch release.
+
+| Script | What it does |
+|---|---|
+| `build.mjs` | Multi-arch OCI archive (amd64, arm64), reproducible: no provenance or SBOM attestation, timestamps from `SOURCE_DATE_EPOCH` (default: the HEAD commit's time). Two builds give the same index digest; compare index digests, not files. |
+| `push.mjs` | Copies the archive to a registry with skopeo (`--all --preserve-digests`) and checks the digest the registry serves. Used for the local test registry and for ghcr.io. |
+| `smoke.mjs` | Runs the image read-only, without capabilities, as an arbitrary uid: `--version`, `--help`, a network error (exit 6, the CLI's network exit code), one request to a mock upstream (`smoke.json`: `system {base}/Oparl/system` against the recorded System of the ITK Rheinland server; the oparl CLI has no `--base-url`, so the command carries `{base}`, the mock's address), and `docker stop`, which must end a waiting call with 143 in under 5 s. |
+| `sbom.mjs` | One CycloneDX SBOM per platform with syft, and with `--gate true` grype over them: a fixable high or critical finding fails. Accepted findings go into `.grype.yaml` with a reason. CI only. |
+
+Locally (colima; the scripts never read your docker config, so no credential helper is asked;
+on macOS port 5000 is often taken by the AirPlay receiver, hence 5055):
+
+```bash
+export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
+npm pack --workspace apps/cli --pack-destination dist-artifacts
+node tools/image/build.mjs --app cli --tarball dist-artifacts/<tarball>.tgz --out dist-artifacts/cli.oci.tar
+docker run -d -p 127.0.0.1:5055:5000 <registry pin from pins.json>
+node tools/image/push.mjs --archive dist-artifacts/cli.oci.tar --to 127.0.0.1:5055/oparl-cli:dev
+node tools/image/smoke.mjs --app cli --image 127.0.0.1:5055/oparl-cli@<index digest>
+```
+
+In CI: `images.yml` does all of it on every push and weekly, with the arm64 image smoke-tested on
+an arm64 runner and the vulnerability gate. In `release.yml` the job `image` builds from the
+checked tarball and records the archive's digest, `image-sbom` makes the SBOMs (no gate: the
+scanner's database changes daily), `attest` signs build provenance for the tarball, the archive
+and the image index, and the release attaches the archive, the image SBOMs and `SHA256SUMS`.
 
 ## Website
 

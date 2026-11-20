@@ -44,6 +44,57 @@ Check it works:
 oparl endpoints --search köln | jq -r '.[] | "\(.title)\t\(.url)"'
 ```
 
+### Docker
+
+From 0.9.0 every release is also a container image for linux/amd64 and linux/arm64 on the
+GitHub Container Registry, made from the same tarball as the npm package. It needs no Node.js and no
+install:
+
+```bash
+docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+  ghcr.io/maschinenlesbar-org/oparl-cli:latest endpoints --search köln
+```
+
+The image's entrypoint is the program, so the command follows the image name directly;
+`… oparl-cli:latest oparl endpoints` works too.
+
+In a container with a memory limit (`--memory`) the default `--max-response-bytes` is an eighth
+of that limit (at most the usual 100 MiB), so an oversized answer is refused with a clear
+error instead of the container being killed for memory. Some council servers send pages of several
+megabytes (200 meetings with their embedded objects); most answers are small.
+The CLI needs at least 12 processes and threads (`--pids-limit 12`): below that it refuses with
+an error, and with 4 or fewer Node.js itself hangs before the CLI can check.
+
+`latest` is the newest release. For scripts, name a release and pin its digest, which the
+[release notes](https://github.com/maschinenlesbar-org/oparl-cli/releases) give:
+`…/oparl-cli:0.9.0@sha256:<digest>`. Each image carries signed build provenance;
+check it with
+
+```bash
+gh attestation verify oci://ghcr.io/maschinenlesbar-org/oparl-cli:latest \
+  --repo maschinenlesbar-org/oparl-cli
+```
+
+### MCP server
+
+From 0.9.0 the OParl servers are also an [MCP](https://modelcontextprotocol.io/) server for AI
+agents, `@maschinenlesbar.org/oparl-mcp` (command `oparl-mcp`, image
+`ghcr.io/maschinenlesbar-org/oparl-mcp`): six read-only tools, to find a council's OParl server
+in the endpoint lists, check it live (its bodies, their lists and licences), read a body's papers
+new or changed since a day (with the checks the skills make: an ignored date filter, fake change
+dates, an empty window answered with HTTP 404, old papers only edited since), its meetings in a
+window, one of its lists (committees, people, legislative terms) and any object by its URL, on
+stdio or Streamable HTTP. The tools reach only the servers of the endpoint lists that ship with
+the client, never an address a caller makes up. Setup for Claude Code, Claude Desktop and VS Code:
+[MCP.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/MCP.md).
+
+```bash
+npm i -g @maschinenlesbar.org/oparl-mcp
+claude mcp add oparl -- oparl-mcp
+```
+
+Every result reads the licence each server declares strictly; most declare none.
+
 ## Quickstart
 
 ```bash
@@ -279,6 +330,7 @@ is anonymous.)
 - **[Usage.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/Usage.md)** — use-case-driven cookbook.
 - **[GLOSSARY.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/GLOSSARY.md)** — OParl objects and terms explained.
 - **[DEVELOPING.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/DEVELOPING.md)** — TypeScript library usage, architecture, testing, CI.
+- **[MCP.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/MCP.md)** — the same use cases as the tools of the MCP server, for any MCP client.
 
 ## Data license
 
