@@ -417,7 +417,12 @@ server compress anyway.
 **Custom transports.** The engine holds the transport to the documented limits itself, so a
 `fetch` or `node:http` transport gets the same guarantees as the built-in one. It runs every
 call under the `timeoutMs` deadline and passes an `AbortSignal` (`HttpRequest.signal`) that
-fires then; the call rejects at the deadline whether the transport stops or not. It checks
+fires then, with the timeout error as its reason; the call rejects at the deadline whether
+the transport stops or not. The built-in transport stops on that signal with its reason, and on
+a signal some other caller aborted (the MCP server's limiter adds a tool call's) with "Request
+aborted by its caller before it finished": never a timeout it didn't have. The operations take
+the caller's `signal` too, so a list page missing after it aborted is noted as not read in
+time ("Page 2 was not read: the call's time ran out …"), not as a failed request. It checks
 `maxResponseBytes` on the body it gets back. It accepts the body as a Buffer, any
 `ArrayBuffer` view (fetch's `Uint8Array`, from any realm) or an `ArrayBuffer`, and the
 headers as a plain record in any case, a `Headers` object or a `Map` — `Location` and

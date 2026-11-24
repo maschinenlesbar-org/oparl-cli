@@ -344,6 +344,8 @@ export interface CheckEndpointParams {
   /** Pages of the body list to read (default 1). */
   maxPages?: number | undefined;
   extraHosts?: readonly string[] | undefined;
+  /** The caller's deadline or cancellation: a page missing after it aborted is noted as such. */
+  signal?: AbortSignal | undefined;
 }
 
 export interface CheckEndpointAnswer {
@@ -455,7 +457,7 @@ export async function checkEndpoint(client: OparlClient, params: CheckEndpointPa
       return done({ ...base, live: true, system: summary, bodies: [], notes }, [url, bodiesUrl]);
     }
     walked = err.partial;
-    notes.push(`The list of bodies failed after page ${walked.pages}: ${err.message}`);
+    notes.push(`${pageMissing(walked.pages + 1, err, params.signal)}: the bodies are those of the pages before it.`);
   }
   if (walked.note !== undefined) notes.push(walked.note);
   if (walked.next !== null && walked.stoppedEarly !== true && walked.note === undefined) notes.push(`More bodies than the ${walked.pages} page(s) read: raise maxPages.`);
@@ -535,6 +537,8 @@ export interface FindPapersParams {
   /** A next of an earlier answer: go on from there (the same filters). */
   next?: string | undefined;
   extraHosts?: readonly string[] | undefined;
+  /** The caller's deadline or cancellation: a page missing after it aborted is noted as such. */
+  signal?: AbortSignal | undefined;
   /** The clock (tests). */
   now?: Date | undefined;
 }
@@ -566,13 +570,21 @@ function fakeTimestamps(objects: JsonObject[], today: string): boolean {
   return days.size === 1 && (day === today || day === yesterday);
 }
 
-/** A walk's result, or the part a later page's failure left (with a note). */
-async function walkKeeping(walk: () => Promise<ListResult<JsonObject>>, notes: string[]): Promise<ListResult<JsonObject>> {
+/**
+ * Why page `n` of a list is missing, for a note: the caller's deadline or cancellation (`signal`
+ * aborted: the request was stopped, it didn't time out or fail), else the error.
+ */
+function pageMissing(n: number, err: Error, signal: AbortSignal | undefined): string {
+  return signal?.aborted === true ? `Page ${n} was not read: the call's time ran out (or it was cancelled) first` : `Page ${n} failed (${err.message})`;
+}
+
+/** A walk's result, or the part a later page's failure left (with a note naming `what` the list holds). */
+async function walkKeeping(walk: () => Promise<ListResult<JsonObject>>, notes: string[], what: string, signal: AbortSignal | undefined): Promise<ListResult<JsonObject>> {
   try {
     return await walk();
   } catch (err) {
     if (!(err instanceof OparlError) || err.partial === undefined) throw err;
-    notes.push(`Page ${err.partial.pages + 1} failed (${err.message}): the papers are those of the pages before it, the list is incomplete; next is the page that failed.`);
+    notes.push(`${pageMissing(err.partial.pages + 1, err, signal)}: the ${what} are those of the pages before it, the list is incomplete; next is that page.`);
     return err.partial;
   }
 }
@@ -616,7 +628,7 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
   requests.push(encodeTimestampPlus(carryQuery(start, filter)));
   let walked: ListResult<JsonObject>;
   try {
-    walked = await walkKeeping(() => client.walk<JsonObject>(start, filter, maxPages), notes);
+    walked = await walkKeeping(() => client.walk<JsonObject>(start, filter, maxPages), notes, "papers", params.signal);
   } catch (err) {
     if (!(filter !== undefined && err instanceof OparlApiError && (err.status === 404 || err.status === 400))) throw err;
     // SD.NET RIM answers a window with no objects in it with 404 ("Die angeforderte Ressource
@@ -735,6 +747,8 @@ export interface FindMeetingsParams {
   limit?: number | undefined;
   next?: string | undefined;
   extraHosts?: readonly string[] | undefined;
+  /** The caller's deadline or cancellation: a page missing after it aborted is noted as such. */
+  signal?: AbortSignal | undefined;
   now?: Date | undefined;
 }
 
@@ -822,7 +836,7 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
       page = await client.walk<JsonObject>(current, undefined, 1);
     } catch (err) {
       if (pages === 0 || !(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
-      notes.push(`Page ${pages + 1} failed (${err.message}): the meetings are those of the pages before it; next is the page that failed.`);
+      notes.push(`${pageMissing(pages + 1, err, params.signal)}: the meetings are those of the pages before it; next is that page.`);
       break;
     }
     pages += 1;
@@ -891,6 +905,8 @@ export interface ListObjectsParams {
   limit?: number | undefined;
   next?: string | undefined;
   extraHosts?: readonly string[] | undefined;
+  /** The caller's deadline or cancellation: a page missing after it aborted is noted as such. */
+  signal?: AbortSignal | undefined;
 }
 
 export interface ListObjectsAnswer {
@@ -949,7 +965,7 @@ export async function listObjects(client: OparlClient, params: ListObjectsParams
             ...(createdSince === undefined ? {} : { createdSince }),
           }) as Promise<ListResult<JsonObject>>
       : () => client.walk<JsonObject>(next, undefined, maxPages);
-  const walked = await walkKeeping(walk, notes);
+  const walked = await walkKeeping(walk, notes, "objects", params.signal);
   const live = walked.data.filter((o) => o["deleted"] !== true);
   const hits = live.filter((o) => matchesWords(query, textOf(o["name"]), textOf(o["shortName"]), textOf(o["reference"]))).map(flat);
   if (walked.note !== undefined) notes.push(walked.note);

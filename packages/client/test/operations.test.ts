@@ -229,6 +229,31 @@ test("findPapers: a later page failing keeps the pages before it, says the list 
   assert.match(answer.next ?? "", /page=2/);
 });
 
+test("a page the caller's deadline stopped is named so in the note, not as a request timeout", async () => {
+  const page1 = { ...DUS_PAPERS, links: { next: `${DUS}/bodies/0015/papers?page=2` } };
+  const meetings1 = { data: [{ id: `${DUS}/m/1`, type: "https://schema.oparl.org/1.1/Meeting", name: "Rat", start: "2026-11-25T10:00:00+01:00" }], links: { next: `${DUS}/bodies/0015/meetings?page=2` } };
+  const run = async (call: (client: OparlClient, signal: AbortSignal) => Promise<{ notes: string[]; next: string | null }>) => {
+    const deadline = new AbortController();
+    const mock = withOverride((r) => {
+      const url = new URL(r.url);
+      if (url.searchParams.get("page") === "2") {
+        deadline.abort();
+        throw new OparlNetworkError("Request aborted by its caller before it finished");
+      }
+      if (url.pathname.endsWith("/papers")) return jsonResponse(page1);
+      if (url.pathname.endsWith("/meetings")) return jsonResponse(meetings1);
+      return undefined;
+    });
+    const answer = await call(clientOf(mock), deadline.signal);
+    assert.match(answer.notes.join(" "), /Page 2 was not read: the call's time ran out \(or it was cancelled\) first/);
+    assert.doesNotMatch(answer.notes.join(" "), /failed \(/);
+    assert.match(answer.next ?? "", /page=2/);
+  };
+  await run((client, signal) => findPapers(client, { body: DUS_BODY_URL, maxPages: 2, signal, now: NOW }));
+  await run((client, signal) => findMeetings(client, { body: DUS_BODY_URL, maxPages: 2, signal, now: NOW }));
+  await run((client, signal) => listObjects(client, { body: DUS_BODY_URL, type: "paper", maxPages: 2, signal }));
+});
+
 test("findMeetings: upcoming by default, pages read until one has none from today on (page 4 never asked), soonest first", async () => {
   const mock = oparlApi();
   const answer = await findMeetings(clientOf(mock), { body: DUS_BODY_URL, maxPages: 5, now: NOW });

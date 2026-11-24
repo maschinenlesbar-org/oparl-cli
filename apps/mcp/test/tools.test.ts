@@ -7,6 +7,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import http from "node:http";
+import { nodeHttpTransport } from "../src/mcp/api.js";
+import { limitTransport } from "../src/mcp/limiter.js";
 import { listTools } from "../src/mcp/server.js";
 import { connect } from "./harness.js";
 import { DUS, DUS_BODY_URL, DUS_PAPERS, DUS_SYSTEM_URL, jsonResponse, makeMockTransport, oparlAnswer, oparlApi } from "./helpers.js";
@@ -107,4 +110,32 @@ test("listObjects and getObject: a list with embedded objects named, one paper i
   const missing = await connection.call("getObject", { url: `${DUS}/bodies/0015/papers/vo/0` });
   assert.equal(missing.structuredContent?.["status"], "empty");
   await connection.close();
+});
+
+test("a page the call deadline stopped is named so in the answer's note, not as the request timeout", async () => {
+  // A real transport, as the server runs it (the limiter passes the call's signal to each request):
+  // page 1 answers, page 2 never does.
+  const server = http.createServer((req, res) => {
+    const base = `http://${req.headers.host}`;
+    const url = new URL(req.url ?? "/", base);
+    if (url.searchParams.get("page") === "2") return;
+    res.setHeader("content-type", "application/json");
+    if (url.pathname === "/oparl/body") res.end(JSON.stringify({ id: `${base}/oparl/body`, type: "https://schema.oparl.org/1.1/Body", name: "Teststadt", paper: `${base}/oparl/papers` }));
+    else if (url.pathname === "/oparl/papers") res.end(JSON.stringify({ data: [{ id: `${base}/oparl/papers/1`, type: "https://schema.oparl.org/1.1/Paper", name: "Antrag", date: "2026-11-20" }], links: { next: `${base}/oparl/papers?page=2` } }));
+    else res.writeHead(404).end("{}");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as { port: number };
+  try {
+    const connection = await connect({ transport: { transport: limitTransport(nodeHttpTransport) }, config: { baseUrl: `http://127.0.0.1:${port}/api/endpoints`, callTimeoutMs: 400 } });
+    const result = await connection.call("findPapers", { body: `http://127.0.0.1:${port}/oparl/body`, maxPages: 2 });
+    await connection.close();
+    const notes = ((result.structuredContent?.["notes"] ?? []) as string[]).join(" ");
+    assert.equal(result.structuredContent?.["pagesRead"], 1, result.content[0]?.text);
+    assert.match(notes, /Page 2 was not read: the call's time ran out/);
+    assert.doesNotMatch(notes, /timed out after 30000ms/);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

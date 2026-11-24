@@ -159,7 +159,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     outputSchema: output({ url: text, live: { type: "boolean" }, problem: text, advice: text, known: obj, system: obj, bodies: arr }),
     source: source((args) => str(args, "url")),
     async run(args, context) {
-      return remember(args, await checkEndpoint(context.client, { url: str(args, "url") ?? "", maxPages: pages(args, context), extraHosts: extraHosts(context) }));
+      return remember(args, await checkEndpoint(context.client, { url: str(args, "url") ?? "", maxPages: pages(args, context), extraHosts: extraHosts(context), signal: context.signal }));
     },
   },
   {
@@ -198,6 +198,7 @@ export const TOOLS: readonly ToolDefinition[] = [
           limit: num(args, "limit"),
           next: str(args, "next"),
           extraHosts: extraHosts(context),
+          signal: context.signal,
         }),
       );
     },
@@ -236,6 +237,7 @@ export const TOOLS: readonly ToolDefinition[] = [
           limit: num(args, "limit"),
           next: str(args, "next"),
           extraHosts: extraHosts(context),
+          signal: context.signal,
         }),
       );
     },
@@ -276,6 +278,7 @@ export const TOOLS: readonly ToolDefinition[] = [
           limit: num(args, "limit"),
           next: str(args, "next"),
           extraHosts: extraHosts(context),
+          signal: context.signal,
         }),
       );
     },
