@@ -11,6 +11,7 @@ import http from "node:http";
 import { nodeHttpTransport } from "../src/mcp/api.js";
 import { limitTransport } from "../src/mcp/limiter.js";
 import { listTools } from "../src/mcp/server.js";
+import { DEADLINE_HINT, SIZE_HINT, TOOLS } from "../src/mcp/tools.js";
 import { connect } from "./harness.js";
 import { DUS, DUS_BODY_URL, DUS_PAPERS, DUS_SYSTEM_URL, jsonResponse, makeMockTransport, oparlAnswer, oparlApi } from "./helpers.js";
 
@@ -179,4 +180,26 @@ test("papers the size cap leaves out of the pages read are reachable: nextOffset
   await connection.close();
   assert.ok(calls > 1, "the first answer was cut");
   assert.equal(ids.size, 150, "every paper of page 1 reached");
+});
+
+test("the deadline's and the size cap's advice fit every tool: each option they name is named with the tools that take it", async () => {
+  const connection = await connect({ transport: { transport: (): Promise<never> => new Promise<never>(() => {}) }, config: { callTimeoutMs: 30 } });
+  const stopped = (await connection.call("getObject", { url: `${DUS}/bodies/0015/papers/vo/1` })).content[0]?.text ?? "";
+  await connection.close();
+  assert.ok(stopped.includes(DEADLINE_HINT), stopped);
+  const schemas = new Map(TOOLS.map((tool) => [tool.name, Object.keys((tool.inputSchema as { properties: Record<string, unknown> }).properties)]));
+  for (const text of [DEADLINE_HINT, SIZE_HINT]) {
+    const pairs = [...text.matchAll(/(\w+(?: or \w+)*) \((\w+(?:, \w+)*)\)/g)];
+    assert.ok(pairs.length >= 2, text);
+    for (const [, options, tools] of pairs) {
+      for (const tool of (tools as string).split(", ")) {
+        assert.ok(schemas.has(tool), `no tool ${tool}: ${text}`);
+        for (const option of (options as string).split(" or ")) assert.ok(schemas.get(tool)?.includes(option), `${tool} takes no ${option}: ${text}`);
+      }
+    }
+    const named = new Set(pairs.flatMap(([, options]) => (options as string).split(" or ")));
+    for (const option of ["maxPages", "limit", "offset", "next", "since", "from", "to", "query", "search"]) {
+      assert.ok(!new RegExp(`\\b${option}\\b`).test(text) || named.has(option), `${option} named without its tools: ${text}`);
+    }
+  }
 });
