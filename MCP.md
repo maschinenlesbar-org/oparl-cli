@@ -96,7 +96,8 @@ record names both) and the data licence. The skills' traps are handled in the to
 ignore date filters, stamp fake change dates or answer an empty window with HTTP 404; papers only
 edited since a day that aren't new; lists in the server's order, not by date, read a few pages at a
 time (`next` goes on). No match and a server that doesn't answer are answers in words, with what to
-try. A failure is a tool error that says what to change.
+try. A text over 2000 characters is cut and ends in `…[cut, N characters in all]`, and the answer
+says `truncated`. A failure is a tool error that says what to change.
 
 ## Options
 
