@@ -312,7 +312,7 @@ Given **before or after** the command, e.g. `oparl --compact bodies <url>`:
 | `--log-format <format>` | How errors, warnings and notes are written to stderr: `text` (default; log4j style, `2026-10-09T14:03:12.481Z WARN  [oparl.http] …`) or `jsonl` (one JSON object per line: `ts`, `level`, `topic`, `msg`). stdout is not affected |
 | `--timeout <ms>` | Time limit per request, reading the whole response included (default `120000`; `0` = none; at most `2147483647`) |
 | `--user-agent <ua>` | `User-Agent` header value (ASCII or Latin-1 — an emoji, an en dash or a blank value is rejected with exit `2`) |
-| `--max-retries <n>` | Retries for transient `429`/`503` responses and reset connections (0..10, default `2`); a timeout is not retried. A 429 waits at least 1 s (doubling), a 503 0.5 s (growing linearly); `Retry-After` can only lengthen a wait, up to 30 s. Each retry logs one WARN record of `oparl.http` before it waits (`HTTP 503 from host: retry 1 of 3 in 2 s`) |
+| `--max-retries <n>` | Retries for transient `429`/`503` responses and reset connections (0..10, default `2`); a timeout is not retried. A 429 waits at least 1 s (doubling), a 503 0.5 s (growing linearly); `Retry-After` can only lengthen a wait, up to 30 s; a longer one is not retried, and the error names the wait the server asked for. Each retry logs one WARN record of `oparl.http` before it waits (`HTTP 503 from host: retry 1 of 3 in 2 s`) |
 | `--max-redirects <n>` | Redirects to follow on the same host (0..10, default `3`) |
 | `--max-response-bytes <n>` | Cap response body size in bytes, decompressed size included (`0` = unlimited; default 100 MiB) |
 

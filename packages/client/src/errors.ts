@@ -317,9 +317,12 @@ export class OparlApiError extends OparlError {
     redirectsFollowed?: number;
     /** Set when a redirect to another origin dropped the credential headers. */
     credentialsDropped?: { from: string; to: string };
+    /** What the client did about the answer and what to do (a Retry-After it didn't wait out). */
+    advice?: string;
   }) {
     const parts: string[] = [];
     if (args.detail) parts.push(args.detail);
+    if (args.advice) parts.push(args.advice);
     if (args.status >= 300 && args.status < 400) {
       const limit =
         args.redirectsFollowed !== undefined

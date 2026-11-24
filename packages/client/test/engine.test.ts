@@ -94,18 +94,38 @@ test("a 503 is retried up to maxRetries, then surfaces as OparlApiError", async 
   assert.equal(mt.calls.length, 3);
 });
 
-test("Retry-After (seconds) is honoured and capped at 30 s", async () => {
+test("Retry-After (seconds) up to 30 s is waited out", async () => {
   const waits: number[] = [];
   let n = 0;
   const mt = makeMockTransport(() => {
     n += 1;
     if (n === 1) return rawResponse("", "text/plain", 429, { "retry-after": "2" });
-    if (n === 2) return rawResponse("", "text/plain", 429, { "retry-after": "3600" });
+    if (n === 2) return rawResponse("", "text/plain", 429, { "retry-after": "30" });
     return jsonResponse({ ok: true });
   });
   const e = new RequestEngine({ transport: mt.transport, maxRetries: 2, sleep: async (ms) => void waits.push(ms) });
   assert.deepEqual(await e.getJson(URL_1), { ok: true });
   assert.deepEqual(waits, [2000, 30_000]);
+});
+
+test("a Retry-After above 30 s is not retried: one request, no wait, and the error names the wait", async () => {
+  for (const [long, seconds] of [["31", 31], ["99999999999", 99999999999], [new Date(Date.now() + 3_600_000).toUTCString(), 3600]] as const) {
+    for (const status of [429, 503]) {
+      const waits: number[] = [];
+      const mt = makeMockTransport(() => rawResponse("", "text/plain", status, { "retry-after": long }));
+      const e = new RequestEngine({ transport: mt.transport, maxRetries: 2, sleep: async (ms) => void waits.push(ms) });
+      await assert.rejects(
+        () => e.getJson(URL_1),
+        (err) =>
+          err instanceof OparlApiError &&
+          err.status === status &&
+          new RegExp(`the server asked to retry after (${seconds}|${seconds - 1}) s \\(Retry-After\\), longer than the 30 s this client waits, so it was not retried: retrying sooner won't help, try again later`).test(err.message),
+        long,
+      );
+      assert.deepEqual(waits, [], long);
+      assert.equal(mt.calls.length, 1, long);
+    }
+  }
 });
 
 test("a redirect on the same host is followed, including a relative Location", async () => {

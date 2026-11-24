@@ -61,14 +61,15 @@ export interface EngineOptions {
   /**
    * Number of automatic retries for transient 429/503 responses and reset connections
    * (ECONNRESET, EPIPE, ECONNABORTED, UND_ERR_SOCKET): 0 to MAX_RETRIES. Timeouts are
-   * not retried.
+   * not retried, nor is an answer whose Retry-After is over MAX_RETRY_AFTER_MS (30 s): its
+   * error comes at once and names the wait.
    */
   maxRetries?: number | undefined;
   /**
    * Base backoff between retries in milliseconds (default 500), 0 to MAX_RETRY_AFTER_MS
    * (30 000). Grows linearly per attempt for a 503 and a reset; a 429 waits at least 1 s,
    * doubling per attempt. A Retry-After header (seconds or an HTTP date) can lengthen a
-   * wait, never shorten it; every wait is capped at 30 s.
+   * wait, never shorten it, up to 30 s; a longer one is not retried.
    */
   retryDelayMs?: number | undefined;
   /**
@@ -132,7 +133,13 @@ const DEFAULT_MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
  * not redirects to follow; they surface as an OparlApiError.
  */
 const FOLLOWED_REDIRECTS = new Set([301, 302, 303, 307, 308]);
-/** Longest wait honoured from a Retry-After header, so a hostile 429 can't stall us. */
+/**
+ * Longest Retry-After the engine waits out before retrying a 429/503. When the server asks for
+ * longer, the engine does not retry and the error comes at once, naming the wait (as most of the
+ * *-cli clients do): retrying sooner would only land inside the window the server asked to keep
+ * free, and a hostile value must not park the client. The MCP server's limiter pauses a host for
+ * at most as long, and a tool call has 45 s by default.
+ */
 export const MAX_RETRY_AFTER_MS = 30_000;
 /** Shortest wait before retrying a 429: a rate limit is not lifted in half a second. */
 const MIN_RATE_LIMIT_DELAY_MS = 1_000;
@@ -999,10 +1006,21 @@ export class RequestEngine {
         throw new OparlNetworkError(`GET ${cutForMessage(shown)} failed: ${sizeLimitMessage(this.maxResponseBytes)}`);
       }
 
-      if ((status === 429 || status === 503) && attempt < this.maxRetries) {
+      // A Retry-After beyond MAX_RETRY_AFTER_MS is not retried: the error below comes at once and
+      // names the wait (retrying sooner only lands in the window the server asked to keep free).
+      const retryable = status === 429 || status === 503;
+      const retryAfter = retryable ? parseRetryAfter(responseHeaders["retry-after"]) : undefined;
+      const tooLong = retryAfter !== undefined && retryAfter > MAX_RETRY_AFTER_MS;
+      if (retryable && attempt < this.maxRetries && !tooLong) {
         attempt += 1;
-        await this.backOff(attempt, this.retryDelay(status, responseHeaders["retry-after"], attempt), shown, status);
+        await this.backOff(attempt, this.retryDelay(status, retryAfter, attempt), shown, status);
         continue;
+      }
+      if (tooLong) {
+        const advice =
+          `the server asked to retry after ${Math.ceil(retryAfter / 1000)} s (Retry-After), longer than the ` +
+          `${MAX_RETRY_AFTER_MS / 1000} s this client waits, so it was not retried: retrying sooner won't help, try again later`;
+        throw this.toApiError(shown, status, body, responseHeaders, undefined, undefined, dropped, advice);
       }
 
       if (status >= 300 && status < 400) {
@@ -1072,14 +1090,13 @@ export class RequestEngine {
    * retryDelayMs for a 503. A Retry-After header — seconds or an HTTP date — can ask for
    * longer, never for less: `Retry-After: 0` or a date in the past turned the retries into
    * a burst against a council server that had just asked for less load. Every wait is
-   * capped at MAX_RETRY_AFTER_MS (30 s), so a hostile value can't stall the client.
+   * capped at MAX_RETRY_AFTER_MS (30 s); a Retry-After over it is not retried at all (request).
    */
-  private retryDelay(status: number, retryAfter: string | string[] | undefined, attempt: number): number {
+  private retryDelay(status: number, asked: number | undefined, attempt: number): number {
     const backoff =
       status === 429
         ? Math.max(this.retryDelayMs, MIN_RATE_LIMIT_DELAY_MS) * 2 ** (attempt - 1)
         : this.retryDelayMs * attempt;
-    const asked = parseRetryAfter(retryAfter);
     return Math.min(asked === undefined ? backoff : Math.max(asked, backoff), MAX_RETRY_AFTER_MS);
   }
 
@@ -1264,6 +1281,7 @@ export class RequestEngine {
     location?: string,
     redirectsFollowed?: number,
     credentialsDropped?: { from: string; to: string },
+    advice?: string,
   ): OparlApiError {
     let decoded = body;
     try {
@@ -1319,6 +1337,7 @@ export class RequestEngine {
       ...(target !== undefined ? { location: target } : {}),
       ...(redirectsFollowed !== undefined ? { redirectsFollowed } : {}),
       ...(credentialsDropped !== undefined ? { credentialsDropped } : {}),
+      ...(advice !== undefined ? { advice } : {}),
     });
   }
 }

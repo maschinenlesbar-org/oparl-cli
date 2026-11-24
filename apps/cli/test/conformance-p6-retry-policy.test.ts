@@ -21,7 +21,7 @@ const RETRY_AFTER_CAP_MS = 30_000;
  * "fail" fails at once with a message that names the requested wait and says it was not
  * retried (fim-portal: retrying early would only land inside the server's window).
  */
-const LONG_RETRY_AFTER = "wait-cap" as "wait-cap" | "fail";
+const LONG_RETRY_AFTER = "fail" as "wait-cap" | "fail";
 // --------------------------------------------------------------------------------------
 
 async function sleepsFor(status: number, retryAfter: string | undefined, retries = 3): Promise<number[]> {
