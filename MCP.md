@@ -125,11 +125,11 @@ answers in words, with what to try. A failure is a tool error that says what to 
   start; `(umask 077; openssl rand -hex 32 > mcp-token)` makes one); anything else is answered 401.
   Exposed beyond localhost (it logs a warning then), it belongs behind a proxy that authenticates or
   at least terminates TLS.
-- **Gentle with the councils' servers.** One server process sends at most 2 requests at a time
-  and 120 a minute, over all servers together, pauses on HTTP 429, and stops a tool call after its
-  deadline. A list tool reads one or two pages unless asked for more (at most `--max-pages`);
-  some servers take 10 s and more per page, so a call that reads several pages can need a longer
-  `--call-timeout`.
+- **Gentle with the councils' servers.** One server process sends at most 2 requests at a time and
+  120 a minute, over all servers together, pauses on HTTP 429 (as long as its Retry-After asks, at
+  most 30 s), and stops a tool call after its deadline. A list tool reads one or two pages unless
+  asked for more (at most `--max-pages`); some servers take 10 s and more per page, so a call that
+  reads several pages can need a longer `--call-timeout`.
 - **Results are data.** Text from the API is cleaned (control, bidi and zero-width characters
   removed), but it is still other people's text: a model can be told things in it. The server
   can't act on that (it has no tool that writes), but other tools in the same session could.
