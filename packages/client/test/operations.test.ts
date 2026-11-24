@@ -280,6 +280,16 @@ test("findPapers since today or yesterday: change dates all on that day are what
   }
 });
 
+test("findPapers says what it can't do: only without since is ignored, and newest first holds over the pages read only", async () => {
+  const page1 = { ...DUS_PAPERS, links: { next: `${DUS}/bodies/0015/papers?page=2` } };
+  const mock = withOverride((r) => (new URL(r.url).pathname.endsWith("/papers") ? jsonResponse(page1) : undefined));
+  const answer = await findPapers(clientOf(mock), { body: DUS_BODY_URL, only: "changed", now: NOW });
+  assert.match(answer.notes.join(" "), /only applies with since: it was ignored/);
+  assert.match(answer.notes.join(" "), /newest first over the 1 page\(s\) read only: later pages \(next\) can hold newer papers/);
+  const whole = await findPapers(clientOf(oparlApi()), { body: DUS_BODY_URL, now: NOW });
+  assert.doesNotMatch(whole.notes.join(" "), /only applies|later pages/);
+});
+
 test("findPapers: papers without a date (ALLRIS 1.0) fall back to created, and without either are kept with new null", async () => {
   const papers = [
     { id: `${DUS}/p/1`, type: "https://schema.oparl.org/1.0/Paper", name: "Ohne Datum, neu angelegt", created: "2026-11-17T10:00:00+01:00", modified: "2026-11-17T10:00:00+01:00" },

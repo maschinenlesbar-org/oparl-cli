@@ -870,8 +870,13 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
   if (since !== undefined && only === "new" && counts.editedOnly > 0) notes.push(`${counts.editedOnly} older papers were only edited since ${since}: not counted as new (only: changed lists them).`);
   if (query !== undefined || paperType !== undefined) notes.push(`OParl has no full-text search: titles were searched here, over ${walked.pages} page(s). Say how many pages were searched; more pages (maxPages, next) find more.`);
   if (walked.next !== null) notes.push(`The list goes on after ${walked.pages} page(s): pass next to read on.`);
+  if (params.only !== undefined && since === undefined) notes.push("only applies with since: it was ignored.");
   const { shown, nextOffset } = matchesPage(hits, offset, limit, "papers", notes);
-  notes.push("Order is the server's; sorted here by date, newest first. Cite paper references and the body's name.");
+  notes.push(
+    walked.next === null
+      ? "Order is the server's; sorted here by date, newest first. Cite paper references and the body's name."
+      : `Order is the server's; sorted here by date, newest first over the ${walked.pages} page(s) read only: later pages (next) can hold newer papers. Cite paper references and the body's name.`,
+  );
   const searchedText = Object.keys(searched).length === 0 ? "the first pages" : JSON.stringify(searched);
   const answer: FindPapersAnswer = {
     status: shown.length === 0 ? "empty" : "ok",
