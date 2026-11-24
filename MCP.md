@@ -136,10 +136,11 @@ try. A failure is a tool error that says what to change.
   the log says so). A list tool reads one or two pages unless asked for more (at most
   `--max-pages`); some servers take 10 s and more per page, so a call that reads several pages can
   need a longer `--call-timeout`.
-- **Results are data.** Text from the API, keys included, is cleaned (control, bidi and zero-width
-  characters removed; a key that cleaning makes equal to another stays, as `name~2`), but it is
-  still other people's text: a model can be told things in it. The server can't act on that (it has
-  no tool that writes), but other tools in the same session could.
+- **Results are data.** Text from the API, keys included, is cleaned (control, bidi, zero-width, tag
+  and other invisible characters removed, but an emoji keeps its joiners; a key that cleaning makes
+  equal to another stays, as `name~2`), but it is still other people's text: a model can be told
+  things in it. The server can't act on that (it has no tool that writes), but other tools in the
+  same session could.
 - **Stops cleanly.** On `docker stop` (SIGTERM) or Ctrl-C the HTTP server takes no new connection
   and lets calls in flight answer for up to 5 s, then exits 143 (130); a second signal ends it at
   once. On stdio a signal ends it at once; when stdin ends, it first answers the requests it has
