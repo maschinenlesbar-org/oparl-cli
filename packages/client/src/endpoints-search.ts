@@ -12,7 +12,8 @@ export interface EndpointFilters {
   /**
    * Only entries whose title, URL or note contains this text, ignoring case, Unicode
    * form and accents (`ß` = `ss`); when nothing matches literally, the `ae`/`oe`/`ue`
-   * umlaut spellings are tried (`koeln` finds `Köln`). Must not be blank.
+   * umlaut spellings are tried (`koeln` finds `Köln`), then a city's English name its German
+   * one (`Cologne` finds `Köln`). Must not be blank.
    */
   search?: string | undefined;
   /** Only entries speaking this OParl version: `1.0`, `1.1`, or a version URI. */
@@ -86,19 +87,36 @@ export function contractUmlautSpellings(folded: string): string {
 export const MIN_UMLAUT_PASS_LENGTH = 4;
 
 /**
+ * The German names of the cities English speakers call otherwise ("does Cologne have an OParl
+ * API?"), folded: the registry and the curated list name places in German only.
+ */
+export const ENGLISH_PLACE_NAMES: Readonly<Record<string, string>> = {
+  cologne: "köln",
+  munich: "münchen",
+  nuremberg: "nürnberg",
+  hanover: "hannover",
+  brunswick: "braunschweig",
+  "aix-la-chapelle": "aachen",
+};
+
+/**
  * The entries a search term matches: those containing it literally (accents and `ß`
  * folded) and, only when nothing matched literally, those that match with the umlaut
  * spellings contracted — so "koeln" still finds "Köln" and "duesseldorf" finds
- * "Dusseldorf", while "ae" no longer matches every entry with an "a".
+ * "Dusseldorf", while "ae" no longer matches every entry with an "a". A city's English name
+ * (ENGLISH_PLACE_NAMES) that matches nothing itself is searched by its German name.
  */
 export function searchMatches<T>(entries: readonly T[], term: string, text: (entry: T) => string[]): T[] {
   const needle = foldSearchText(term.trim());
   const literal = entries.filter((entry) => text(entry).some((value) => foldSearchText(value).includes(needle)));
-  if (literal.length > 0 || needle.length < MIN_UMLAUT_PASS_LENGTH) return literal;
+  if (literal.length > 0) return literal;
   const contracted = contractUmlautSpellings(needle);
-  return entries.filter((entry) =>
-    text(entry).some((value) => contractUmlautSpellings(foldSearchText(value)).includes(contracted)),
-  );
+  const spelled =
+    needle.length < MIN_UMLAUT_PASS_LENGTH
+      ? []
+      : entries.filter((entry) => text(entry).some((value) => contractUmlautSpellings(foldSearchText(value)).includes(contracted)));
+  const german = Object.hasOwn(ENGLISH_PLACE_NAMES, needle) ? ENGLISH_PLACE_NAMES[needle] : undefined;
+  return spelled.length > 0 || german === undefined ? spelled : searchMatches(entries, german, text);
 }
 
 /**

@@ -84,3 +84,16 @@ test("the library root exports the endpoint search", () => {
   assert.equal(lib.filterEndpoints, filterEndpoints);
   assert.equal(lib.normalizeOparlVersion, normalizeOparlVersion);
 });
+
+test("an English name of a German city finds it (Cologne, Munich, Nuremberg, Hanover, Brunswick), only when its own text matches nothing", () => {
+  const cities = [...entries, entry("Landeshauptstadt München", "1.1", true), entry("Stadt Nürnberg", "1.0", true), entry("Landeshauptstadt Hannover", "1.1", true), entry("Stadt Braunschweig", "1.0", true)];
+  const titles = (term: string) => searchMatches(cities, term, (e) => [e.title]).map((e) => e.title);
+  assert.deepEqual(titles("Cologne"), ["Stadt Köln"]);
+  assert.deepEqual(titles(" cologne "), ["Stadt Köln"]);
+  assert.deepEqual(titles("Munich"), ["Landeshauptstadt München"]);
+  assert.deepEqual(titles("Nuremberg"), ["Stadt Nürnberg"]);
+  assert.deepEqual(titles("Hanover"), ["Landeshauptstadt Hannover"]);
+  assert.deepEqual(titles("Brunswick"), ["Stadt Braunschweig"]);
+  const own = [entry("Cologne Bridge Council", "1.1", true), ...entries];
+  assert.deepEqual(searchMatches(own, "Cologne", (e) => [e.title]).map((e) => e.title), ["Cologne Bridge Council"], "a literal match wins");
+});

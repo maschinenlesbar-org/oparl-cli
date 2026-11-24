@@ -15,6 +15,7 @@ export {
 } from "./client.js";
 export type { EndpointSource, EndpointsOptions, EndpointsReport, ListOptions, ListType, OparlClientOptions } from "./client.js";
 export {
+  ENGLISH_PLACE_NAMES,
   MIN_UMLAUT_PASS_LENGTH,
   checkEndpointFilters,
   contractUmlautSpellings,

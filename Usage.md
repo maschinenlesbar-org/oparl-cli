@@ -38,7 +38,9 @@ checked, it is the registry's own last fetch (`fetched`). A server that moved ha
 `--search ratsinfomanagement`). The search covers the title, the URL and the note, and
 ignores case and accents, so `köln` and `koln` match the same entries. Only when nothing
 matches literally does it try the umlaut spellings, so `koeln` still finds `Köln` while an
-ordinary word like `Aue` keeps its own meaning. A search that is blank, or holds only
+ordinary word like `Aue` keeps its own meaning. The lists name places in German; when
+nothing matches either way, a few English city names are searched by their German ones
+(`Cologne` finds `Köln`; also `Munich`, `Nuremberg`, `Hanover`, `Brunswick`, `Aix-la-Chapelle`). A search that is blank, or holds only
 invisible characters, or a control or format character (a zero-width space pasted along) is a
 usage error, shown with the character escaped (`"k\u200bln"`), since it could only match
 everything or nothing. When dev.oparl.org cannot be reached,
