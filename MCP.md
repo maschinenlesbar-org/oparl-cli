@@ -172,7 +172,8 @@ Data: each council's server sets its own terms
 ([DATA_LICENSE.md](https://github.com/maschinenlesbar-org/oparl-cli/blob/main/DATA_LICENSE.md)).
 OParl lets a server declare a licence in the `license` field of its System and Body; the results
 read it strictly (`licence.declared` with a note, per System and per Body in `checkEndpoint`, per
-body in the list tools, per object in `getObject`): a licence URL or a recognisable licence name
+body in `findPapers` and `findMeetings`, per object in `getObject`; `listObjects` names the body by
+its id only): a licence URL or a recognisable licence name
 declares one, named with its restrictions (CC BY-NC 4.0: non-commercial use only; never read as the
 looser licence), a word like "Open", a negated licence ("Nicht CC BY"), a bare "Creative Commons" or
 a `licenseValidSince` date alone declares nothing. Most

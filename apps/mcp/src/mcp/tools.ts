@@ -101,7 +101,7 @@ const url = (what: string): JsonSchema => ({ type: "string", minLength: 10, maxL
 const body = url("A Body URL: an id from checkEndpoint's bodies.");
 const next = url("The next of an earlier answer of this tool about the same body: read on from there, with its filters (a next of another list or body is refused).");
 const day = (what: string): JsonSchema => ({ type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: `${what} (YYYY-MM-DD).` });
-const words: JsonSchema = { type: "string", minLength: 1, maxLength: 200, description: "Words that must all appear in the title (case and accents aside), searched over the pages read." };
+const words: JsonSchema = { type: "string", minLength: 1, maxLength: 200, description: "Words that must all appear in the title, each also inside a longer word (Rat finds Rathaus and Integrationsrat; case and accents aside), searched over the pages read." };
 const maxPages = (fallback: number): JsonSchema => ({ type: "integer", minimum: 1, maximum: 20, description: `List pages to read (default ${fallback}; capped by the server's --max-pages). A page can take 10 s and more.` });
 const limit = (fallback: number, max: number, what: string): JsonSchema => ({ type: "integer", minimum: 1, maximum: max, description: `${what} in the answer (1-${max}, default ${fallback}).` });
 
@@ -233,7 +233,7 @@ export const TOOLS: readonly ToolDefinition[] = [
         body,
         from: day("From this day (default today when to is not given)"),
         to: day("Up to and including this day"),
-        query: { ...words, description: "Words that must all appear in the meeting's name (Rat, Bauausschuss, Bezirksvertretung 3)." },
+        query: { ...words, description: "Words that must all appear in the meeting's name, each also inside a longer word (Rat, Bauausschuss, Bezirksvertretung 3)." },
         maxPages: maxPages(2),
         limit: limit(DEFAULT_MEETINGS, MAX_MEETINGS, "Meetings"),
         offset: matchOffset,
@@ -276,7 +276,7 @@ export const TOOLS: readonly ToolDefinition[] = [
         type: { type: "string", enum: LIST_NAMES, description: "The list: organization, person, meeting, paper, agenda-item, consultation, file, membership, location, legislative-term." },
         modifiedSince: day("Only objects modified since this day"),
         createdSince: day("Only objects created since this day"),
-        query: { ...words, description: "Words that must all appear in the name, short name or reference." },
+        query: { ...words, description: "Words that must all appear in the name, short name or reference, each also inside a longer word." },
         maxPages: maxPages(1),
         limit: limit(DEFAULT_OBJECTS, MAX_OBJECTS, "Objects"),
         offset: matchOffset,
