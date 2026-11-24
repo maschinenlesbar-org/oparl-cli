@@ -165,22 +165,62 @@ export interface LicenceStatement {
   note: string;
 }
 
-const LICENCE_NAMES: readonly [RegExp, (m: RegExpExecArray) => string][] = [
-  [/publicdomain\/zero|\bcc[- ]?0\b|cc-zero/i, () => "CC0 1.0"],
-  [/licenses\/by-sa\/(\d\.\d)|\bcc[- ]by[- ]sa[- ]?(\d\.\d)?/i, (m) => `CC BY-SA${m[1] ?? m[2] ? ` ${m[1] ?? m[2]}` : ""}`],
-  [/licenses\/by\/(\d\.\d)|\bcc[- ]by[- ]?(\d\.\d)?(?![- ]?sa)/i, (m) => `CC BY${m[1] ?? m[2] ? ` ${m[1] ?? m[2]}` : ""}`],
-  [/dl-de[/-]zero|dl-zero-de|datenlizenz deutschland[^a-z]*zero/i, () => "DL-DE Zero 2.0"],
-  [/dl-de[/-]by|dl-by-de|datenlizenz deutschland[^a-z]*namensnennung/i, () => "DL-DE BY 2.0"],
-  [/\bodbl\b|opendatacommons\.org\/licenses\/odbl/i, () => "ODbL"],
-  [/creative ?commons/i, () => "Creative Commons (version not named)"],
-];
+/** A licence's version as the value names it (4.0, by-nc-1-0, Version 2.0), as "N.N". */
+const versionIn = (value: string): string | undefined => {
+  const match = /(\d)[-.](\d)(?!\d)/.exec(value);
+  return match === null ? undefined : `${match[1]}.${match[2]}`;
+};
+
+/** A token of its own (cc-by-nc, by-nc/4.0, "BY NC"): not part of a word. */
+const token = (word: string): RegExp => new RegExp(`(?:^|[^a-z])${word}(?:[^a-z]|$)`);
+
+/** A licence name right after a negation ("Nicht CC BY", "no cc-by", "keine CC-Lizenz"): it names the licence only to negate it. */
+const NEGATED = /(?:^|[^a-z])(?:nicht|kein(?:e|en)?|no|not|without|ohne)[\s:–-]+(?:eine?\s+)?(?:cc\b|cc[- ]|creative|dl-|datenlizenz|odbl)/;
+
+interface LicenceReading {
+  label: string;
+  /** No conditions at all (CC0, DL-DE Zero). */
+  zero?: boolean;
+  nc?: boolean;
+  nd?: boolean;
+  sa?: boolean;
+  /** A licence family named without the licence (a bare "Creative Commons"): declares none. */
+  unnamed?: boolean;
+}
+
+/**
+ * The licence `value` names, with its restrictions (non-commercial, no derivatives, share-alike)
+ * read from the whole value, so a restricted licence is never read as the looser one ("CC BY-NC
+ * 4.0" is not "CC BY"); undefined when it names none this reading knows.
+ */
+function readLicence(value: string): LicenceReading | undefined {
+  const v = value.toLowerCase();
+  const nc = token("nc").test(v) || /non-?commercial|nicht[- ]?kommerziell/.test(v);
+  const nd = token("nd").test(v) || /no-?deriv|keine bearbeitung/.test(v);
+  const sa = token("sa").test(v) || /share-?alike|weitergabe unter gleichen bedingungen/.test(v);
+  const version = versionIn(v);
+  const restricted = (family: string, parts: (string | false)[]) =>
+    `${family} ${parts.filter((p): p is string => p !== false).join("-")}${version === undefined ? "" : ` ${version}`}`;
+  if (/publicdomain\/zero|\bcc[- ]?0\b|cc-zero/.test(v)) return { label: "CC0 1.0", zero: true };
+  if (/dl-de[/-]zero|dl-zero-de|datenlizenz deutschland[^a-z]*zero/.test(v)) return { label: `DL-DE Zero ${version ?? "2.0"}`, zero: true };
+  if (/creativecommons\.org\/licenses\/by|\bcc[- ]?by\b|creative ?commons/.test(v)) {
+    if (!/licenses\/by|\bcc[- ]?by\b|namensnennung|attribution/.test(v)) return { label: "Creative Commons (which licence not named)", unnamed: true };
+    return { label: restricted("CC", ["BY", nc && "NC", nd && "ND", sa && "SA"]), nc, nd, sa };
+  }
+  if (/dl-de[/-]by|dl-by-de|datenlizenz deutschland[^a-z]*namensnennung/.test(v)) return { label: restricted("DL-DE", ["BY", nc && "NC"]), nc };
+  if (/\bodbl\b|opendatacommons\.org\/licenses\/odbl/.test(v)) return { label: "ODbL", sa: true };
+  return undefined;
+}
 
 const NOT_DECLARED = "Reuse beyond reading needs the operator's permission; name the operator (the Body) as the source.";
+const OTHER_RIGHTS = "person data and attached files can carry other rights.";
 
 /**
  * A `license` field (System, Body, or any object) read strictly: a licence URL or a recognisable
- * licence name declares one; anything else (Düsseldorf's "Open", "Nutzung nur nach Genehmigung")
- * declares nothing clear and is quoted; a `licenseValidSince` without a licence declares nothing.
+ * licence name declares one, named with its restrictions (CC BY-NC 4.0, DL-DE BY-NC 1.0); anything
+ * else (Düsseldorf's "Open", "Nutzung nur nach Genehmigung", a negated licence like "Nicht CC BY",
+ * a bare "Creative Commons") declares nothing clear and is quoted; a `licenseValidSince` without a
+ * licence declares nothing.
  */
 export function licenceOf(license: unknown, validSince?: unknown): LicenceStatement {
   const value = textOf(license);
@@ -188,9 +228,18 @@ export function licenceOf(license: unknown, validSince?: unknown): LicenceStatem
     const since = textOf(validSince) === undefined ? "" : " (licenseValidSince is set, but a date without a licence declares nothing)";
     return { declared: false, note: `No licence declared${since}. ${NOT_DECLARED}` };
   }
-  for (const [pattern, name] of LICENCE_NAMES) {
-    const match = pattern.exec(value);
-    if (match !== null) return { declared: true, value, label: name(match), note: "Reuse under that licence, with its attribution; person data and attached files can carry other rights." };
+  if (NEGATED.test(value.toLowerCase())) {
+    return { declared: false, value, note: `The value names a licence only to negate it, so no licence is declared. ${NOT_DECLARED}` };
+  }
+  const read = readLicence(value);
+  if (read?.unnamed === true) {
+    return { declared: false, value, label: read.label, note: `Creative Commons names several licences, some non-commercial: this value doesn't say which, so none is declared. ${NOT_DECLARED}` };
+  }
+  if (read !== undefined) {
+    const terms = read.zero === true
+      ? `No conditions: reuse freely (naming the operator, the Body, is good practice); ${OTHER_RIGHTS}`
+      : `Reuse under that licence, with its attribution${read.nc === true ? "; non-commercial use only" : ""}${read.nd === true ? "; no modified versions" : ""}${read.sa === true ? "; adaptations under the same licence" : ""}; ${OTHER_RIGHTS}`;
+    return { declared: true, value, label: read.label, note: terms };
   }
   if (/^https?:\/\//i.test(value)) {
     return { declared: true, value, note: "A link to the operator's own terms: read them before reuse." };

@@ -167,7 +167,9 @@ Data: each council's server sets its own terms
 OParl lets a server declare a licence in the `license` field of its System and Body; the results
 read it strictly (`licence.declared` with a note, per System and per Body in `checkEndpoint`, per
 body in the list tools, per object in `getObject`): a licence URL or a recognisable licence name
-declares one, a word like "Open" or a `licenseValidSince` date alone declares nothing. Most
+declares one, named with its restrictions (CC BY-NC 4.0: non-commercial use only; never read as the
+looser licence), a word like "Open", a negated licence ("Nicht CC BY"), a bare "Creative Commons" or
+a `licenseValidSince` date alone declares nothing. Most
 servers declare none; then reuse beyond reading needs the operator's permission. Name the
 operator (the Body) as the source. Council papers issued by an authority are largely official
 works (§ 5 UrhG: reusable unaltered, with the source); motions of groups and attached files can

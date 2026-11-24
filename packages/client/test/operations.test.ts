@@ -66,6 +66,35 @@ test("licences are read strictly: 'Open' and a bare licenseValidSince declare no
   assert.equal(licenceOf("Nutzung nur nach Genehmigung").declared, false);
 });
 
+test("licences with a restriction are named with it, never as the looser licence; a negated licence declares none; CC0 asks no attribution", () => {
+  const cases: [string, string | undefined, boolean][] = [
+    ["CC BY-NC 4.0", "CC BY-NC 4.0", true],
+    ["CC BY-ND 4.0", "CC BY-ND 4.0", true],
+    ["CC BY-NC-SA 4.0", "CC BY-NC-SA 4.0", true],
+    ["https://creativecommons.org/licenses/by-nc/4.0/", "CC BY-NC 4.0", true],
+    ["https://creativecommons.org/licenses/by-nc-nd/3.0/de/", "CC BY-NC-ND 3.0", true],
+    ["dl-de/by-nc-1-0", "DL-DE BY-NC 1.0", true],
+    ["https://www.govdata.de/dl-de/by-nc-1-0", "DL-DE BY-NC 1.0", true],
+    ["Datenlizenz Deutschland – Namensnennung – nicht kommerziell – Version 1.0", "DL-DE BY-NC 1.0", true],
+    ["https://www.govdata.de/dl-de/by-2-0", "DL-DE BY 2.0", true],
+    ["CC BY 4.0", "CC BY 4.0", true],
+    ["https://creativecommons.org/licenses/by-sa/4.0/", "CC BY-SA 4.0", true],
+    ["Nicht CC BY", undefined, false],
+    ["no cc-by", undefined, false],
+  ];
+  for (const [value, label, declared] of cases) {
+    const read = licenceOf(value);
+    assert.equal(read.label, label, value);
+    assert.equal(read.declared, declared, value);
+  }
+  assert.match(licenceOf("CC BY-NC 4.0").note, /non-commercial use only/);
+  assert.match(licenceOf("CC BY-ND 4.0").note, /no modified versions/);
+  assert.match(licenceOf("Nicht CC BY").note, /negate/);
+  assert.doesNotMatch(licenceOf("CC0").note, /with its attribution/);
+  assert.doesNotMatch(licenceOf("https://www.govdata.de/dl-de/zero-2-0").note, /with its attribution/);
+  assert.equal(licenceOf("Creative Commons").declared, false, "no particular licence named");
+});
+
 test("findEndpoints: a search ignores accents and ae spellings, finds a city in another entry's note, working first; the registry is the source", async () => {
   const mock = oparlApi();
   const client = clientOf(mock);
