@@ -596,6 +596,39 @@ async function openList(client: OparlClient, bodyUrl: string, type: ListType): P
   };
 }
 
+/** The OParl kind of each list's objects. */
+const LIST_KINDS: Readonly<Record<ListType, string>> = {
+  organization: "Organization",
+  person: "Person",
+  meeting: "Meeting",
+  paper: "Paper",
+  "agenda-item": "AgendaItem",
+  consultation: "Consultation",
+  file: "File",
+  membership: "Membership",
+  location: "Location",
+  "legislative-term": "LegislativeTerm",
+};
+
+/** A body URL as compared: host, port, path and query (http and https alike). */
+const bodyKey = (url: string): string => endpointKey(url).replace(/^https?:/, "");
+
+/**
+ * The objects of the pages read from a caller's `next`, checked: of the list's kind and, where they
+ * name their body, of this body. A next of another list, or of another body on the same server (a
+ * shared server hosts several), is refused rather than answered as this body's `what`.
+ */
+function checkNextObjects(objects: readonly JsonObject[], type: ListType, bodyUrl: string, what: string): void {
+  const kind = LIST_KINDS[type];
+  const other = objects.map((o) => kindOf(o["type"])).find((k) => k !== undefined && k !== kind);
+  if (other !== undefined) {
+    throw new OparlValidationError(`Invalid next: its page holds ${other} objects, not ${what}. Pass the next of an answer about this body's ${what}.`);
+  }
+  if (objects.some((o) => typeof o["body"] === "string" && bodyKey(o["body"]) !== bodyKey(bodyUrl))) {
+    throw new OparlValidationError(`Invalid next: its page holds the ${what} of another body. Pass the next of an answer about this body (${what}).`);
+  }
+}
+
 /** `next` checked: reachable, and on the body's host (a page of its list). */
 function nextOf(next: string | undefined, bodyUrl: string, extraHosts: readonly string[] | undefined): string | undefined {
   if (next === undefined) return undefined;
@@ -719,7 +752,8 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
   const notes: string[] = [];
   let body: BodyRef = { id: bodyUrl };
   let start: string;
-  const requests = [bodyUrl];
+  // With next, the body isn't asked: only the pages read are requests of this answer.
+  const requests = next === undefined ? [bodyUrl] : [];
   if (next === undefined) {
     const opened = await openList(client, bodyUrl, "paper");
     body = opened.body;
@@ -751,6 +785,7 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
       [...requests, start],
     );
   }
+  if (next !== undefined) checkNextObjects(walked.data, "paper", bodyUrl, "papers");
   const live = walked.data.filter((p) => p["deleted"] !== true);
   const counts = { fetched: walked.data.length, deleted: walked.data.length - live.length, editedOnly: 0, undated: 0 };
   let dateFilter: FindPapersAnswer["dateFilter"];
@@ -914,7 +949,7 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
   const notes: string[] = [];
   let body: BodyRef = { id: bodyUrl };
   let current: string | null;
-  const requests = [bodyUrl];
+  const requests = next === undefined ? [bodyUrl] : [];
   if (next === undefined) {
     const opened = await openList(client, bodyUrl, "meeting");
     body = opened.body;
@@ -941,6 +976,7 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
       notes.push(`${pageMissing(pages + 1, err, params.signal)}: the meetings are those of the pages before it; next is that page.`);
       break;
     }
+    if (next !== undefined) checkNextObjects(page.data, "meeting", bodyUrl, "meetings");
     pages += 1;
     let found = 0;
     for (const meeting of page.data) {
@@ -1068,6 +1104,7 @@ export async function listObjects(client: OparlClient, params: ListObjectsParams
           }) as Promise<ListResult<JsonObject>>
       : () => client.walk<JsonObject>(next, undefined, maxPages);
   const walked = await walkKeeping(walk, notes, "objects", params.signal);
+  if (next !== undefined) checkNextObjects(walked.data, params.type, bodyUrl, `${params.type} objects`);
   const live = walked.data.filter((o) => o["deleted"] !== true);
   const hits = live.filter((o) => matchesWords(query, textOf(o["name"]), textOf(o["shortName"]), textOf(o["reference"]))).map(flat);
   if (walked.note !== undefined) notes.push(walked.note);

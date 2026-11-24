@@ -89,7 +89,7 @@ const bool = (args: Record<string, unknown>, key: string): boolean | undefined =
 
 const url = (what: string): JsonSchema => ({ type: "string", minLength: 10, maxLength: 1000, pattern: "^https?://", description: what });
 const body = url("A Body URL: an id from checkEndpoint's bodies.");
-const next = url("The next of an earlier answer about the same body: read on from there, with its filters.");
+const next = url("The next of an earlier answer of this tool about the same body: read on from there, with its filters (a next of another list or body is refused).");
 const day = (what: string): JsonSchema => ({ type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$", description: `${what} (YYYY-MM-DD).` });
 const words: JsonSchema = { type: "string", minLength: 1, maxLength: 200, description: "Words that must all appear in the title (case and accents aside), searched over the pages read." };
 const maxPages = (fallback: number): JsonSchema => ({ type: "integer", minimum: 1, maximum: 20, description: `List pages to read (default ${fallback}; capped by the server's --max-pages). A page can take 10 s and more.` });

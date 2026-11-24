@@ -331,6 +331,18 @@ test("a page the caller's deadline stopped is named so in the note, not as a req
   await run((client, signal) => listObjects(client, { body: DUS_BODY_URL, type: "paper", maxPages: 2, signal }));
 });
 
+test("a next from another body's list, or from another list of the body, is refused; with next, no body request is cited", async () => {
+  const neuss = `${DUS}/bodies/0009`;
+  await assert.rejects(findPapers(clientOf(oparlApi()), { body: neuss, next: `${DUS}/bodies/0015/papers`, now: NOW }), /Invalid next: .*another body/);
+  await assert.rejects(findPapers(clientOf(oparlApi()), { body: DUS_BODY_URL, next: `${DUS}/bodies/0015/meetings`, now: NOW }), /Invalid next: .*Meeting objects, not papers/);
+  await assert.rejects(findMeetings(clientOf(oparlApi()), { body: DUS_BODY_URL, next: `${DUS}/bodies/0015/papers`, now: NOW }), /Invalid next: .*Paper objects, not meetings/);
+  await assert.rejects(listObjects(clientOf(oparlApi()), { body: DUS_BODY_URL, type: "organization", next: `${DUS}/bodies/0015/papers` }), /Invalid next: .*Paper objects, not organization/);
+  const mock = oparlApi();
+  const on = await findPapers(clientOf(mock), { body: DUS_BODY_URL, next: `${DUS}/bodies/0015/papers`, now: NOW });
+  assert.ok(on.papers.length > 0);
+  assert.deepEqual(requestsOf(on), mock.calls.map((c) => c.url), "only the page read");
+});
+
 test("findMeetings: upcoming by default, pages read until one has none from today on (page 4 never asked), soonest first", async () => {
   const mock = oparlApi();
   const answer = await findMeetings(clientOf(mock), { body: DUS_BODY_URL, maxPages: 5, now: NOW });
