@@ -97,8 +97,11 @@ traps are handled in the tools: servers that ignore date filters, stamp fake cha
 an empty window with HTTP 404; papers only edited since a day that aren't new; lists in the server's
 order, not by date, read a few pages at a time (`next` goes on). No match and a server that doesn't
 answer are answers in words, with what to try. A text over 2000 characters is cut and ends in
-`…[cut, N characters in all]`, and the answer says `truncated`. A failure is a tool error that says
-what to change (one over 5000 characters loses its middle, never its end, where the reason is).
+`…[cut, N characters in all]`, and the answer says `truncated`. An answer over `--max-result-chars`
+loses entries from the end of its lists, then has its longest texts cut further (each with that
+mark), and says `truncated`; one that can't be cut down so far is a tool error that says to ask for
+less. A failure is a tool error that says what to change (one over 5000 characters loses its middle,
+never its end, where the reason is).
 
 ## Options
 
