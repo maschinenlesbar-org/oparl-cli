@@ -148,3 +148,35 @@ test("findMeetings' own default of two pages is capped by the server's --max-pag
   assert.equal(result.structuredContent?.["pagesRead"], 1, result.content[0]?.text);
   assert.equal(mock.calls.filter((c) => c.url.includes("/meetings")).length, 1);
 });
+
+test("papers the size cap leaves out of the pages read are reachable: nextOffset, then offset with the same arguments", async () => {
+  // 150 long-titled papers on page 1 of 2: the answer can't hold them all.
+  const papers = Array.from({ length: 150 }, (_, i) => ({
+    id: `${DUS}/bodies/0015/papers/x/${i}`,
+    type: "https://schema.oparl.org/1.1/Paper",
+    name: `Vorlage ${i} ${"über die Sanierung des Theatergebäudes und die Finanzierung ".repeat(5)}`,
+    reference: `X/${i}`,
+    date: `2026-${String(1 + (i % 11)).padStart(2, "0")}-${String(1 + (i % 28)).padStart(2, "0")}`,
+  }));
+  const mock = makeMockTransport((request) => {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/papers") && url.searchParams.get("page") === null) return jsonResponse({ data: papers, links: { next: `${DUS}/bodies/0015/papers?page=2` } });
+    return oparlAnswer(request);
+  });
+  const connection = await connect({ transport: mock });
+  const ids = new Set<string>();
+  let offset: number | undefined = 0;
+  let calls = 0;
+  while (offset !== undefined && calls < 20) {
+    const result = await connection.call("findPapers", { body: DUS_BODY_URL, limit: 200, offset });
+    const content = result.structuredContent ?? {};
+    assert.equal(content["status"], "ok", result.content[0]?.text);
+    assert.equal(content["next"], `${DUS}/bodies/0015/papers?page=2`);
+    for (const paper of content["papers"] as { id: string }[]) ids.add(paper.id);
+    offset = content["nextOffset"] as number | undefined;
+    calls += 1;
+  }
+  await connection.close();
+  assert.ok(calls > 1, "the first answer was cut");
+  assert.equal(ids.size, 150, "every paper of page 1 reached");
+});

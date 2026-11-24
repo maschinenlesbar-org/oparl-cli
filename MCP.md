@@ -97,7 +97,9 @@ fetched from another origin, such as the same host over https, says so there: "â
 https://host after a redirect)", and a WARN record names both) and the data licence. The skills'
 traps are handled in the tools: servers that ignore date filters, stamp fake change dates or answer
 an empty window with HTTP 404; papers only edited since a day that aren't new; lists in the server's
-order, not by date, read a few pages at a time (`next` goes on). No match and a server that doesn't
+order, not by date, read a few pages at a time (`next` goes on); `findPapers`, `findMeetings` and
+`listObjects` show at most `limit` matches of the pages read, and `nextOffset` (passed back as
+`offset`, with the same arguments: the same pages are read again) shows the rest. No match and a server that doesn't
 answer are answers in words, with what to try. A text over 2000 characters is cut and ends in
 `â€¦[cut, N characters in all]`, and the answer says `truncated`. An answer over `--max-result-chars`
 first loses entries from the end of its page (then `nextOffset` says where to go on), then has its

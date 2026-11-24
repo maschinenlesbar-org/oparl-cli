@@ -408,6 +408,35 @@ test("findMeetings: a bounded window reads maxPages pages and says more could ho
   await assert.rejects(findMeetings(clientOf(mock), { body: DUS_BODY_URL, from: "2026-11-30", to: "2026-11-01" }), /from is after to/);
 });
 
+test("matches the limit leaves out are reachable: nextOffset, and offset with the same arguments goes on in the pages read", async () => {
+  const all = await findPapers(clientOf(oparlApi()), { body: DUS_BODY_URL, now: NOW });
+  assert.ok(all.total > 4 && all.nextOffset === undefined);
+  const first = await findPapers(clientOf(oparlApi()), { body: DUS_BODY_URL, limit: 3, now: NOW });
+  assert.equal(first.offset, 0);
+  assert.equal(first.nextOffset, 3);
+  assert.match(first.notes.join(" "), /offset = nextOffset/);
+  const seen: string[] = [];
+  for (let offset: number | undefined = 0; offset !== undefined; ) {
+    const page: Awaited<ReturnType<typeof findPapers>> = await findPapers(clientOf(oparlApi()), { body: DUS_BODY_URL, limit: 3, offset, now: NOW });
+    seen.push(...page.papers.map((p) => p.id));
+    offset = page.nextOffset;
+  }
+  assert.deepEqual(seen, all.papers.map((p) => p.id), "every match once, in order");
+  const past = await findPapers(clientOf(oparlApi()), { body: DUS_BODY_URL, offset: all.total, now: NOW });
+  assert.equal(past.status, "empty");
+  assert.match(past.reason ?? "", new RegExp(`offset ${all.total} is past the last of the ${all.total} matches`));
+  const meetings = await findMeetings(clientOf(oparlApi()), { body: DUS_BODY_URL, from: "2026-01-01", to: "2026-12-31", maxPages: 1, limit: 2, now: NOW });
+  assert.equal(meetings.nextOffset, 2);
+  assert.equal(meetings.complete, false, "matches left out: not complete");
+  const more = await findMeetings(clientOf(oparlApi()), { body: DUS_BODY_URL, from: "2026-01-01", to: "2026-12-31", maxPages: 1, limit: 2, offset: 2, now: NOW });
+  assert.notEqual(more.meetings[0]?.id, meetings.meetings[0]?.id);
+  const objects = await listObjects(clientOf(oparlApi()), { body: DUS_BODY_URL, type: "meeting", limit: 2 });
+  assert.equal(objects.nextOffset, 2);
+  const rest = await listObjects(clientOf(oparlApi()), { body: DUS_BODY_URL, type: "meeting", limit: 2, offset: 2 });
+  assert.equal(rest.offset, 2);
+  assert.notEqual(rest.objects[0]?.["id"], objects.objects[0]?.["id"]);
+});
+
 test("listObjects: a 1.0 body's embedded legislative terms; embedded objects named, not inlined; a missing list names those there are", async () => {
   const mock = makeMockTransport((r) => (r.url === body10.id ? jsonResponse(body10) : jsonResponse({}, 404)));
   const client = clientOf(mock);

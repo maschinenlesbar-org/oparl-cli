@@ -146,6 +146,28 @@ function count(name: string, value: number | undefined, fallback: number, max: n
   return assertValid(name, value ?? fallback, intRangeProblem(1, max));
 }
 
+/** Where a page of matches starts (`offset`, default 0), checked. */
+function startAt(value: number | undefined): number {
+  return assertValid("offset", value ?? 0, intRangeProblem(0, 10_000));
+}
+
+/**
+ * The matches from `offset`, at most `limit`, and where the next ones start: what the limit (or a
+ * caller's size cap) leaves out of the pages read is reached with the same arguments and that
+ * offset, the same pages read again; `next` reads the pages after them. A note says so.
+ */
+function matchesPage<T>(hits: readonly T[], offset: number, limit: number, what: string, notes: string[]): { shown: T[]; nextOffset?: number } {
+  const shown = hits.slice(offset, offset + limit);
+  if (offset + shown.length >= hits.length) return { shown };
+  notes.push(
+    `${shown.length} of the ${hits.length} matching ${what} of the pages read are shown, from offset ${offset}: call again with the same arguments and offset = nextOffset for the rest (the same pages are read again); next reads the pages after them.`,
+  );
+  return { shown, nextOffset: offset + shown.length };
+}
+
+/** The reason of an answer whose offset is past its matches. */
+const pastTheEnd = (offset: number, total: number): string => `offset ${offset} is past the last of the ${total} matches on the pages read. Start again at offset 0 (or a lower one).`;
+
 /** An optional text filter, checked and normalised. */
 function filterText(name: string, value: string | undefined): string | undefined {
   return value === undefined ? undefined : normalizeText(assertValid(name, value, textProblem));
@@ -669,6 +691,8 @@ export interface FindPapersParams {
   paperType?: string | undefined;
   maxPages?: number | undefined;
   limit?: number | undefined;
+  /** Matches of the pages read to skip: an earlier answer's nextOffset, with the same arguments. */
+  offset?: number | undefined;
   /** A next of an earlier answer: go on from there (the same filters). */
   next?: string | undefined;
   extraHosts?: readonly string[] | undefined;
@@ -685,7 +709,11 @@ export interface FindPapersAnswer {
   searched: Record<string, JsonValue>;
   /** Papers that match, of the pages read. */
   total: number;
+  /** Where `papers` starts among them. */
+  offset: number;
   papers: PaperHit[];
+  /** More matches of the pages read than shown: pass it as offset, with the same arguments. */
+  nextOffset?: number;
   /** What the pages held besides: deleted stubs, papers only edited since, papers without a date. */
   counts: { fetched: number; deleted: number; editedOnly: number; undated: number };
   /** With since: honoured, ignored (objects modified before it came back), unusable (fake change dates), or emptyWindow. */
@@ -748,6 +776,7 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
   const paperType = filterText("paperType", params.paperType);
   const maxPages = count("maxPages", params.maxPages, 1, 20);
   const limit = count("limit", params.limit, DEFAULT_PAPERS, MAX_PAPERS);
+  const offset = startAt(params.offset);
   const next = nextOf(params.next, bodyUrl, params.extraHosts);
   const today = berlinDay(params.now ?? new Date());
   const searched: Record<string, JsonValue> = {};
@@ -786,7 +815,7 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
       `No papers changed since ${since}: the server answered the date filter with HTTP ${err.status}, but the list without it answers, ` +
       "so the window is empty (SD.NET RIM servers answer an empty window so). Try an earlier day.";
     return done(
-      { status: "empty", reason, body, searched, total: 0, papers: [], counts: { fetched: 0, deleted: 0, editedOnly: 0, undated: 0 }, dateFilter: "emptyWindow", pagesRead: 1, next: null, notes },
+      { status: "empty", reason, body, searched, total: 0, offset, papers: [], counts: { fetched: 0, deleted: 0, editedOnly: 0, undated: 0 }, dateFilter: "emptyWindow", pagesRead: 1, next: null, notes },
       [...requests, start],
     );
   }
@@ -839,17 +868,22 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
   if (since !== undefined && only === "new" && counts.editedOnly > 0) notes.push(`${counts.editedOnly} older papers were only edited since ${since}: not counted as new (only: changed lists them).`);
   if (query !== undefined || paperType !== undefined) notes.push(`OParl has no full-text search: titles were searched here, over ${walked.pages} page(s). Say how many pages were searched; more pages (maxPages, next) find more.`);
   if (walked.next !== null) notes.push(`The list goes on after ${walked.pages} page(s): pass next to read on.`);
+  const { shown, nextOffset } = matchesPage(hits, offset, limit, "papers", notes);
   notes.push("Order is the server's; sorted here by date, newest first. Cite paper references and the body's name.");
   const searchedText = Object.keys(searched).length === 0 ? "the first pages" : JSON.stringify(searched);
   const answer: FindPapersAnswer = {
-    status: hits.length === 0 ? "empty" : "ok",
+    status: shown.length === 0 ? "empty" : "ok",
     ...(hits.length === 0
       ? { reason: `No paper matches ${searchedText} on the ${walked.pages} page(s) read (${counts.fetched} objects, ${counts.deleted} deleted). Read more pages (maxPages, next), an earlier since, or fewer words.` }
-      : {}),
+      : shown.length === 0
+        ? { reason: pastTheEnd(offset, hits.length) }
+        : {}),
     body,
     searched,
     total: hits.length,
-    papers: hits.slice(0, limit),
+    offset,
+    papers: shown,
+    ...(nextOffset === undefined ? {} : { nextOffset }),
     counts,
     ...(dateFilter === undefined ? {} : { dateFilter }),
     pagesRead: walked.pages,
@@ -887,6 +921,8 @@ export interface FindMeetingsParams {
   query?: string | undefined;
   maxPages?: number | undefined;
   limit?: number | undefined;
+  /** Matches of the pages read to skip: an earlier answer's nextOffset, with the same arguments. */
+  offset?: number | undefined;
   next?: string | undefined;
   extraHosts?: readonly string[] | undefined;
   /** The caller's deadline or cancellation: a page missing after it aborted is noted as such. */
@@ -900,9 +936,13 @@ export interface FindMeetingsAnswer {
   body: BodyRef;
   searched: Record<string, JsonValue>;
   total: number;
+  /** Where `meetings` starts among them. */
+  offset: number;
   meetings: MeetingHit[];
+  /** More matches of the pages read than shown: pass it as offset, with the same arguments. */
+  nextOffset?: number;
   pagesRead: number;
-  /** False when pages were left unread that could still hold meetings of the window. */
+  /** False when meetings of the window are left out: matches not shown (nextOffset), or pages left unread that could hold some (next). */
   complete: boolean;
   next: string | null;
   notes: string[];
@@ -948,6 +988,7 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
   const query = filterText("query", params.query);
   const maxPages = count("maxPages", params.maxPages, 2, 20);
   const limit = count("limit", params.limit, DEFAULT_MEETINGS, MAX_MEETINGS);
+  const offset = startAt(params.offset);
   const next = nextOf(params.next, bodyUrl, params.extraHosts);
   const searched: Record<string, JsonValue> = {};
   if (from !== undefined) searched["from"] = from;
@@ -1015,10 +1056,11 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
     .filter((m) => matchesWords(query, textOf(m["name"])))
     .map(meetingHit)
     .sort((a, b) => a.start.localeCompare(b.start));
-  const complete = current === null || stoppedByRule;
+  const { shown, nextOffset } = matchesPage(hits, offset, limit, "meetings", notes);
+  const complete = (current === null || stoppedByRule) && nextOffset === undefined;
   notes.push(
     stoppedByRule
-      ? `Read ${pages} page(s), up to the first with no meeting of the window: pages are in the server's order, not by date.`
+      ? `Read ${pages} page(s), up to the first with no meeting of the window after one with some: pages are in the server's order, not by date.`
       : `Read ${pages} page(s)${current === null ? ", the whole list" : `; more pages could hold meetings of the window: pass next`}. Pages are in the server's order, not by date.`,
   );
   if (!foundAny && current !== null && pages > 0 && before > 0) {
@@ -1030,12 +1072,18 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
   const window = `${from ?? "the start"} to ${to ?? "any later day"}`;
   return done(
     {
-      status: hits.length === 0 ? "empty" : "ok",
-      ...(hits.length === 0 ? { reason: `No meeting from ${window}${query === undefined ? "" : ` named ${JSON.stringify(query)}`} on the ${pages} page(s) read.${complete ? "" : " More pages (next, maxPages) may hold some."}` } : {}),
+      status: shown.length === 0 ? "empty" : "ok",
+      ...(hits.length === 0
+        ? { reason: `No meeting from ${window}${query === undefined ? "" : ` named ${JSON.stringify(query)}`} on the ${pages} page(s) read.${complete ? "" : " More pages (next, maxPages) may hold some."}` }
+        : shown.length === 0
+          ? { reason: pastTheEnd(offset, hits.length) }
+          : {}),
       body,
       searched,
       total: hits.length,
-      meetings: hits.slice(0, limit),
+      offset,
+      meetings: shown,
+      ...(nextOffset === undefined ? {} : { nextOffset }),
       pagesRead: pages,
       complete,
       next: current,
@@ -1059,6 +1107,8 @@ export interface ListObjectsParams {
   query?: string | undefined;
   maxPages?: number | undefined;
   limit?: number | undefined;
+  /** Matches of the pages read to skip: an earlier answer's nextOffset, with the same arguments. */
+  offset?: number | undefined;
   next?: string | undefined;
   extraHosts?: readonly string[] | undefined;
   /** The caller's deadline or cancellation: a page missing after it aborted is noted as such. */
@@ -1072,8 +1122,12 @@ export interface ListObjectsAnswer {
   type: ListType;
   searched: Record<string, JsonValue>;
   total: number;
+  /** Where `objects` starts among them. */
+  offset: number;
   /** The objects with their own fields; embedded objects are left out and named in `embedded` (getObject has them). */
   objects: JsonObject[];
+  /** More matches of the pages read than shown: pass it as offset, with the same arguments. */
+  nextOffset?: number;
   pagesRead: number;
   next: string | null;
   notes: string[];
@@ -1106,6 +1160,7 @@ export async function listObjects(client: OparlClient, params: ListObjectsParams
   const query = filterText("query", params.query);
   const maxPages = count("maxPages", params.maxPages, 1, 20);
   const limit = count("limit", params.limit, DEFAULT_OBJECTS, MAX_OBJECTS);
+  const offset = startAt(params.offset);
   const next = nextOf(params.next, bodyUrl, params.extraHosts);
   const searched: Record<string, JsonValue> = {};
   if (modifiedSince !== undefined) searched["modifiedSince"] = modifiedSince;
@@ -1130,15 +1185,22 @@ export async function listObjects(client: OparlClient, params: ListObjectsParams
   if (walked.next !== null) notes.push(`The list goes on after ${walked.pages} page(s): pass next to read on.`);
   if (modifiedSince !== undefined || createdSince !== undefined) notes.push("Servers may ignore the date filters: check modified and created.");
   if (params.type === "person") notes.push("Person records are personal data: quote them, don't bulk-copy them.");
+  const { shown, nextOffset } = matchesPage(hits, offset, limit, `${params.type} objects`, notes);
   return done(
     {
-      status: hits.length === 0 ? "empty" : "ok",
-      ...(hits.length === 0 ? { reason: `No ${params.type} object matches ${JSON.stringify(searched)} on the ${walked.pages} page(s) read. Read more pages (next), or fewer words.` } : {}),
+      status: shown.length === 0 ? "empty" : "ok",
+      ...(hits.length === 0
+        ? { reason: `No ${params.type} object matches ${JSON.stringify(searched)} on the ${walked.pages} page(s) read. Read more pages (next), or fewer words.` }
+        : shown.length === 0
+          ? { reason: pastTheEnd(offset, hits.length) }
+          : {}),
       body: { id: bodyUrl },
       type: params.type,
       searched,
       total: hits.length,
-      objects: hits.slice(0, limit),
+      offset,
+      objects: shown,
+      ...(nextOffset === undefined ? {} : { nextOffset }),
       pagesRead: walked.pages,
       next: walked.next,
       notes,
