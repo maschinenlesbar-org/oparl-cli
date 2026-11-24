@@ -120,6 +120,18 @@ test("findEndpoints: no match is not 'no server': the answer says why and names 
   assert.ok((answer.sharedServers ?? []).find((s) => s.url.startsWith(DUS))?.title.includes("(ris-oparl.itk-rheinland.de)"));
 });
 
+test("findEndpoints: a shared server listed under http and https is named once; an offset past the end is empty and says how many match", async () => {
+  const empty = await findEndpoints(clientOf(oparlApi()), { search: "Kleinkleckersdorf" });
+  const keys = (empty.sharedServers ?? []).map((s) => s.url.replace(/^https?:/, ""));
+  assert.deepEqual(keys, [...new Set(keys)], "one entry per server");
+  assert.ok((empty.sharedServers ?? []).some((s) => s.url === "https://www.hagenbach.sitzung-online.de/bi/oparl/1.0/system.asp"), "the https one kept");
+  const all = await findEndpoints(clientOf(oparlApi()), { search: "düsseldorf" });
+  const past = await findEndpoints(clientOf(oparlApi()), { search: "düsseldorf", offset: all.total + 5 });
+  assert.equal(past.status, "empty");
+  assert.equal(past.total, all.total);
+  assert.match(past.reason ?? "", new RegExp(`offset ${all.total + 5} is past the end: ${all.total} endpoints? match`));
+});
+
 test("findEndpoints: a registry that can't be read leaves the curated list, with a note to say so", async () => {
   const mock = withOverride((r) => (new URL(r.url).pathname === "/api/endpoints" ? jsonResponse({ message: "down" }, 500) : undefined));
   const answer = await findEndpoints(clientOf(mock), { search: "Berlin" });

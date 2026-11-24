@@ -357,7 +357,9 @@ export async function findEndpoints(client: OparlClient, params: FindEndpointsPa
       }),
     ]
       .filter((e) => e.working && (e.bodyCount ?? 0) > 1 && !/aggregator|archive/i.test(e.note ?? ""))
-      .sort((a, b) => (b.bodyCount ?? 0) - (a.bodyCount ?? 0))
+      // One server listed under http and https (VG Hagenbach) is named once, by its https URL.
+      .sort((a, b) => (b.bodyCount ?? 0) - (a.bodyCount ?? 0) || Number(b.url.startsWith("https:")) - Number(a.url.startsWith("https:")))
+      .filter((e, i, all) => all.findIndex((o) => endpointKey(o.url).replace(/^https?:/, "") === endpointKey(e.url).replace(/^https?:/, "")) === i)
       .slice(0, 15)
       .map((e) => ({ title: e.title, url: e.url, bodyCount: e.bodyCount ?? 0 }));
     const reason =
@@ -367,6 +369,10 @@ export async function findEndpoints(client: OparlClient, params: FindEndpointsPa
     return done({ status: "empty", reason, searched, total: 0, offset, endpoints: [], ...(shared.length > 0 ? { sharedServers: shared } : {}), notes }, [client.registryUrl]);
   }
   const page = hits.slice(offset, offset + limit);
+  if (page.length === 0) {
+    const reason = `offset ${offset} is past the end: ${hits.length} endpoint${hits.length === 1 ? " matches" : "s match"}. Start again at offset 0 (or a lower one).`;
+    return done({ status: "empty", reason, searched, total: hits.length, offset, endpoints: [], notes }, [client.registryUrl]);
+  }
   const more = offset + page.length < hits.length ? { nextOffset: offset + page.length } : {};
   return done({ status: "ok", searched, total: hits.length, offset, endpoints: page, ...more, notes }, [client.registryUrl]);
 }
