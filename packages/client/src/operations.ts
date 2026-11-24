@@ -85,8 +85,8 @@ const REQUESTS = new WeakMap<object, readonly string[]>();
 
 /**
  * The requests the operation that returned `answer` started, in order, as absolute URLs (a walk's
- * later pages aside: the answer counts them in `pagesRead`). What its `source` names. Empty for an
- * object no operation returned.
+ * later pages aside: the answer counts them in `pagesRead`; findEndpoints' registry only when it
+ * answered). What its `source` names. Empty for an object no operation returned.
  */
 export function requestsOf(answer: object): readonly string[] {
   return REQUESTS.get(answer) ?? [];
@@ -367,6 +367,8 @@ export async function findEndpoints(client: OparlClient, params: FindEndpointsPa
     ...(params.working === true ? { working: true } : {}),
   });
   const notes: string[] = [];
+  // The registry is a request of this answer only when it answered: else the curated list alone did.
+  const read = report.registryError === undefined ? [client.registryUrl] : [];
   if (report.registryError !== undefined) {
     notes.push(`The registry could not be read (${report.registryError.message}); only the curated servers are listed, as of their last check. Say so before concluding that a place has no server.`);
   }
@@ -403,15 +405,15 @@ export async function findEndpoints(client: OparlClient, params: FindEndpointsPa
       "No known endpoint matches. That does not mean there is no OParl server: both lists are incomplete, and the search matches titles, URLs and notes only, " +
       "not the bodies a shared server hosts. Try the county, the Verbandsgemeinde or the regional data centre, look at the bodies of the shared servers " +
       "(sharedServers, with checkEndpoint), or look for an OParl link on the council portal.";
-    return done({ status: "empty", reason, searched, total: 0, offset, endpoints: [], ...(shared.length > 0 ? { sharedServers: shared } : {}), notes }, [client.registryUrl]);
+    return done({ status: "empty", reason, searched, total: 0, offset, endpoints: [], ...(shared.length > 0 ? { sharedServers: shared } : {}), notes }, read);
   }
   const page = hits.slice(offset, offset + limit);
   if (page.length === 0) {
     const reason = `offset ${offset} is past the end: ${hits.length} endpoint${hits.length === 1 ? " matches" : "s match"}. Start again at offset 0 (or a lower one).`;
-    return done({ status: "empty", reason, searched, total: hits.length, offset, endpoints: [], notes }, [client.registryUrl]);
+    return done({ status: "empty", reason, searched, total: hits.length, offset, endpoints: [], notes }, read);
   }
   const more = offset + page.length < hits.length ? { nextOffset: offset + page.length } : {};
-  return done({ status: "ok", searched, total: hits.length, offset, endpoints: page, ...more, notes }, [client.registryUrl]);
+  return done({ status: "ok", searched, total: hits.length, offset, endpoints: page, ...more, notes }, read);
 }
 
 // ---- checkEndpoint ----------------------------------------------------------------------------

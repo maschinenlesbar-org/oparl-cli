@@ -39,7 +39,7 @@ test("checkEndpoint: live, a shared server's bodies with their lists; 'Open' and
   const bodies = content["bodies"] as { id: string; licence: { declared: boolean }; lists: string[] }[];
   assert.deepEqual(bodies.map((b) => b.id), [`${DUS}/bodies/0009`, DUS_BODY_URL]);
   assert.ok(bodies.every((b) => !b.licence.declared && b.lists.includes("paper")));
-  assert.equal(content["source"], "https://ris-oparl.itk-rheinland.de{/Oparl/system,/Oparl/bodies}");
+  assert.equal(content["source"], DUS_SYSTEM_URL, "a URL that opens: the System");
   await connection.close();
 });
 
@@ -80,7 +80,7 @@ test("findPapers since a day: new papers only (edited old ones counted apart), d
   const papers = content["papers"] as { reference: string; new: boolean }[];
   assert.equal(papers[0]?.reference, "AUS/041/2026");
   assert.ok(papers.every((p) => p.new));
-  assert.equal(content["source"], "https://ris-oparl.itk-rheinland.de{/Oparl/bodies/0015,/Oparl/bodies/0015/papers?modified_since=2026-11-16T00%3A00%3A00%2B00%3A00}");
+  assert.equal(content["source"], "https://ris-oparl.itk-rheinland.de/Oparl/bodies/0015/papers?modified_since=2026-11-16T00%3A00%3A00%2B00%3A00", "a URL that opens: the list as asked");
   assert.equal((content["body"] as { name: string }).name, "Stadt Duesseldorf");
   await connection.close();
 });
@@ -202,4 +202,12 @@ test("the deadline's and the size cap's advice fit every tool: each option they 
       assert.ok(!new RegExp(`\\b${option}\\b`).test(text) || named.has(option), `${option} named without its tools: ${text}`);
     }
   }
+});
+
+test("findEndpoints answered from the curated list alone says so in its source", async () => {
+  const mock = makeMockTransport(() => jsonResponse({ message: "down" }, 500));
+  const connection = await connect({ transport: mock });
+  const result = await connection.call("findEndpoints", { search: "Berlin" });
+  await connection.close();
+  assert.equal(result.structuredContent?.["source"], "https://dev.oparl.org/api/endpoints (not read; the answer is the curated list shipped with this server)", result.content[0]?.text);
 });

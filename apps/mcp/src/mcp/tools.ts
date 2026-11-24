@@ -117,17 +117,19 @@ const remember = (args: Record<string, unknown>, answer: object): Record<string,
   return { ...answer };
 };
 
-/** The requests a call's answer started, as one source: one as it is, several on one server as origin{path,path}. */
-const source = (fallback: (args: Record<string, unknown>) => string | undefined) => (args: Record<string, unknown>, apiBase: string): string => {
+/**
+ * A call's source: the one request its data came from, a URL that opens (requestsOf: the `index`th
+ * request the answer started, or the last there is): checkEndpoint's System (the first), a list
+ * tool's list as asked (the one after the body; with next, the page itself).
+ */
+const source = (fallback: (args: Record<string, unknown>) => string | undefined, index = 0) => (args: Record<string, unknown>, apiBase: string): string => {
   const answer = answers.get(args);
-  const requests = answer === undefined ? [] : [...requestsOf(answer)];
-  if (requests.length === 0) return fallback(args) ?? apiBase;
-  if (requests.length === 1) return requests[0] as string;
-  const origins = new Set(requests.map((r) => new URL(r).origin));
-  if (origins.size !== 1) return requests[0] as string;
-  const [origin] = [...origins] as [string];
-  return `${origin}{${requests.map((r) => r.slice(origin.length)).join(",")}}`;
+  const requests = answer === undefined ? [] : requestsOf(answer);
+  return requests[Math.min(index, requests.length - 1)] ?? fallback(args) ?? apiBase;
 };
+
+/** The registry a findEndpoints call read, by its arguments: its source when the registry failed too. */
+const registries = new WeakMap<Record<string, unknown>, string>();
 
 const LIST_NAMES = Object.keys(LIST_TYPES) as ListType[];
 
@@ -148,9 +150,14 @@ export const TOOLS: readonly ToolDefinition[] = [
       limit: limit(DEFAULT_ENDPOINTS, MAX_ENDPOINTS, "Endpoints"),
     }),
     outputSchema: output({ total: int, offset: int, endpoints: arr, nextOffset: int, sharedServers: arr }),
-    source: source(() => undefined),
+    source: (args, apiBase) => {
+      const answer = answers.get(args);
+      const read = answer === undefined ? undefined : requestsOf(answer)[0];
+      return read ?? `${registries.get(args) ?? apiBase} (not read; the answer is the curated list shipped with this server)`;
+    },
     paged: (args) => ({ list: "endpoints", offset: num(args, "offset") ?? 0 }),
     async run(args, context) {
+      registries.set(args, context.client.registryUrl);
       return remember(args, await findEndpoints(context.client, { search: str(args, "search"), oparlVersion: str(args, "oparlVersion"), working: bool(args, "working"), offset: num(args, "offset"), limit: num(args, "limit"), extraHosts: extraHosts(context) }));
     },
   },
@@ -192,7 +199,7 @@ export const TOOLS: readonly ToolDefinition[] = [
       ["body"],
     ),
     outputSchema: output({ body: obj, total: int, offset: int, papers: arr, nextOffset: nextOffsetOut, counts: obj, dateFilter: text, pagesRead: int, next: nextOut }),
-    source: source((args) => str(args, "body")),
+    source: source((args) => str(args, "body"), 1),
     paged: (args) => ({ list: "papers", offset: num(args, "offset") ?? 0 }),
     async run(args, context) {
       return remember(
@@ -235,7 +242,7 @@ export const TOOLS: readonly ToolDefinition[] = [
       ["body"],
     ),
     outputSchema: output({ body: obj, total: int, offset: int, meetings: arr, nextOffset: nextOffsetOut, pagesRead: int, complete: { type: "boolean" }, next: nextOut }),
-    source: source((args) => str(args, "body")),
+    source: source((args) => str(args, "body"), 1),
     paged: (args) => ({ list: "meetings", offset: num(args, "offset") ?? 0 }),
     async run(args, context) {
       return remember(

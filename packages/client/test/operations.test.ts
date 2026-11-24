@@ -155,6 +155,7 @@ test("findEndpoints: a registry that can't be read leaves the curated list, with
   assert.ok(answer.endpoints.length > 0);
   assert.ok(answer.endpoints.every((e) => e.source === "curated"));
   assert.match(answer.notes.join(" "), /registry could not be read/);
+  assert.deepEqual(requestsOf(answer), [], "the registry didn't answer: no request of this answer");
 });
 
 test("checkEndpoint: Düsseldorf answers; System 'Open' and the Bodies' bare licenseValidSince declare no licence; each body's lists, plural fallbacks included; two requests", async () => {
