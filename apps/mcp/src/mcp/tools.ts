@@ -97,11 +97,8 @@ const limit = (fallback: number, max: number, what: string): JsonSchema => ({ ty
 
 /** The hosts the tools may reach besides the known servers': the registry's (--base-url). */
 const extraHosts = (context: ToolContext): string[] => [new URL(context.apiBase).host];
-/** A tool's maxPages, within the server's --max-pages. */
-const pages = (args: Record<string, unknown>, context: ToolContext): number | undefined => {
-  const asked = num(args, "maxPages");
-  return asked === undefined ? undefined : Math.min(asked, context.maxPages);
-};
+/** A tool's maxPages (else its own default), within the server's --max-pages. */
+const pages = (args: Record<string, unknown>, context: ToolContext, fallback = 1): number => Math.min(num(args, "maxPages") ?? fallback, context.maxPages);
 
 /** What a call answered, by its arguments: the source names the requests that answer started. */
 const answers = new WeakMap<Record<string, unknown>, object>();
@@ -233,7 +230,7 @@ export const TOOLS: readonly ToolDefinition[] = [
           from: str(args, "from"),
           to: str(args, "to"),
           query: str(args, "query"),
-          maxPages: pages(args, context),
+          maxPages: pages(args, context, 2),
           limit: num(args, "limit"),
           next: str(args, "next"),
           extraHosts: extraHosts(context),

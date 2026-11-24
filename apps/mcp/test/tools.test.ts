@@ -139,3 +139,12 @@ test("a page the call deadline stopped is named so in the answer's note, not as 
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("findMeetings' own default of two pages is capped by the server's --max-pages too", async () => {
+  const mock = oparlApi();
+  const connection = await connect({ transport: mock, config: { maxPages: 1 } });
+  const result = await connection.call("findMeetings", { body: DUS_BODY_URL, from: "2026-11-20", to: "2026-12-31" });
+  await connection.close();
+  assert.equal(result.structuredContent?.["pagesRead"], 1, result.content[0]?.text);
+  assert.equal(mock.calls.filter((c) => c.url.includes("/meetings")).length, 1);
+});
