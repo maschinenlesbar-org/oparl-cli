@@ -356,6 +356,32 @@ test("findMeetings: upcoming by default, pages read until one has none from toda
   assert.match(answer.notes.join(" "), /Read 3 page\(s\), up to the first with no meeting of the window/);
 });
 
+test("findMeetings: a list that puts old meetings first is read on until the window's meetings come, never called complete before", async () => {
+  const meeting = (n: number, start: string) => ({ id: `${DUS}/m/${n}`, type: "https://schema.oparl.org/1.1/Meeting", name: `Rat ${n}`, start });
+  const pages: Record<string, unknown>[][] = [
+    [meeting(1, "2021-03-01T17:00:00+01:00"), meeting(2, "2021-06-01T17:00:00+02:00")],
+    [meeting(3, "2023-03-01T17:00:00+01:00")],
+    [meeting(4, "2025-03-01T17:00:00+01:00")],
+    [meeting(5, "2026-11-25T17:00:00+01:00"), meeting(6, "2026-12-03T17:00:00+01:00")],
+  ];
+  const mock = withOverride((r) => {
+    const url = new URL(r.url);
+    if (!url.pathname.endsWith("/meetings")) return undefined;
+    const n = Number(url.searchParams.get("page") ?? "1");
+    return jsonResponse({ data: pages[n - 1], links: n < pages.length ? { next: `${DUS}/bodies/0015/meetings?page=${n + 1}` } : {} });
+  });
+  const first = await findMeetings(clientOf(mock), { body: DUS_BODY_URL, now: NOW });
+  assert.equal(first.status, "empty");
+  assert.equal(first.pagesRead, 2);
+  assert.equal(first.complete, false, "pages left that can hold the window");
+  assert.equal(first.next, `${DUS}/bodies/0015/meetings?page=3`);
+  assert.match(first.notes.join(" "), /only meetings before 2026-11-20: this server may list old meetings first/);
+  const all = await findMeetings(clientOf(mock), { body: DUS_BODY_URL, maxPages: 5, now: NOW });
+  assert.deepEqual(all.meetings.map((m) => m.name), ["Rat 5", "Rat 6"]);
+  assert.equal(all.pagesRead, 4);
+  assert.equal(all.complete, true);
+});
+
 test("findMeetings: a bounded window reads maxPages pages and says more could hold some; next goes on", async () => {
   const mock = oparlApi();
   const answer = await findMeetings(clientOf(mock), { body: DUS_BODY_URL, from: "2026-11-20", to: "2026-11-30", maxPages: 2, now: NOW });

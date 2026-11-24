@@ -205,7 +205,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     title: "A council's meetings",
     description: [
       'A body\'s meetings in a window, soonest first (upcoming from today by default): name, start, end, location, cancelled, the organizations holding them, number of agenda items. Use it for "wann tagt die Bezirksvertretung als nächstes?", "Sitzungen des Rates im Dezember", "welche Ausschüsse tagen diese Woche?", "when does the Bezirksvertretung meet next?", "council meetings in December", "which committees meet this week?".',
-      "Meeting lists are in the server's order (often far future first, or by internal id), never by date: with no to, pages are read until one holds no meeting of the window; with to, up to maxPages, and complete false says more pages could hold some (next reads on). Never call page 1 'the latest'. cancelled marks meetings called off. organization holds URLs: listObjects with type organization names them. getObject with a meeting's id gives its agenda items and files.",
+      "Meeting lists are in the server's order (often far future first, or by internal id), never by date: with no to, pages are read until one holds none of the window after one that held some, else up to maxPages (a list with old meetings first: empty, complete false, next reads on); with to, up to maxPages; complete false says more pages could hold some. Never call page 1 'the latest'. cancelled marks meetings called off. organization holds URLs: listObjects with type organization names them. getObject with a meeting's id gives its agenda items and files.",
       RULES,
     ].join("\n\n"),
     inputSchema: input(

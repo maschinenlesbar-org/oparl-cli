@@ -87,7 +87,7 @@ object, a list's next page), starting from `findEndpoints`.
 | `findEndpoints` | The known OParl servers that match a place, a product or a version (registry and curated list), working ones first: System URL, last check, problem, new URL, notes, product, version, bodies; with no match, the shared servers whose bodies the search can't see. |
 | `checkEndpoint` | Whether a server answers now (and if not, what that means), its System (product, vendor, version, licence) and its bodies, each with its id, the lists it links and its own licence. |
 | `findPapers` | A body's papers new or changed since a day (or of the first pages), newest first: reference, title, type, date, new; whether the server honoured the date filter, deleted stubs dropped, papers without a date kept, words and paper types matched over the pages read. |
-| `findMeetings` | A body's meetings in a window (upcoming by default), soonest first, with location, cancellation and the committees; the pages read until one holds none of the window. |
+| `findMeetings` | A body's meetings in a window (upcoming by default), soonest first, with location, cancellation and the committees; the pages read until one holds none of the window after one that did (a list that puts old meetings first is read up to `maxPages`, and `complete: false` with `next` says to read on). |
 | `listObjects` | One of a body's lists: committees and groups (organization), people, legislative terms, memberships, locations, agenda items, consultations, files; embedded objects named, not inlined. |
 | `getObject` | Any OParl object by its URL, as the server sends it: a paper with its consultations and files, a meeting with its agenda, a person, a file's download URL. |
 

@@ -929,9 +929,11 @@ function meetingHit(meeting: JsonObject): MeetingHit {
 
 /**
  * A body's meetings in a window, soonest first. Meeting lists are in the server's order (often far
- * future first, or by internal id), so the pages are read until one holds no meeting of the window
- * when the window is open towards the future (no to), and up to maxPages otherwise; the answer says
- * how many pages were read and whether more could hold some.
+ * future first, or by internal id, oldest first), so when the window is open towards the future (no
+ * to) the pages are read until one holds no meeting of the window after one that held some (a list
+ * that puts the future first has passed the window there), and up to maxPages otherwise; the
+ * answer says how many pages were read and whether more could hold some (complete false while
+ * next is set and no such page was reached).
  */
 export async function findMeetings(client: OparlClient, params: FindMeetingsParams): Promise<FindMeetingsAnswer> {
   const bodyUrl = reachable("body", params.body, params.extraHosts);
@@ -966,6 +968,9 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
   let stoppedByRule = false;
   let undated = 0;
   let deleted = 0;
+  // Meetings before the window's start on the pages read, and whether any page held one of the window.
+  let before = 0;
+  let foundAny = false;
   while (current !== null && pages < maxPages) {
     seen.add(current);
     let page: ListResult<JsonObject>;
@@ -985,16 +990,21 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
         continue;
       }
       if (dayOf(meeting["start"]) === undefined) undated += 1;
+      if (from !== undefined && (dayOf(meeting["start"]) ?? "9999") < from) before += 1;
       if (!inWindow(meeting)) continue;
       found += 1;
       byId.set(textOf(meeting["id"]) ?? `#${byId.size}`, meeting);
     }
     if (page.note !== undefined) notes.push(page.note);
     current = page.next !== null && seen.has(page.next) ? null : page.next;
-    if (to === undefined && found === 0) {
+    // A list that puts future meetings first has passed the window at a page without any: stop
+    // there. Before the first page with one, the order is unknown (old meetings first, by
+    // internal id): read on, up to maxPages.
+    if (to === undefined && found === 0 && foundAny) {
       stoppedByRule = true;
       break;
     }
+    if (found > 0) foundAny = true;
   }
   const hits = [...byId.values()]
     .filter((m) => matchesWords(query, textOf(m["name"])))
@@ -1006,6 +1016,9 @@ export async function findMeetings(client: OparlClient, params: FindMeetingsPara
       ? `Read ${pages} page(s), up to the first with no meeting of the window: pages are in the server's order, not by date.`
       : `Read ${pages} page(s)${current === null ? ", the whole list" : `; more pages could hold meetings of the window: pass next`}. Pages are in the server's order, not by date.`,
   );
+  if (!foundAny && current !== null && pages > 0 && before > 0) {
+    notes.push(`The ${pages} page(s) read hold only meetings before ${from}: this server may list old meetings first, so the window's can be on later pages. Read on with next (and a larger maxPages).`);
+  }
   if (undated > 0) notes.push(`${undated} meetings have no start and are left out.`);
   if (deleted > 0) notes.push(`${deleted} deleted meetings were dropped.`);
   if (hits.some((m) => m.cancelled === true)) notes.push("cancelled: true marks meetings called off; say so.");
