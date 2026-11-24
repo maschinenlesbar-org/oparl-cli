@@ -471,3 +471,12 @@ test("getObject: a paper as the server sends it; a 404 is empty and says where U
   assert.equal(missing.status, "empty");
   assert.match(missing.reason ?? "", /never build one/);
 });
+
+test("getObject: a deleted stub is an answer that says it was deleted, as the list operations count them", async () => {
+  const stub = { id: `${DUS}/p/9`, type: "https://schema.oparl.org/1.1/Paper", deleted: true, modified: "2026-11-18T10:00:00+01:00" };
+  const answer = await getObject(clientOf(makeMockTransport(() => jsonResponse(stub))), { url: `${DUS}/p/9` });
+  assert.equal(answer.status, "ok");
+  assert.match((answer.notes ?? []).join(" "), /deleted on the server/);
+  const paper = DUS_PAPERS.data.find((p) => p.reference === "AUS/041/2026");
+  assert.equal((await getObject(clientOf(oparlApi()), { url: paper?.id ?? "" })).notes, undefined);
+});

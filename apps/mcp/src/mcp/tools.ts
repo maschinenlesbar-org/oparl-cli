@@ -311,7 +311,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     title: "One OParl object by its URL",
     description: [
       'Any OParl object as the server sends it: a paper with its consultations and files, a meeting with its agenda, a person, an organization, a file with its download URL, a System or Body. Use it for "zeig mir die Vorlage AUS/041/2026", "Tagesordnung der Ratssitzung", "wer sitzt im Bauausschuss?", "show me this paper", "the agenda of that meeting", "where can I download the file?".',
-      "url is an id (or another URL) from these tools' answers. kind is the object's type. declaredLicence is the object's own licence where it names one. Embedded objects and links to others are URLs: getObject them as needed, on the same server. A 404 is status empty: take a fresh URL from findPapers, findMeetings or listObjects.",
+      "url is an id (or another URL) from these tools' answers. kind is the object's type. declaredLicence is the object's own licence where it names one. Embedded objects and links to others are URLs: getObject them as needed, on the same server. A 404 is status empty: take a fresh URL from findPapers, findMeetings or listObjects. A deleted object comes with a note: say it was deleted.",
       RULES,
     ].join("\n\n"),
     inputSchema: input({ url: url("An OParl object's URL (an id from these tools' answers).") }, ["url"]),

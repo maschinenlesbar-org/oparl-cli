@@ -1227,6 +1227,8 @@ export interface GetObjectAnswer {
   object?: JsonObject;
   /** The object's own licence, when it names one (`licence` is the server-wide terms in a tool's result). */
   declaredLicence?: LicenceStatement;
+  /** What to say about the object (a deleted stub). */
+  notes?: string[];
 }
 
 /** Any OParl object (or list page) by its URL, as the server sends it. */
@@ -1250,6 +1252,9 @@ export async function getObject(client: OparlClient, params: { url: string; extr
       ...(kind === undefined ? {} : { kind }),
       object,
       ...(object["license"] === undefined ? {} : { declaredLicence: licenceOf(object["license"], object["licenseValidSince"]) }),
+      ...(object["deleted"] === true
+        ? { notes: ["This object was deleted on the server (deleted: true): only a stub is left. Say it was deleted; findPapers, findMeetings and listObjects leave such objects out and count them."] }
+        : {}),
     },
     [url],
   );
