@@ -446,8 +446,37 @@ function adviceFor(err: OparlError): string {
     if (err.status >= 500) return "The server is up but failing. Try once more; if it fails again, report it as not answering today rather than gone.";
     return "The server refused the request: report it as not answering.";
   }
-  if (/is an OParl System, but its `body`/.test(message)) return "The URL is right, but the server's System is broken (no URL of its list of bodies): a server-side defect, not a wrong URL.";
   return "No OParl System there (an HTML page or another object): the endpoint moved or is gone.";
+}
+
+/**
+ * Why an object the server answered with is not a System to check, and what that means: another
+ * OParl object or a list page (the server answers; the URL is not its entry point), a System
+ * without the URL of its list of bodies (a server-side defect), or no OParl object at all.
+ */
+function notASystem(url: string, object: JsonObject): { live: boolean; problem: string; advice: string } | undefined {
+  const type = textOf(object["type"]) ?? "";
+  if (/\/System$/.test(type)) {
+    if (typeof object["body"] === "string") return undefined;
+    return {
+      live: false,
+      problem: `${url} is an OParl System, but it has no URL of its list of bodies (body), so its bodies can't be listed.`,
+      advice: "The URL is right, but the server's System is broken (no URL of its list of bodies): a server-side defect, not a wrong URL.",
+    };
+  }
+  const kind = versionOfType(type) === undefined ? undefined : kindOf(type);
+  const what = kind !== undefined ? `an OParl ${kind}` : Array.isArray(object["data"]) ? "a page of a list" : undefined;
+  if (what === undefined) {
+    return { live: false, problem: `${url} is not an OParl System (type: ${kindOf(type) ?? "missing"}).`, advice: "No OParl System there (an HTML page or another object): the endpoint moved or is gone." };
+  }
+  const system = textOf(object["system"]);
+  return {
+    live: true,
+    problem: `This URL is ${what}, not the server's System (its entry point).`,
+    advice:
+      `The server answers: pass its System URL to checkEndpoint (findEndpoints' url${system === undefined ? "" : `; this object names its System: ${system}`}). ` +
+      "A Body's id goes straight to findPapers, findMeetings or listObjects.",
+  };
 }
 
 function knownEntry(url: string): CheckEndpointAnswer["known"] {
@@ -479,11 +508,14 @@ export async function checkEndpoint(client: OparlClient, params: CheckEndpointPa
   if (known?.replacedBy !== undefined) notes.push(`The lists say this server moved to ${known.replacedBy}: check that URL.`);
   let system: JsonObject;
   try {
-    system = await client.system(url);
+    system = await client.get<JsonObject>(url);
   } catch (err) {
     if (!(err instanceof OparlError) || err instanceof OparlValidationError) throw err;
     return done({ ...base, live: false, problem: err.message, advice: adviceFor(err), bodies: [], notes }, [url]);
   }
+  // Another object the server answered with (a Body, a paper, a list page) or a broken System.
+  const other = notASystem(url, system);
+  if (other !== undefined) return done({ ...base, ...other, bodies: [], notes }, [url]);
   const bodiesUrl = textOf(system["body"]) ?? "";
   const version = textOf(system["oparlVersion"]);
   const summary = {

@@ -151,7 +151,7 @@ test("checkEndpoint: a server that doesn't answer is an answer (live false), wit
     [jsonResponse({ message: "gone" }, 404), /moved or is gone/],
     [jsonResponse({ message: "boom" }, 502), /up but failing/],
     [jsonResponse({ id: DUS_SYSTEM_URL, type: "https://schema.oparl.org/1.1/System", oparlVersion: "https://schema.oparl.org/1.1/", body: null }), /server-side defect/],
-    [jsonResponse({ id: "x", type: "https://schema.oparl.org/1.1/Body" }), /No OParl System there/],
+    [jsonResponse({ id: "x" }), /No OParl System there/],
     [new OparlNetworkError("Request timed out after 30000 ms"), /slow or down/],
     [new OparlNetworkError("unable to verify the first certificate"), /intermediate TLS certificate/],
   ];
@@ -165,6 +165,25 @@ test("checkEndpoint: a server that doesn't answer is an answer (live false), wit
     assert.match(result.advice ?? "", advice);
     assert.ok(result.problem !== undefined);
   }
+});
+
+test("checkEndpoint on a Body, a paper or a list page of a working server: the server answers (live), the URL is not its System, and the advice says which to pass", async () => {
+  const cases: [Record<string, unknown>, RegExp][] = [
+    [{ id: DUS_BODY_URL, type: "https://schema.oparl.org/1.1/Body", system: DUS_SYSTEM_URL }, /an OParl Body, not the server's System/],
+    [{ id: `${DUS}/p/1`, type: "https://schema.oparl.org/1.1/Paper" }, /an OParl Paper, not the server's System/],
+    [{ data: [], links: {} }, /a page of a list, not the server's System/],
+  ];
+  for (const [object, problem] of cases) {
+    const answer = await checkEndpoint(clientOf(makeMockTransport(() => jsonResponse(object))), { url: DUS_BODY_URL });
+    assert.equal(answer.live, true, String(problem));
+    assert.match(answer.problem ?? "", problem);
+    assert.match(answer.advice ?? "", /The server answers/);
+    assert.doesNotMatch(`${answer.problem} ${answer.advice}`, /gone|oparl endpoints/);
+    assert.deepEqual(answer.bodies, []);
+  }
+  const body = await checkEndpoint(clientOf(makeMockTransport(() => jsonResponse(cases[0]![0]))), { url: DUS_BODY_URL });
+  assert.match(body.advice ?? "", new RegExp(`its System: ${DUS_SYSTEM_URL.replace(/[.?]/g, "\\$&")}`));
+  assert.match(body.advice ?? "", /findPapers, findMeetings or listObjects/);
 });
 
 test("findPapers since a day: deleted stubs dropped, old papers only edited aren't new, newest first; the filter honoured", async () => {
