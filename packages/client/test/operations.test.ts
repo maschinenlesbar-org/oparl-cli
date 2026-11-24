@@ -264,6 +264,21 @@ test("findPapers: change dates all stamped today (more! rubin) are unusable: the
   assert.match(answer.notes.join(" "), /stamps them/);
 });
 
+test("findPapers since today or yesterday: change dates all on that day are what an honest server returns, not stamped ones", async () => {
+  const paper = (n: number, date: string) => ({ id: `${DUS}/p/${n}`, type: "https://schema.oparl.org/1.1/Paper", name: `Vorlage ${n}`, reference: `V/${n}`, date, modified: "2026-11-20T08:00:00+01:00" });
+  const papers = [paper(1, "2026-11-20"), paper(2, "2026-11-20"), paper(3, "2026-09-01"), paper(4, "2026-08-01"), paper(5, "2026-07-01")];
+  const mock = () => withOverride((r) => (new URL(r.url).pathname.endsWith("/papers") ? jsonResponse({ data: papers, links: {} }) : undefined));
+  for (const since of ["2026-11-20", "2026-11-19"]) {
+    const answer = await findPapers(clientOf(mock()), { body: DUS_BODY_URL, since, now: NOW });
+    assert.equal(answer.dateFilter, "honoured", since);
+    assert.equal(answer.counts.editedOnly, 3, since);
+    assert.doesNotMatch(answer.notes.join(" "), /stamps them/, since);
+    const changed = await findPapers(clientOf(mock()), { body: DUS_BODY_URL, since, only: "changed", now: NOW });
+    assert.equal(changed.total, 5, since);
+    assert.deepEqual(changed.papers.filter((p) => p.new === false).map((p) => p.reference).sort(), ["V/3", "V/4", "V/5"], since);
+  }
+});
+
 test("findPapers: papers without a date (ALLRIS 1.0) fall back to created, and without either are kept with new null", async () => {
   const papers = [
     { id: `${DUS}/p/1`, type: "https://schema.oparl.org/1.0/Paper", name: "Ohne Datum, neu angelegt", created: "2026-11-17T10:00:00+01:00", modified: "2026-11-17T10:00:00+01:00" },

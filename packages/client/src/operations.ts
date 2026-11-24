@@ -696,10 +696,15 @@ export interface FindPapersAnswer {
   notes: string[];
 }
 
-/** True when every object's modified (and created) is the same day as `today` or the day before: stamped, not real. */
-function fakeTimestamps(objects: JsonObject[], today: string): boolean {
+/**
+ * True when every object's modified is the same day, `today` or the day before, though the window
+ * (`since`) reaches further back: stamped, not real. Asked for changes since today or yesterday,
+ * an honest server returns exactly such dates, so the check can't tell then and says no.
+ */
+function fakeTimestamps(objects: JsonObject[], today: string, since: string): boolean {
   if (objects.length < 3) return false;
   const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  if (since >= yesterday) return false;
   const days = new Set(objects.map((o) => dayOf(o["modified"])));
   const [day] = [...days];
   return days.size === 1 && (day === today || day === yesterday);
@@ -789,7 +794,7 @@ export async function findPapers(client: OparlClient, params: FindPapersParams):
   const live = walked.data.filter((p) => p["deleted"] !== true);
   const counts = { fetched: walked.data.length, deleted: walked.data.length - live.length, editedOnly: 0, undated: 0 };
   let dateFilter: FindPapersAnswer["dateFilter"];
-  const unusable = since !== undefined && fakeTimestamps(live, today);
+  const unusable = since !== undefined && fakeTimestamps(live, today, since);
   if (since !== undefined) {
     const before = live.filter((p) => (dayOf(p["modified"]) ?? "9999") < since).length;
     dateFilter = unusable ? "unusable" : before > 0 ? "ignored" : "honoured";
