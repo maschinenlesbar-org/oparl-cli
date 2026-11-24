@@ -271,6 +271,11 @@ export interface EndpointHit {
   product?: string;
   vendor?: string;
   bodyCount?: number;
+  /**
+   * false when the URL to use (replacedBy, else url) is on a host the other operations don't reach
+   * (a registry entry newer than the lists shipped with this package): ask it with the CLI.
+   */
+  reachable?: false;
 }
 
 export interface FindEndpointsParams {
@@ -283,6 +288,8 @@ export interface FindEndpointsParams {
   /** Endpoints to skip: where the page starts (default 0). */
   offset?: number | undefined;
   limit?: number | undefined;
+  /** Hosts the other operations reach besides the known ones (what the caller passes them too). */
+  extraHosts?: readonly string[] | undefined;
 }
 
 export interface FindEndpointsAnswer {
@@ -342,8 +349,16 @@ export async function findEndpoints(client: OparlClient, params: FindEndpointsPa
     notes.push(`The registry could not be read (${report.registryError.message}); only the curated servers are listed, as of their last check. Say so before concluding that a place has no server.`);
   }
   if (report.note !== undefined) notes.push(report.note);
-  const hits = report.entries.map(hitOf).sort((a, b) => Number(b.working) - Number(a.working));
+  const hits = report.entries
+    .map(hitOf)
+    .map((hit) => (reachProblem(hit.replacedBy ?? hit.url, params.extraHosts) === undefined ? hit : { ...hit, reachable: false as const }))
+    .sort((a, b) => Number(b.working) - Number(a.working));
   if (hits.some((h) => h.replacedBy !== undefined)) notes.push("Some servers moved: use replacedBy, not url.");
+  if (hits.some((h) => h.reachable === false)) {
+    notes.push(
+      "reachable false: the server is not on the hosts these tools know (newer in the registry than the lists shipped with them), so checkEndpoint and the other tools can't reach it; the oparl CLI can. Say so rather than calling it unavailable.",
+    );
+  }
   if (hits.some((h) => !h.working)) notes.push("working is a snapshot of the last check (checked, else the registry's fetched): checkEndpoint tells whether a server answers now.");
   if (hits.length === 0) {
     // The shipped lists' shared servers (no request): their bodies are not searched by name.

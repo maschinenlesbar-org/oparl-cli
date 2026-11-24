@@ -127,7 +127,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     title: "Find a council's OParl server",
     description: [
       'The known OParl servers (council information system APIs) that match a place, a product or a version, from the registry at dev.oparl.org and the curated list, working ones first: each with its System URL, whether it worked on its last check (and when), problem, a new URL if it moved, notes, product, version, number of bodies. Use it for "hat Köln eine OParl-Schnittstelle?", "Ratsinformationssystem-API für Münster", "welche Kommunen haben OParl?", "does Cologne have an OParl API?", "find the council information system API for Münster", "which councils publish OParl 1.1?".',
-      "total counts every match; nextOffset starts the next page. search takes German place names (the lists name places in German; a few English city names are mapped), ignores case, accents and ae/oe/ue spellings and also matches notes (a shared server's note names its other cities). working is a snapshot (checked, else the registry's fetched): checkEndpoint tells whether it answers now. replacedBy set: use that URL. Aggregators (Politik bei Uns, München Transparent) are not the official server: prefer the council's own. No match is not 'no OParl server': both lists are incomplete and shared servers host bodies the search can't see; the answer names the shared servers to look through. A note that the registry could not be read: only the curated servers are listed; say so.",
+      "total counts every match; nextOffset starts the next page. search takes German place names (the lists name places in German; a few English city names are mapped), ignores case, accents and ae/oe/ue spellings and also matches notes (a shared server's note names its other cities). working is a snapshot (checked, else the registry's fetched): checkEndpoint tells whether it answers now. replacedBy set: use that URL. reachable false: a server newer than these tools' lists, which they can't reach (the oparl CLI can). Aggregators (Politik bei Uns, München Transparent) are not the official server: prefer the council's own. No match is not 'no OParl server': both lists are incomplete and shared servers host bodies the search can't see; the answer names the shared servers to look through. A note that the registry could not be read: only the curated servers are listed; say so.",
       RULES,
     ].join("\n\n"),
     inputSchema: input({
@@ -141,7 +141,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     source: source(() => undefined),
     paged: (args) => ({ list: "endpoints", offset: num(args, "offset") ?? 0 }),
     async run(args, context) {
-      return remember(args, await findEndpoints(context.client, { search: str(args, "search"), oparlVersion: str(args, "oparlVersion"), working: bool(args, "working"), offset: num(args, "offset"), limit: num(args, "limit") }));
+      return remember(args, await findEndpoints(context.client, { search: str(args, "search"), oparlVersion: str(args, "oparlVersion"), working: bool(args, "working"), offset: num(args, "offset"), limit: num(args, "limit"), extraHosts: extraHosts(context) }));
     },
   },
   {

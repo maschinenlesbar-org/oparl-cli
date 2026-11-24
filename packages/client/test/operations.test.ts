@@ -132,6 +132,23 @@ test("findEndpoints: a shared server listed under http and https is named once; 
   assert.match(past.reason ?? "", new RegExp(`offset ${all.total + 5} is past the end: ${all.total} endpoints? match`));
 });
 
+test("findEndpoints: a registry entry on a host the operations don't reach is marked, with a note; the caller's extra hosts count as reachable", async () => {
+  const registry = makeMockTransport(() =>
+    jsonResponse({
+      data: [{ id: 1, title: "Stadt Neustadt", url: "https://ris.neustadt.example/oparl/system", system: { type: "https://schema.oparl.org/1.1/System", oparlVersion: "https://schema.oparl.org/1.1/", body: "https://ris.neustadt.example/oparl/bodies" } }],
+      meta: { page: 1, total: 1, totalPages: 1 },
+    }),
+  );
+  const answer = await findEndpoints(clientOf(registry), { search: "Neustadt" });
+  const hit = answer.endpoints.find((e) => e.url === "https://ris.neustadt.example/oparl/system");
+  assert.equal(hit?.reachable, false);
+  assert.match(answer.notes.join(" "), /reachable false: .*not on the hosts .* checkEndpoint .* can't reach/);
+  const own = await findEndpoints(clientOf(registry), { search: "Neustadt", extraHosts: ["ris.neustadt.example"] });
+  assert.equal(own.endpoints.find((e) => e.url === "https://ris.neustadt.example/oparl/system")?.reachable, undefined);
+  const known = await findEndpoints(clientOf(oparlApi()), { search: "düsseldorf" });
+  assert.ok(known.endpoints.every((e) => e.reachable === undefined), "known servers carry no mark");
+});
+
 test("findEndpoints: a registry that can't be read leaves the curated list, with a note to say so", async () => {
   const mock = withOverride((r) => (new URL(r.url).pathname === "/api/endpoints" ? jsonResponse({ message: "down" }, 500) : undefined));
   const answer = await findEndpoints(clientOf(mock), { search: "Berlin" });

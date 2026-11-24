@@ -77,6 +77,8 @@ object, a list's next page), starting from `findEndpoints`.
   can't be read leaves the curated list. Its host is reachable too, so a server run for one's own
   OParl server can point there.
 - A server missing from the lists can be read with the [oparl CLI](https://github.com/maschinenlesbar-org/oparl-cli), which takes any URL.
+  `findEndpoints` marks a registry entry newer than the shipped lists `reachable: false`, with a
+  note: the other tools refuse its URL.
 
 ## Tools
 
