@@ -1,6 +1,6 @@
 {
   "name": "@maschinenlesbar.org/oparl-mcp",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "MCP server for OParl, the open API of German council information systems (Ratsinformationssysteme): find a council's server, check it live, and read its papers, meetings, committees and people, for AI agents (stdio and Streamable HTTP)",
   "type": "module",
   "bin": {
